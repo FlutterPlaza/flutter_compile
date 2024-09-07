@@ -301,9 +301,11 @@ void printUsage() {
   print('Usage: flutter_compile <command>');
   print('');
   print('Commands:');
-  print('  run     Set up the Flutter development environment');
   print(
-      '  switch  Switch between normal Flutter installation and compiled Flutter installation');
+      '  switch   Switch between normal Flutter installation and compiled Flutter installation');
+  print('  --version, -v, v   Display the version of flutter_compile');
+  print('  --help, -h, h      Display this help message');
+  print('  install, -i, i     Set up the Flutter development environment');
 }
 
 extension ConsoleColor on String {
