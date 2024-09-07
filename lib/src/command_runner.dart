@@ -8,7 +8,8 @@ import 'package:pub_updater/pub_updater.dart';
 
 const executableName = 'flutter_compile';
 const packageName = 'flutter_compile';
-const description = 'A Dart CLI to simplify the setting up your framework development environment, which describes and automates the steps you need to configure your computer to work on Flutter&#x27;s Framework';
+const description =
+    'A Dart CLI to simplify the setting up your framework development environment, which describes and automates the steps you need to configure your computer to work on Flutter&#x27;s Framework';
 
 /// {@template flutter_compile_command_runner}
 /// A [CommandRunner] for the CLI.

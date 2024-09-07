@@ -1,0 +1,14 @@
+name: example
+description: A Dart CLI to simplify the setting up your framework development environment, which describes and automates the steps you need to configure your computer to work on Flutter&#x27;s Framework
+version: 0.0.1
+publish_to: none
+
+environment:
+  sdk: ^3.4.0
+
+dependencies:
+  flutter_compile:
+   path: ../
+
+executables:
+  flutter_compile:
