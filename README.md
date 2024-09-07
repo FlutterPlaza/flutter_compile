@@ -4,7 +4,7 @@
 [![style: very good analysis][very_good_analysis_badge]][very_good_analysis_link]
 [![License: BSD-3][license_badge]][license_link]
 
-A Dart CLI to simplify the setting up your framework development environment, which describes and automates the steps you need to configure your computer to work on Flutter's Framework.
+A Dart CLI to simplify compiling and setting up the Flutter framework development environment. This tool automates the steps required and make it easy to switch between default flutter installation and the Compiled flutter installation.
 
 ---
 
@@ -60,7 +60,7 @@ $ open coverage/index.html
 
 ---
 
-[coverage_badge]: https://github.com/FlutterPlaza/no_screenshot/actions/workflows/main.yaml/badge.svg
+[coverage_badge]: https://github.com/FlutterPlaza/flutter_compile/actions/workflows/main.yaml/badge.svg
 [license_badge]: https://img.shields.io/badge/license-BSD--3-blue.svg
 [license_link]: https://opensource.org/licenses/BSD-3
 [very_good_analysis_badge]: https://img.shields.io/badge/style-very_good_analysis-B22C89.svg

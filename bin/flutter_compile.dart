@@ -120,7 +120,8 @@ Future<String> _getPersistedCompilePath({
 }) async {
   String home = Platform.environment['HOME'] ?? '';
   File compileConfigFile = File('$home/.flutter_compilerc');
-  print('\nChecking for persisted flutter_compile path in ~/.flutter_compilerc\n');
+  print(
+      '\nChecking for persisted flutter_compile path in ~/.flutter_compilerc\n');
 
   if (flutterBinPath != null) {
     await compileConfigFile.writeAsString(flutterBinPath);

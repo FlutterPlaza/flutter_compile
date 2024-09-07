@@ -7,3 +7,7 @@
 ## 0.0.2
 
 - Fix: broken links
+
+## 0.0.2+1
+
+- fix: tests
