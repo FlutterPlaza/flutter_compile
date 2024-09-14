@@ -1,6 +1,6 @@
 name: flutter_compile
 description: A Dart CLI to simplify the setting up your flutter framework development environment and automates the steps you need to configure your computer.
-version: 0.0.2+1
+version: 0.0.3
 repository: https://github.com/flutterplaza/flutter_compile
 homepage: https://www.flutterplaza.com/
 issue_tracker: https://github.com/FlutterPlaza/flutter_compile/issues
