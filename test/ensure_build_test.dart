@@ -1,9 +1,9 @@
-@Tags(['version-verify'])
-library;
-
-// import 'package:build_verify/build_verify.dart';
 import 'package:test/test.dart';
 
+import '../lib/src/version.dart';
+
 void main() {
-  // test('ensure_build', expectBuildClean);
+  test('version is up to date', () {
+    expect(packageVersion, '0.1.0');
+  });
 }

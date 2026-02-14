@@ -44,7 +44,7 @@ export PATH={{path}}/tool/bin:$PATH
         'If your improvement is user-facing, document it in the same PR.\n'
         'Push to your branch to GitHub: git push origin myBranch\n'
         'Navigate to the Pull Requests tab in the main DevTools repo. You should see a popup to create a pull request from the branch in your cloned repo to the DevTools master branch. Create a pull request.\n'
-        'Running the Dart Code Metrics Github workflow: any PRs that change Dart code require the Dart Code Metrics workflow to be run before being submitted. To trigger the workflow, add the label run-dcm-workflow to your PR. If you don\'t have permission to add the label, your reviewer can add it for you.\n'
+        "Running the Dart Code Metrics Github workflow: any PRs that change Dart code require the Dart Code Metrics workflow to be run before being submitted. To trigger the workflow, add the label run-dcm-workflow to your PR. If you don't have permission to add the label, your reviewer can add it for you.\n"
         'Any DCM errors will be caught by the workflow. Fix them and push up your changes. To trigger the DCM workflow to run again, you will need to remove and then re-add the run-dcm-workflow label.\n',
     'Keeping your fork in-sync\n'
         'If at any time you need to re-sync your branch, run:\n'
@@ -108,13 +108,13 @@ export PATH={{path}}/tool/bin:$PATH
     'Enable and activate DCM (Dart Code Metrics)\n'
         'Enabling and activating DCM is optional. When you open a PR, the CI bots will show you any DCM warnings introduced by your change which should be fixed before submitting.\n'
         'Contributors who work at Google: you can use the Google-purchased license key to activate DCM. See go/dash-devexp-dcm-keys.\n'
-        'All other contributors: please follow instructions at https://dcm.dev/pricing/. You can either use the free tier of DCM, or purchase a team license. Note that the free tier doesn\'t support all the rules of the paid tier, so you will also need to consult the output of the Dart Code Metrics workflow on Github when you open your PR.\n'
+        "All other contributors: please follow instructions at https://dcm.dev/pricing/. You can either use the free tier of DCM, or purchase a team license. Note that the free tier doesn't support all the rules of the paid tier, so you will also need to consult the output of the Dart Code Metrics workflow on Github when you open your PR.\n"
         'To enable DCM:\n'
         'Install the executable for your target platform. You can refer to this guide.\n'
         'Get the license key and activate DCM. To do so, run dcm activate --license-key=YOUR_KEY from the console.\n'
         'Install the extension for your IDE. If you use VS Code, you can get it from the marketplace. If you use IntelliJ IDEA or Android Studio, you can find the plugin here.\n'
         'Reload the IDE.\n',
-    'For complete guide, visit: https://github.com/flutter/devtools/blob/master/CONTRIBUTING.md#set-up-your-devtools-environment\n'
+    'For complete guide, visit: https://github.com/flutter/devtools/blob/master/CONTRIBUTING.md#set-up-your-devtools-environment\n',
   ];
   // Shared Constants
   static const baseCliPath = '/flutter_compile';

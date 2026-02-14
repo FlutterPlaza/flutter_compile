@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/extension.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 /// {@template uninstall_command}
@@ -14,6 +15,11 @@ import 'package:mason_logger/mason_logger.dart';
 ///
 /// {@endtemplate}
 class UninstallCommand extends Command<int> {
+  UninstallCommand(this._logger) {
+    addSubcommand(FlutterUninstallSubCommand(_logger));
+    addSubcommand(DevToolsUninstallSubCommand(_logger));
+    addSubcommand(EngineUninstallSubCommand(_logger));
+  }
   @override
   final String name = 'uninstall';
   @override
@@ -24,12 +30,6 @@ class UninstallCommand extends Command<int> {
 
   final Logger _logger;
 
-  UninstallCommand(this._logger) {
-    addSubcommand(FlutterUninstallSubCommand(_logger));
-    addSubcommand(DevToolsUninstallSubCommand(_logger));
-    addSubcommand(EngineUninstallSubCommand(_logger));
-  }
-
   @override
   Future<int> run() async {
     printUsage();
@@ -38,12 +38,11 @@ class UninstallCommand extends Command<int> {
 }
 
 class FlutterUninstallSubCommand extends Command<int> {
-  final Logger _logger;
-
   FlutterUninstallSubCommand(this._logger) {
     argParser.addFlag('flutter',
         abbr: 'f', help: 'Uninstall Flutter environment');
   }
+  final Logger _logger;
 
   @override
   final String name = 'flutter';
@@ -58,12 +57,11 @@ class FlutterUninstallSubCommand extends Command<int> {
 }
 
 class DevToolsUninstallSubCommand extends Command<int> {
-  final Logger _logger;
-
   DevToolsUninstallSubCommand(this._logger) {
     argParser.addFlag('devtool',
         abbr: 'd', help: 'Uninstall DevTools environment');
   }
+  final Logger _logger;
 
   @override
   final String name = 'devtool';
@@ -78,13 +76,12 @@ class DevToolsUninstallSubCommand extends Command<int> {
 }
 
 class EngineUninstallSubCommand extends Command<int> {
-  final Logger _logger;
-
   EngineUninstallSubCommand(this._logger) {
     argParser.addOption('platform',
         abbr: 'p',
         help: 'Specify the platform to uninstall (ios, android, tv)');
   }
+  final Logger _logger;
 
   @override
   final String name = 'engine';
@@ -106,9 +103,9 @@ class EngineUninstallSubCommand extends Command<int> {
 
 Future<void> uninstallFlutterEnvironment(Logger l) async {
   l.info('Uninstalling Flutter Framework Development Environment'.blue);
-  final String clonePath =
+  final clonePath =
       '${Platform.environment['HOME']}${Constants.flutterCompileInstallPath}';
-  final Directory cloneDir = Directory(clonePath);
+  final cloneDir = Directory(clonePath);
 
   if (await cloneDir.exists()) {
     await cloneDir.delete(recursive: true);
@@ -120,11 +117,60 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
 
 Future<void> uninstallDevToolsEnvironment(Logger l) async {
   l.info('Uninstalling DevTools Development Environment'.blue);
-  // Add the logic to uninstall the DevTools environment here
+
+  final home = Platform.environment['HOME'] ?? '';
+  final rcConfigFile = File('$home/.flutter_compilerc');
+
+  // Read devtools path from config, fall back to default
+  var devtoolsPath = await F.readValueForKeyFromRcConfig(
+      rcConfigFile, RunCommandKey.devTools.key);
+  devtoolsPath ??= '$home${Constants.devToolsInstallPath}';
+
+  // Delete the directory if it exists
+  final devtoolsDir = Directory(devtoolsPath);
+  if (await devtoolsDir.exists()) {
+    await devtoolsDir.delete(recursive: true);
+    l.info('Deleted DevTools directory at $devtoolsPath.'.green);
+  } else {
+    l.warn('DevTools directory not found at $devtoolsPath.'.yellow);
+  }
+
+  // Remove the DevTools PATH export from shell config
+  final shell = Platform.environment['SHELL'] ?? '';
+  final shellConfig = shell.contains('bash')
+      ? '.bashrc'
+      : shell.contains('zsh')
+          ? '.zshrc'
+          : '.profile';
+  final configPath = '$home/$shellConfig';
+  final configFile = File(configPath);
+  if (await configFile.exists()) {
+    var contents = await configFile.readAsString();
+    final devtoolsExport =
+        Constants.devToolsPATHExport.replaceAll('{{path}}', devtoolsPath);
+    if (contents.contains(devtoolsExport)) {
+      contents = contents.replaceAll(devtoolsExport, '');
+      await configFile.writeAsString(contents);
+      l.info('Removed DevTools PATH export from $shellConfig.'.green);
+    }
+  }
+
+  // Remove the devtools_path key from .flutter_compilerc
+  if (await rcConfigFile.exists()) {
+    final lines = await rcConfigFile.readAsLines();
+    final filtered = lines
+        .where((line) => !line.startsWith('${RunCommandKey.devTools.key}:'))
+        .toList();
+    await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
+    l.info('Removed devtools_path from .flutter_compilerc.'.green);
+  }
+
+  l.info('DevTools environment uninstalled successfully.'.green);
 }
 
 Future<void> uninstallEngineEnvironment(Logger l, String platform) async {
   l.info(
-      'Uninstalling Flutter Engine Development Environment for $platform'.blue);
+    'Uninstalling Flutter Engine Development Environment for $platform'.blue,
+  );
   // Add the logic to uninstall the Flutter engine environment for the specified platform here
 }

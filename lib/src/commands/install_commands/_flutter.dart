@@ -42,7 +42,7 @@ Future<void> setupFlutterEnvironment(Logger l) async {
     defaultValue: '1',
   );
 
-  String githubUsername = await F.getGihHubName();
+  var githubUsername = await F.getGitHubName();
 
   final cloneUrl = cloneMethod == '2'
       ? 'https://github.com/flutter/flutter.git'
