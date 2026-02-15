@@ -15,6 +15,33 @@ export PATH={{path}}/cache/dart-sdk/bin:$PATH
 
 ''';
 
+// Engine Constants
+  static const engineInstallPath = '$baseCliPath/engine';
+  static const depotToolsInstallPath = '$baseCliPath/depot_tools';
+  static const depotToolsCloneUrl =
+      'https://chromium.googlesource.com/chromium/tools/depot_tools.git';
+  static const depotToolsPATHExport = r'''
+
+# >>> Added by flutter_compile setup CLI (depot_tools) >>>
+export PATH={{path}}:$PATH
+# <<< Added by flutter_compile setup CLI (depot_tools) <<<
+
+''';
+  static const gclientFileTemplate = '''
+solutions = [
+  {
+    "managed": False,
+    "name": "src/flutter",
+    "url": "{{engine_url}}",
+    "custom_deps": {},
+    "deps_file": "DEPS",
+    "safesync_url": "",
+  },
+]
+''';
+  static const engineUpstreamSSH = 'git@github.com:flutter/engine.git';
+  static const engineUpstreamHTTPS = 'https://github.com/flutter/engine.git';
+
 // DevTools Constants
   static const devToolsInstallPath = '$baseCliPath/devtools';
   static const devToolsPATHExport = r'''
@@ -128,6 +155,8 @@ export PATH={{path}}/tool/bin:$PATH
 enum RunCommandKey {
   flutterCompile('flutter_path'), // key for the path to the flutter compile
   devTools('devtools_path'), // key for the path to the devtools
+  engine('engine_path'), // key for the path to the engine
+  depotTools('depot_tools_path'), // key for the path to depot_tools
 
   ;
 

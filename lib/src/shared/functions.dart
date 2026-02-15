@@ -43,10 +43,16 @@ class F {
 
   static Future<void> runCommand(
     String command,
-    List<String> args,
-  ) async {
+    List<String> args, {
+    String? workingDirectory,
+  }) async {
     logger.info('\$ $command ${args.join(' ')}');
-    final process = await Process.start(command, args, runInShell: true);
+    final process = await Process.start(
+      command,
+      args,
+      runInShell: true,
+      workingDirectory: workingDirectory,
+    );
     process.stdout.transform(utf8.decoder).listen((data) => stdout.write(data));
     process.stderr.transform(utf8.decoder).listen((data) => stderr.write(data));
     final exitCode = await process.exitCode;
@@ -56,6 +62,17 @@ class F {
       );
       exit(exitCode);
     }
+  }
+
+  static Future<String> getHostCpuArch() async {
+    final result = await Process.run('uname', ['-m']);
+    return (result.stdout as String).trim();
+  }
+
+  static Future<void> writeFile(String path, String content) async {
+    final file = File(path);
+    await file.parent.create(recursive: true);
+    await file.writeAsString(content);
   }
 
   static Future<void> runFlutterCommand(List<String> args) async {

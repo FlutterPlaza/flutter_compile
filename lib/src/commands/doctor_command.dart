@@ -32,6 +32,25 @@ class DoctorCommand extends Command<int> {
       }
     }
 
+    // Check engine-related tools
+    final gclientAvailable = await F.isCommandAvailable('gclient');
+    _logger.info(gclientAvailable
+        ? '  [+] depot_tools (gclient) is installed'
+        : '  [X] depot_tools (gclient) is NOT installed');
+
+    final ninjaAvailable = await F.isCommandAvailable('ninja');
+    _logger.info(ninjaAvailable
+        ? '  [+] ninja is installed'
+        : '  [X] ninja is NOT installed');
+
+    // Check Xcode (macOS only)
+    if (Platform.isMacOS) {
+      final xcodeAvailable = await F.isCommandAvailable('xcodebuild');
+      _logger.info(xcodeAvailable
+          ? '  [+] Xcode is installed'
+          : '  [X] Xcode is NOT installed');
+    }
+
     // Check .flutter_compilerc config file
     final home = Platform.environment['HOME'] ?? '';
     final rcFile = File('$home/.flutter_compilerc');
@@ -64,6 +83,14 @@ class DoctorCommand extends Command<int> {
       defaultPath: '$home${Constants.devToolsInstallPath}',
     );
 
+    // Check Engine contributor environment
+    await _checkEnvironment(
+      label: 'Engine contributor environment',
+      configKey: RunCommandKey.engine.key,
+      defaultPath: '$home${Constants.engineInstallPath}',
+      gitSubpath: 'src/flutter',
+    );
+
     return ExitCode.success.code;
   }
 
@@ -71,6 +98,7 @@ class DoctorCommand extends Command<int> {
     required String label,
     required String configKey,
     required String defaultPath,
+    String? gitSubpath,
   }) async {
     final home = Platform.environment['HOME'] ?? '';
     final rcFile = File('$home/.flutter_compilerc');
@@ -88,12 +116,15 @@ class DoctorCommand extends Command<int> {
       return;
     }
 
+    // For engine, git remotes are in src/flutter subdirectory
+    final gitDir = gitSubpath != null ? '$envPath/$gitSubpath' : envPath;
+
     // Check for upstream and origin git remotes
     try {
       final result = await Process.run(
         'git',
         ['remote'],
-        workingDirectory: envPath,
+        workingDirectory: gitDir,
       );
       if (result.exitCode == 0) {
         final remotes = (result.stdout as String).trim().split('\n');

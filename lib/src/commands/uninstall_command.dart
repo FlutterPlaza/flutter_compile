@@ -76,11 +76,7 @@ class DevToolsUninstallSubCommand extends Command<int> {
 }
 
 class EngineUninstallSubCommand extends Command<int> {
-  EngineUninstallSubCommand(this._logger) {
-    argParser.addOption('platform',
-        abbr: 'p',
-        help: 'Specify the platform to uninstall (ios, android, tv)');
-  }
+  EngineUninstallSubCommand(this._logger);
   final Logger _logger;
 
   @override
@@ -91,12 +87,7 @@ class EngineUninstallSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final platform = argResults?['platform'] as String;
-    if (platform == '' || !['ios', 'android', 'tv'].contains(platform)) {
-      printUsage();
-      return ExitCode.usage.code;
-    }
-    await uninstallEngineEnvironment(_logger, platform);
+    await uninstallEngineEnvironment(_logger);
     return ExitCode.success.code;
   }
 }
@@ -168,9 +159,89 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
   l.info('DevTools environment uninstalled successfully.'.green);
 }
 
-Future<void> uninstallEngineEnvironment(Logger l, String platform) async {
-  l.info(
-    'Uninstalling Flutter Engine Development Environment for $platform'.blue,
+Future<void> uninstallEngineEnvironment(Logger l) async {
+  l.info('Uninstalling Flutter Engine Development Environment'.blue);
+
+  final home = Platform.environment['HOME'] ?? '';
+  final rcConfigFile = File('$home/.flutter_compilerc');
+
+  // Read engine path from config, fall back to default
+  var enginePath = await F.readValueForKeyFromRcConfig(
+    rcConfigFile,
+    RunCommandKey.engine.key,
   );
-  // Add the logic to uninstall the Flutter engine environment for the specified platform here
+  enginePath ??= '$home${Constants.engineInstallPath}';
+
+  // Delete the engine workspace directory
+  final engineDir = Directory(enginePath);
+  if (await engineDir.exists()) {
+    await engineDir.delete(recursive: true);
+    l.info('Deleted engine directory at $enginePath.'.green);
+  } else {
+    l.warn('Engine directory not found at $enginePath.'.yellow);
+  }
+
+  // Prompt: also remove depot_tools?
+  final removeDepotTools = await F.promptUser(
+    'Also remove depot_tools? (y/n) [Default: n]: ',
+    defaultValue: 'n',
+  );
+
+  if (removeDepotTools.toLowerCase() == 'y') {
+    var depotToolsPath = await F.readValueForKeyFromRcConfig(
+      rcConfigFile,
+      RunCommandKey.depotTools.key,
+    );
+    depotToolsPath ??= '$home${Constants.depotToolsInstallPath}';
+
+    final depotToolsDir = Directory(depotToolsPath);
+    if (await depotToolsDir.exists()) {
+      await depotToolsDir.delete(recursive: true);
+      l.info('Deleted depot_tools directory at $depotToolsPath.'.green);
+    }
+
+    // Remove depot_tools PATH export from shell config
+    final shell = Platform.environment['SHELL'] ?? '';
+    final shellConfig = shell.contains('bash')
+        ? '.bashrc'
+        : shell.contains('zsh')
+            ? '.zshrc'
+            : '.profile';
+    final configPath = '$home/$shellConfig';
+    final configFile = File(configPath);
+    if (await configFile.exists()) {
+      var contents = await configFile.readAsString();
+      final depotToolsExport =
+          Constants.depotToolsPATHExport.replaceAll('{{path}}', depotToolsPath);
+      if (contents.contains(depotToolsExport)) {
+        contents = contents.replaceAll(depotToolsExport, '');
+        await configFile.writeAsString(contents);
+        l.info('Removed depot_tools PATH export from $shellConfig.'.green);
+      }
+    }
+
+    // Remove depot_tools_path key from .flutter_compilerc
+    if (await rcConfigFile.exists()) {
+      final lines = await rcConfigFile.readAsLines();
+      final filtered = lines
+          .where(
+            (line) => !line.startsWith('${RunCommandKey.depotTools.key}:'),
+          )
+          .toList();
+      await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
+      l.info('Removed depot_tools_path from .flutter_compilerc.'.green);
+    }
+  }
+
+  // Remove engine_path key from .flutter_compilerc
+  if (await rcConfigFile.exists()) {
+    final lines = await rcConfigFile.readAsLines();
+    final filtered = lines
+        .where((line) => !line.startsWith('${RunCommandKey.engine.key}:'))
+        .toList();
+    await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
+    l.info('Removed engine_path from .flutter_compilerc.'.green);
+  }
+
+  l.info('Engine environment uninstalled successfully.'.green);
 }
