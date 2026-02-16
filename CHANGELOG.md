@@ -1,5 +1,10 @@
 # CHANGE LOG
 
+## 0.3.1
+
+- ci: add code coverage reporting and Codecov integration
+- docs: update README badges (build, codecov, pub version, Dart SDK)
+
 ## 0.3.0
 
 - feat: add `run` command to launch Flutter apps with a local engine build (`--local-engine`)
