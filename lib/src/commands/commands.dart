@@ -1,4 +1,6 @@
 export 'build_commands/build_command.dart';
+export 'clean_command.dart';
+export 'config_command.dart';
 export 'doctor_command.dart';
 export 'flutter_switch_command.dart';
 export 'install_commands/install_command.dart';

@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.5.0
+
+- feat: add `clean` command to remove engine build output directories (alias: `c`)
+- feat: add `config` command to view and modify `.flutter_compilerc` from CLI (alias: `cf`)
+- fix: `uninstall flutter` now removes PATH exports from shell config and cleans `.flutter_compilerc`
+
 ## 0.4.0
 
 - feat: add `test` command to run Flutter tests with a local engine build (`--local-engine`)

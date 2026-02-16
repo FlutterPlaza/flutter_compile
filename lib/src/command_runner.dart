@@ -41,6 +41,8 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
 
     // Add sub commands
     addCommand(BuildCommand(_logger));
+    addCommand(CleanCommand(_logger));
+    addCommand(ConfigCommand(_logger));
     addCommand(DoctorCommand(_logger));
     addCommand(FlutterSwitchCommand(_logger));
     addCommand(InstallCommand(_logger));

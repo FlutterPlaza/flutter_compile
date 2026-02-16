@@ -111,6 +111,38 @@ Everything after `--` is forwarded to `flutter test` (e.g. `test/my_test.dart`).
 | `--unoptimized` | flag | true |
 | `--simulator` | flag (iOS only) | false |
 
+### `clean` — Remove engine build artifacts (alias: `c`)
+
+```sh
+# List available builds with sizes
+flutter_compile clean
+
+# Delete a specific build
+flutter_compile clean host_debug_unopt_arm64
+
+# Delete all builds
+flutter_compile clean --all
+
+# Short alias
+flutter_compile c --all
+```
+
+### `config` — View and modify settings (alias: `cf`)
+
+```sh
+# List all configuration values
+flutter_compile config list
+
+# Get a specific value (accepts friendly names: flutter, engine, devtools, depot_tools)
+flutter_compile config get engine
+
+# Set a value
+flutter_compile config set engine /path/to/engine
+
+# Short alias
+flutter_compile cf list
+```
+
 ### `status` — Show engine status (alias: `st`)
 
 ```sh

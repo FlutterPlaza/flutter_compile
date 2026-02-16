@@ -94,16 +94,59 @@ class EngineUninstallSubCommand extends Command<int> {
 
 Future<void> uninstallFlutterEnvironment(Logger l) async {
   l.info('Uninstalling Flutter Framework Development Environment'.blue);
-  final clonePath =
-      '${Platform.environment['HOME']}${Constants.flutterCompileInstallPath}';
-  final cloneDir = Directory(clonePath);
 
-  if (await cloneDir.exists()) {
-    await cloneDir.delete(recursive: true);
-    l.info('✔ Flutter environment uninstalled successfully.'.green);
+  final home = Platform.environment['HOME'] ?? '';
+  final rcConfigFile = File('$home/.flutter_compilerc');
+
+  // Read flutter path from config, fall back to default
+  var flutterPath = await F.readValueForKeyFromRcConfig(
+    rcConfigFile,
+    RunCommandKey.flutterCompile.key,
+  );
+  flutterPath ??= '$home${Constants.flutterCompileBin}';
+
+  // Delete the Flutter installation directory
+  final flutterDir = Directory(flutterPath);
+  if (await flutterDir.exists()) {
+    await flutterDir.delete(recursive: true);
+    l.info('Deleted Flutter directory at $flutterPath.'.green);
   } else {
-    l.warn('Flutter environment not found.'.yellow);
+    l.warn('Flutter directory not found at $flutterPath.'.yellow);
   }
+
+  // Remove the Flutter PATH export from shell config
+  final shell = Platform.environment['SHELL'] ?? '';
+  final shellConfig = shell.contains('bash')
+      ? '.bashrc'
+      : shell.contains('zsh')
+          ? '.zshrc'
+          : '.profile';
+  final configPath = '$home/$shellConfig';
+  final configFile = File(configPath);
+  if (await configFile.exists()) {
+    var contents = await configFile.readAsString();
+    final flutterExport =
+        Constants.flutterCompilePATHExport.replaceAll('{{path}}', flutterPath);
+    if (contents.contains(flutterExport)) {
+      contents = contents.replaceAll(flutterExport, '');
+      await configFile.writeAsString(contents);
+      l.info('Removed Flutter PATH export from $shellConfig.'.green);
+    }
+  }
+
+  // Remove the flutter_path key from .flutter_compilerc
+  if (await rcConfigFile.exists()) {
+    final lines = await rcConfigFile.readAsLines();
+    final filtered = lines
+        .where(
+          (line) => !line.startsWith('${RunCommandKey.flutterCompile.key}:'),
+        )
+        .toList();
+    await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
+    l.info('Removed flutter_path from .flutter_compilerc.'.green);
+  }
+
+  l.info('Flutter environment uninstalled successfully.'.green);
 }
 
 Future<void> uninstallDevToolsEnvironment(Logger l) async {
