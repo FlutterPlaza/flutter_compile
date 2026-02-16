@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class SdkListSubCommand extends Command<int> {
@@ -45,10 +46,17 @@ Future<int> listSdks(Logger l) async {
     return ExitCode.success.code;
   }
 
+  final globalVersion = await F.readGlobalSdkVersion();
+  final projectVersion = await F.readProjectSdkVersion();
+
   l.info('Installed Flutter SDKs:\n');
   for (final dir in entries) {
     final name = dir.path.split('/').last;
-    l.info('  $name    ${dir.path}');
+    final markers = <String>[];
+    if (name == globalVersion) markers.add('global');
+    if (name == projectVersion) markers.add('project');
+    final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
+    l.info('  $name    ${dir.path}$suffix');
   }
 
   // Show contributor environments if they exist

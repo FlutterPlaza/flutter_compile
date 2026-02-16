@@ -149,6 +149,17 @@ export PATH={{path}}/tool/bin:$PATH
   // SDK Management Constants
   static const sdkVersionsPath = '$baseCliPath/versions';
   static const flutterGitUrl = 'https://github.com/flutter/flutter.git';
+  static const globalSdkVersionKey = 'global_sdk_version';
+  static const flutterVersionFile = '.flutter-version';
+  static const sdkPATHExport = r'''
+
+# >>> Added by flutter_compile SDK manager >>>
+export PATH={{path}}/bin:$PATH
+export PATH={{path}}/bin/cache/dart-sdk/bin:$PATH
+export PUB_CACHE={{pub_cache_path}}
+# <<< Added by flutter_compile SDK manager <<<
+
+''';
   static const restartShell =
       '\nPlease restart your terminal or source your shell configuration to apply changes. Run\n\nsource ~/{{shell}}\n';
 

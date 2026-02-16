@@ -36,6 +36,16 @@ void main() {
       expect(sdkCmd.subcommands, contains('remove'));
     });
 
+    test('sdk command has global subcommand', () {
+      final sdkCmd = commandRunner.commands['sdk']!;
+      expect(sdkCmd.subcommands, contains('global'));
+    });
+
+    test('sdk command has use subcommand', () {
+      final sdkCmd = commandRunner.commands['sdk']!;
+      expect(sdkCmd.subcommands, contains('use'));
+    });
+
     test('sdk install with no version arg returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'install']);
       expect(result, equals(ExitCode.usage.code));

@@ -46,6 +46,7 @@ class F {
     String command,
     List<String> args, {
     String? workingDirectory,
+    Map<String, String>? environment,
   }) async {
     logger.info('\$ $command ${args.join(' ')}');
     final process = await Process.start(
@@ -53,6 +54,7 @@ class F {
       args,
       runInShell: true,
       workingDirectory: workingDirectory,
+      environment: environment,
     );
     process.stdout.transform(utf8.decoder).listen((data) => stdout.write(data));
     process.stderr.transform(utf8.decoder).listen((data) => stderr.write(data));
@@ -88,7 +90,10 @@ class F {
     await file.writeAsString(content);
   }
 
-  static Future<void> runFlutterCommand(List<String> args) async {
+  static Future<void> runFlutterCommand(
+    List<String> args, {
+    Map<String, String>? environment,
+  }) async {
     final flutterExecutable =
         '${await getPersistedPathFromRC(key: RunCommandKey.flutterCompile)}/flutter';
     if (!await File(flutterExecutable).exists()) {
@@ -100,7 +105,7 @@ class F {
         exitCode: ExitCode.unavailable.code,
       );
     }
-    await runCommand(flutterExecutable, args);
+    await runCommand(flutterExecutable, args, environment: environment);
   }
 
   static Future<void> checkPrerequisites(String os) async {
@@ -322,5 +327,43 @@ class F {
       }
     }
     return null;
+  }
+
+  // SDK resolution helpers
+
+  static String sdkPubCachePath(String sdkPath) => '$sdkPath/.pub-cache';
+
+  static Map<String, String> sdkEnvironment(String sdkPath) =>
+      {'PUB_CACHE': sdkPubCachePath(sdkPath)};
+
+  static String sdkVersionPath(String version) {
+    final home = Platform.environment['HOME'] ?? '';
+    return '$home${Constants.sdkVersionsPath}/$version';
+  }
+
+  static bool isSdkInstalled(String version) =>
+      Directory(sdkVersionPath(version)).existsSync();
+
+  static Future<String?> readProjectSdkVersion([String? directory]) async {
+    final dir = directory ?? Directory.current.path;
+    final file = File('$dir/${Constants.flutterVersionFile}');
+    if (await file.exists()) {
+      final content = (await file.readAsString()).trim();
+      return content.isEmpty ? null : content;
+    }
+    return null;
+  }
+
+  static Future<String?> readGlobalSdkVersion() async {
+    final home = Platform.environment['HOME'] ?? '';
+    final rcConfigFile = File('$home/.flutter_compilerc');
+    return readValueForKeyFromRcConfig(
+      rcConfigFile,
+      Constants.globalSdkVersionKey,
+    );
+  }
+
+  static Future<String?> resolveActiveSdkVersion() async {
+    return await readProjectSdkVersion() ?? await readGlobalSdkVersion();
   }
 }

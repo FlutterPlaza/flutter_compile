@@ -1,5 +1,16 @@
 # CHANGE LOG
 
+## 0.7.0
+
+- feat: add `sdk global` command to set or show the global default Flutter SDK version
+- feat: add `sdk use` command to pin a Flutter SDK version per project (`.flutter-version`)
+- feat: PUB_CACHE isolation — each installed SDK uses its own `.pub-cache` directory
+- feat: `sdk list` now annotates entries with `(global)` and `(project)` markers
+- feat: `sdk remove` now guards against removing the global default or project-pinned SDK
+- feat: add SDK resolution helpers (`sdkPubCachePath`, `sdkEnvironment`, `sdkVersionPath`, `isSdkInstalled`, `readProjectSdkVersion`, `readGlobalSdkVersion`, `resolveActiveSdkVersion`)
+- feat: add `environment` parameter to `F.runCommand()` and `F.runFlutterCommand()`
+- feat: add `global_sdk` alias to `config` command
+
 ## 0.6.0
 
 - feat: add `sdk` command to install and manage multiple Flutter SDK versions (`sdk install`, `sdk list`, `sdk remove`)

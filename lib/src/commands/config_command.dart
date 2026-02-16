@@ -36,6 +36,7 @@ String _normalizeKey(String key) {
     'engine': 'engine_path',
     'devtools': 'devtools_path',
     'depot_tools': 'depot_tools_path',
+    'global_sdk': 'global_sdk_version',
   };
   return keyMap[key] ?? key;
 }

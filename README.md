@@ -28,7 +28,7 @@ dart pub global activate --source=path <path to this package>
 
 ## SDK Management
 
-Install and manage multiple Flutter SDK versions side-by-side — by version tag or channel.
+Install and manage multiple Flutter SDK versions side-by-side — by version tag or channel. Each SDK gets its own isolated `PUB_CACHE` to avoid snapshot incompatibility.
 
 ```sh
 # Install a specific version or channel
@@ -36,14 +36,22 @@ flutter_compile sdk install 3.19.0
 flutter_compile sdk install stable
 flutter_compile sdk install beta
 
-# List all installed SDKs
+# List all installed SDKs (shows global/project markers)
 flutter_compile sdk list
 
-# Remove an SDK
+# Set the global default SDK (updates PATH and PUB_CACHE in shell config)
+flutter_compile sdk global 3.19.0
+flutter_compile sdk global             # Show current global version
+
+# Pin an SDK version for the current project (.flutter-version)
+flutter_compile sdk use 3.19.0
+flutter_compile sdk use                # Show current project version
+
+# Remove an SDK (guards against removing global/project-pinned versions)
 flutter_compile sdk remove 3.19.0
 ```
 
-SDKs are stored in `~/.flutter_compile/versions/<version>/`.
+SDKs are stored in `~/.flutter_compile/versions/<version>/`, each with its own `.pub-cache` directory.
 
 ---
 

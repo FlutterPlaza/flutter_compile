@@ -63,6 +63,7 @@ Future<int> installSdk(Logger l, String version) async {
     '$targetPath/bin/flutter',
     ['--version'],
     workingDirectory: targetPath,
+    environment: F.sdkEnvironment(targetPath),
   );
 
   progress.complete('Flutter SDK "$version" installed at $targetPath');

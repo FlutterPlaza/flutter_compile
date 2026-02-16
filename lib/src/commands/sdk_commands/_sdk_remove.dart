@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class SdkRemoveSubCommand extends Command<int> {
@@ -36,6 +37,18 @@ Future<int> removeSdk(Logger l, String version) async {
 
   if (!targetDir.existsSync()) {
     l.err('Flutter SDK "$version" is not installed.');
+    return ExitCode.usage.code;
+  }
+
+  final globalVersion = await F.readGlobalSdkVersion();
+  if (version == globalVersion) {
+    l.err('Cannot remove "$version": it is the global default SDK.');
+    return ExitCode.usage.code;
+  }
+
+  final projectVersion = await F.readProjectSdkVersion();
+  if (version == projectVersion) {
+    l.err('Cannot remove "$version": it is pinned by the current project.');
     return ExitCode.usage.code;
   }
 
