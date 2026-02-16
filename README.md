@@ -1,8 +1,11 @@
+
 ## flutter_compile
 
-![coverage][coverage_badge]
-[![style: very good analysis][very_good_analysis_badge]][very_good_analysis_link]
+[![Build][build_badge]][build_link]
+[![codecov][codecov_badge]][codecov_link]
+[![Pub Version][pub_badge]][pub_link]
 [![License: BSD-3][license_badge]][license_link]
+[![Dart][dart_badge]][dart_link]
 
 A Dart CLI that automates setting up Flutter framework, DevTools, and Engine contributor development environments. No more following 20-step wiki guides — one command handles depot_tools, gclient sync, git remotes, GN flags, and ninja builds.
 
@@ -190,8 +193,13 @@ open coverage/index.html
 
 ---
 
-[coverage_badge]: https://github.com/FlutterPlaza/flutter_compile/actions/workflows/main.yaml/badge.svg
+[build_badge]: https://github.com/FlutterPlaza/flutter_compile/actions/workflows/flutter_compile.yaml/badge.svg
+[build_link]: https://github.com/FlutterPlaza/flutter_compile/actions/workflows/flutter_compile.yaml
+[codecov_badge]: https://codecov.io/gh/FlutterPlaza/flutter_compile/branch/main/graph/badge.svg
+[codecov_link]: https://codecov.io/gh/FlutterPlaza/flutter_compile
+[pub_badge]: https://img.shields.io/pub/v/flutter_compile.svg
+[pub_link]: https://pub.dev/packages/flutter_compile
 [license_badge]: https://img.shields.io/badge/license-BSD--3-blue.svg
 [license_link]: https://opensource.org/licenses/BSD-3
-[very_good_analysis_badge]: https://img.shields.io/badge/style-very_good_analysis-B22C89.svg
-[very_good_analysis_link]: https://pub.dev/packages/very_good_analysis
+[dart_badge]: https://img.shields.io/badge/dart-%3E%3D3.4.0-blue.svg
+[dart_link]: https://dart.dev

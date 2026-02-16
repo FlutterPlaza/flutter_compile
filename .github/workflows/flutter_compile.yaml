@@ -47,8 +47,18 @@ jobs:
       - name: 🕵️ Analyze
         run: dart analyze lib test
 
-      - name: 🧪 Run Tests
-        run: dart test
+      - name: 🧪 Run Tests with Coverage
+        run: |
+          dart pub global activate coverage
+          dart test --coverage=coverage
+          dart pub global run coverage:format_coverage --lcov --in=coverage --out=coverage/lcov.info
+
+      - name: 📊 Upload Coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/lcov.info
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   publish:
     needs: build
