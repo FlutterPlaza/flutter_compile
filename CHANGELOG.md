@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.5.1
+
+- chore: upgrade mason_logger to ^0.3.3 and pub_updater to ^0.5.0
+
 ## 0.5.0
 
 - feat: add `clean` command to remove engine build output directories (alias: `c`)
