@@ -1,3 +1,18 @@
+/// Decides whether GN needs to run.
+///
+/// Priority: [skipGn] wins > [forceGn]/[clean] force it > auto-detect via
+/// [buildNinjaExists].
+bool shouldRunGn({
+  required bool forceGn,
+  required bool skipGn,
+  required bool clean,
+  required bool buildNinjaExists,
+}) {
+  if (skipGn) return false;
+  if (forceGn || clean) return true;
+  return !buildNinjaExists;
+}
+
 /// Resolves GN flags for the Flutter engine build.
 ///
 /// Returns a [List<String>] of arguments to pass to the `gn` tool.

@@ -44,6 +44,18 @@ class EngineBuildSubCommand extends Command<int> {
         'clean',
         help: 'Clean output directory before building',
         defaultsTo: false,
+      )
+      ..addFlag(
+        'gn',
+        help: 'Force re-running GN',
+        defaultsTo: false,
+        negatable: false,
+      )
+      ..addFlag(
+        'no-gn',
+        help: 'Skip GN step entirely',
+        defaultsTo: false,
+        negatable: false,
       );
   }
   final Logger _logger;
@@ -61,6 +73,8 @@ class EngineBuildSubCommand extends Command<int> {
     final unoptimized = argResults?['unoptimized'] as bool;
     final simulator = argResults?['simulator'] as bool;
     final clean = argResults?['clean'] as bool;
+    final forceGn = argResults?['gn'] as bool;
+    final skipGn = argResults?['no-gn'] as bool;
 
     await buildEngine(
       _logger,
@@ -70,6 +84,8 @@ class EngineBuildSubCommand extends Command<int> {
       unoptimized: unoptimized,
       simulator: simulator,
       clean: clean,
+      forceGn: forceGn,
+      skipGn: skipGn,
     );
     return ExitCode.success.code;
   }
@@ -83,7 +99,13 @@ Future<void> buildEngine(
   required bool unoptimized,
   required bool simulator,
   required bool clean,
+  bool forceGn = false,
+  bool skipGn = false,
 }) async {
+  if (forceGn && skipGn) {
+    l.err('Error: --gn and --no-gn are mutually exclusive.');
+    exit(ExitCode.usage.code);
+  }
   l.info('Building Flutter Engine'.blue);
 
   // Read engine path from .flutter_compilerc
@@ -143,14 +165,29 @@ Future<void> buildEngine(
     }
   }
 
-  // Run GN
-  l.info('\nRunning GN...'.yellow);
-  await F.runCommand(
-    './flutter/tools/gn',
-    gnFlags,
-    workingDirectory: srcDir,
+  // Decide whether to run GN
+  final buildNinjaExists =
+      await File('$srcDir/out/$outputDir/build.ninja').exists();
+  final runGn = shouldRunGn(
+    forceGn: forceGn,
+    skipGn: skipGn,
+    clean: clean,
+    buildNinjaExists: buildNinjaExists,
   );
-  l.info('GN completed.'.green);
+
+  if (runGn) {
+    l.info('\nRunning GN...'.yellow);
+    await F.runCommand(
+      './flutter/tools/gn',
+      gnFlags,
+      workingDirectory: srcDir,
+    );
+    l.info('GN completed.'.green);
+  } else {
+    l.info(
+      '\nSkipping GN (build.ninja already exists). Use --gn to force.'.cyan,
+    );
+  }
 
   // Run ninja
   l.info('\nRunning ninja build...'.yellow);

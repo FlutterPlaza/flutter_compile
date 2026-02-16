@@ -2,6 +2,68 @@ import 'package:flutter_compile/src/shared/gn_utils.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('shouldRunGn', () {
+    test('skipGn=true always returns false', () {
+      expect(
+        shouldRunGn(
+          forceGn: true,
+          skipGn: true,
+          clean: true,
+          buildNinjaExists: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('forceGn=true returns true', () {
+      expect(
+        shouldRunGn(
+          forceGn: true,
+          skipGn: false,
+          clean: false,
+          buildNinjaExists: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('clean=true returns true', () {
+      expect(
+        shouldRunGn(
+          forceGn: false,
+          skipGn: false,
+          clean: true,
+          buildNinjaExists: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('auto-detect returns false when build.ninja exists', () {
+      expect(
+        shouldRunGn(
+          forceGn: false,
+          skipGn: false,
+          clean: false,
+          buildNinjaExists: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('auto-detect returns true when build.ninja does not exist', () {
+      expect(
+        shouldRunGn(
+          forceGn: false,
+          skipGn: false,
+          clean: false,
+          buildNinjaExists: false,
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('resolveGnFlags', () {
     test('android arm64 debug unoptimized', () {
       final flags = resolveGnFlags(

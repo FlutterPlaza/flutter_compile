@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.3.0
+
+- feat: add `run` command to launch Flutter apps with a local engine build (`--local-engine`)
+- feat: add `--gn` and `--no-gn` flags to `build engine` for incremental rebuilds (auto-skips GN when `build.ninja` exists)
+- feat: add `r` alias for `run` command
+
 ## 0.2.0
 
 - feat: automate Flutter engine setup (`install engine`) — depot_tools, gclient sync, git remotes

@@ -52,11 +52,48 @@ The engine install automates:
 - `gclient sync` (streams output — takes 20-40 min on first run)
 - Git remote setup (upstream = flutter/engine, origin = your fork)
 
+### `run` — Run a Flutter app with a local engine (alias: `r`)
+
+```sh
+# Run app with default local engine (host_debug_unopt_arm64 on Apple Silicon)
+flutter_compile run
+
+# Run targeting a specific engine build
+flutter_compile run -p android -c arm64
+
+# Run on iOS simulator, specific device
+flutter_compile run -p ios --simulator -- -d "iPhone 15"
+
+# Short alias
+flutter_compile r
+```
+
+Everything after `--` is forwarded to `flutter run` (e.g. `-d chrome`, `--release`).
+
+**Run options:**
+
+| Option | Values | Default |
+|--------|--------|---------|
+| `--platform, -p` | android, ios, macos, linux, web, host | host |
+| `--cpu, -c` | arm, arm64, x64 | auto-detected |
+| `--mode, -m` | debug, profile, release | debug |
+| `--unoptimized` | flag | true |
+| `--simulator` | flag (iOS only) | false |
+
 ### `build` — Build the Flutter engine
 
 ```sh
 # Build engine for host platform (default: debug, unoptimized)
 flutter_compile build engine
+
+# Incremental rebuild (GN auto-skipped if build.ninja exists)
+flutter_compile build engine
+
+# Force GN re-run
+flutter_compile build engine --gn
+
+# Skip GN explicitly
+flutter_compile build engine --no-gn
 
 # Build for Android
 flutter_compile build engine --platform android --cpu arm64
@@ -81,6 +118,8 @@ flutter_compile build engine --clean
 | `--unoptimized` | flag | true |
 | `--simulator` | flag (iOS only) | false |
 | `--clean` | flag | false |
+| `--gn` | force GN re-run | false |
+| `--no-gn` | skip GN step | false |
 
 ### `uninstall` — Remove environments
 
