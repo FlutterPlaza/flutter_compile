@@ -67,5 +67,17 @@ Future<int> installSdk(Logger l, String version) async {
   );
 
   progress.complete('Flutter SDK "$version" installed at $targetPath');
+
+  final globalVersion = await F.readGlobalSdkVersion();
+  if (globalVersion == null) {
+    final rcConfigFile = File('$home/.flutter_compilerc');
+    await F.writeKeyValueToRcConfig(
+      rcConfigFile,
+      Constants.globalSdkVersionKey,
+      version,
+    );
+    l.info('Set "$version" as global default (first SDK installed).');
+  }
+
   return ExitCode.success.code;
 }

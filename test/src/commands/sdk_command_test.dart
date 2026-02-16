@@ -46,6 +46,11 @@ void main() {
       expect(sdkCmd.subcommands, contains('use'));
     });
 
+    test('sdk command has exec subcommand', () {
+      final sdkCmd = commandRunner.commands['sdk']!;
+      expect(sdkCmd.subcommands, contains('exec'));
+    });
+
     test('sdk install with no version arg returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'install']);
       expect(result, equals(ExitCode.usage.code));

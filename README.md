@@ -47,9 +47,16 @@ flutter_compile sdk global             # Show current global version
 flutter_compile sdk use 3.19.0
 flutter_compile sdk use                # Show current project version
 
-# Remove an SDK (guards against removing global/project-pinned versions)
+# Run a command through the resolved SDK (project → global)
+flutter_compile sdk exec flutter doctor
+flutter_compile sdk exec dart analyze
+flutter_compile sdk exec flutter build apk
+
+# Remove an SDK (cleans up global config if removing the global default)
 flutter_compile sdk remove 3.19.0
 ```
+
+The first `sdk install` automatically sets the installed version as the global default. Resolution order for `sdk exec`: project `.flutter-version` → global default.
 
 SDKs are stored in `~/.flutter_compile/versions/<version>/`, each with its own `.pub-cache` directory.
 

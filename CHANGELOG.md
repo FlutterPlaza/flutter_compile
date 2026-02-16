@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.8.0
+
+- feat: add `sdk exec` command to run commands through the resolved SDK (project `.flutter-version` → global default)
+- feat: `sdk install` auto-sets global default when installing the first SDK
+- feat: `sdk remove` now allows removing the global SDK and cleans up rc config and shell PATH block
+
 ## 0.7.0
 
 - feat: add `sdk global` command to set or show the global default Flutter SDK version

@@ -41,12 +41,8 @@ Future<int> removeSdk(Logger l, String version) async {
   }
 
   final globalVersion = await F.readGlobalSdkVersion();
-  if (version == globalVersion) {
-    l.err('Cannot remove "$version": it is the global default SDK.');
-    return ExitCode.usage.code;
-  }
-
   final projectVersion = await F.readProjectSdkVersion();
+
   if (version == projectVersion) {
     l.err('Cannot remove "$version": it is pinned by the current project.');
     return ExitCode.usage.code;
@@ -56,5 +52,36 @@ Future<int> removeSdk(Logger l, String version) async {
   await targetDir.delete(recursive: true);
   progress.complete('Flutter SDK "$version" removed.');
 
+  if (version == globalVersion) {
+    await _removeGlobalSdkConfig(home);
+    l.info('Cleared global SDK setting (was "$version").');
+  }
+
   return ExitCode.success.code;
+}
+
+Future<void> _removeGlobalSdkConfig(String home) async {
+  // Remove global_sdk_version key from rc config
+  final rcConfigFile = File('$home/.flutter_compilerc');
+  if (await rcConfigFile.exists()) {
+    final lines = await rcConfigFile.readAsLines();
+    final filtered = lines
+        .where((line) => !line.startsWith('${Constants.globalSdkVersionKey}:'))
+        .toList();
+    await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
+  }
+
+  // Remove SDK manager PATH block from shell config
+  final configPath = F.getShellConfigPath();
+  final configFile = File(configPath);
+  if (await configFile.exists()) {
+    var contents = await configFile.readAsString();
+    final sdkManagerPattern = RegExp(
+      r'\n# >>> Added by flutter_compile SDK manager >>>'
+      r'[\s\S]*?'
+      r'# <<< Added by flutter_compile SDK manager <<<\n',
+    );
+    contents = contents.replaceAll(sdkManagerPattern, '');
+    await configFile.writeAsString(contents);
+  }
 }
