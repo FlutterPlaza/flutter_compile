@@ -2,6 +2,7 @@ import 'package:args/args.dart';
 import 'package:args/command_runner.dart';
 import 'package:cli_completion/cli_completion.dart';
 import 'package:flutter_compile/src/commands/commands.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
@@ -47,6 +48,7 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
     addCommand(FlutterSwitchCommand(_logger));
     addCommand(InstallCommand(_logger));
     addCommand(RunCommand(_logger));
+    addCommand(SdkCommand(_logger));
     addCommand(StatusCommand(_logger));
     addCommand(TestCommand(_logger));
     addCommand(UninstallCommand(_logger));
@@ -67,6 +69,8 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
         _logger.level = Level.verbose;
       }
       return await runCommand(topLevelResults) ?? ExitCode.success.code;
+    } on FlutterCompileException catch (e) {
+      return e.exitCode ?? ExitCode.software.code;
     } on FormatException catch (e, stackTrace) {
       // On format errors, show the commands error message, root usage and
       // exit with an error code

@@ -29,6 +29,9 @@ class UpdateCommand extends Command<int> {
   String get name => commandName;
 
   @override
+  List<String> get aliases => ['up'];
+
+  @override
   Future<int> run() async {
     final updateCheckProgress = _logger.progress('Checking for updates');
     late final String latestVersion;

@@ -76,7 +76,7 @@ class EngineBuildSubCommand extends Command<int> {
     final forceGn = argResults?['gn'] as bool;
     final skipGn = argResults?['no-gn'] as bool;
 
-    await buildEngine(
+    return buildEngine(
       _logger,
       platform: platform,
       cpu: cpu,
@@ -87,11 +87,10 @@ class EngineBuildSubCommand extends Command<int> {
       forceGn: forceGn,
       skipGn: skipGn,
     );
-    return ExitCode.success.code;
   }
 }
 
-Future<void> buildEngine(
+Future<int> buildEngine(
   Logger l, {
   required String platform,
   String? cpu,
@@ -104,7 +103,7 @@ Future<void> buildEngine(
 }) async {
   if (forceGn && skipGn) {
     l.err('Error: --gn and --no-gn are mutually exclusive.');
-    exit(ExitCode.usage.code);
+    return ExitCode.usage.code;
   }
   l.info('Building Flutter Engine'.blue);
 
@@ -120,13 +119,13 @@ Future<void> buildEngine(
     l.err(
       'Error: Engine not installed. Run `flutter_compile install engine` first.',
     );
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
 
   final srcDir = '$enginePath/src';
   if (!await Directory(srcDir).exists()) {
     l.err('Error: Engine src directory not found at $srcDir.');
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
 
   // Detect host CPU
@@ -200,4 +199,6 @@ Future<void> buildEngine(
   l
     ..info('\nBuild completed successfully!'.green)
     ..info('Output: $srcDir/out/$outputDir');
+
+  return ExitCode.success.code;
 }

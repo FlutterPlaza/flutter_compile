@@ -145,6 +145,10 @@ export PATH={{path}}/tool/bin:$PATH
   ];
   // Shared Constants
   static const baseCliPath = '/flutter_compile';
+
+  // SDK Management Constants
+  static const sdkVersionsPath = '$baseCliPath/versions';
+  static const flutterGitUrl = 'https://github.com/flutter/flutter.git';
   static const restartShell =
       '\nPlease restart your terminal or source your shell configuration to apply changes. Run\n\nsource ~/{{shell}}\n';
 

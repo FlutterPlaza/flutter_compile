@@ -4,6 +4,6 @@ import '../lib/src/version.dart';
 
 void main() {
   test('version is up to date', () {
-    expect(packageVersion, '0.5.1');
+    expect(packageVersion, '0.6.0');
   });
 }

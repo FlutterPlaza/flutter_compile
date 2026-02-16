@@ -23,17 +23,16 @@ class FlutterSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    await setupFlutterEnvironment(_logger);
-    return ExitCode.success.code;
+    return setupFlutterEnvironment(_logger);
   }
 }
 
-Future<void> setupFlutterEnvironment(Logger l) async {
+Future<int> setupFlutterEnvironment(Logger l) async {
   l.info('Flutter Framework Development Environment Setup'.blue);
   final os = Platform.operatingSystem;
   if (os != 'linux' && os != 'macos') {
     l.err('This tool supports only Linux and macOS platforms.');
-    exit(ExitCode.usage.code); // Using ExitCode.usage for unsupported OS
+    return ExitCode.usage.code;
   }
 
   await F.checkPrerequisites(os);
@@ -91,4 +90,6 @@ Future<void> setupFlutterEnvironment(Logger l) async {
     ..info(
       '\nto switch to the compiled Flutter installation.',
     );
+
+  return ExitCode.success.code;
 }

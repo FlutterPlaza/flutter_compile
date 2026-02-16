@@ -4,7 +4,7 @@ import 'package:test/test.dart';
 import '../../helpers/test_helpers.dart';
 
 void main() {
-  group('status', () {
+  group('switch', () {
     late FlutterCompileCommandRunner commandRunner;
 
     setUp(() {
@@ -12,14 +12,14 @@ void main() {
       commandRunner = fixture.commandRunner;
     });
 
-    test('status command is registered', () {
+    test('switch command is registered', () {
       final commands = commandRunner.commands;
-      expect(commands, contains('status'));
+      expect(commands, contains('switch'));
     });
 
-    test('status command has alias st', () {
-      final statusCmd = commandRunner.commands['status']!;
-      expect(statusCmd.aliases, contains('st'));
+    test('switch command has alias s', () {
+      final switchCmd = commandRunner.commands['switch']!;
+      expect(switchCmd.aliases, contains('s'));
     });
   });
 }

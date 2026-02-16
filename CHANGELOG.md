@@ -1,5 +1,17 @@
 # CHANGE LOG
 
+## 0.6.0
+
+- feat: add `sdk` command to install and manage multiple Flutter SDK versions (`sdk install`, `sdk list`, `sdk remove`)
+- feat: add `dr` alias for `doctor` and `up` alias for `update`
+- refactor: replace all `exit()` calls in shared utilities with `FlutterCompileException`
+- refactor: add centralized exception handling in command runner
+- refactor: extract shell config detection to shared `F.getShellConfigPath()` utility
+- refactor: replace `exit()` calls with return exit codes in install/build commands
+- fix: rename `uninstall devtool` → `uninstall devtools` for consistency (old name kept as alias)
+- test: extract shared test helpers to reduce boilerplate across 12 test files
+- test: add tests for exception handling, `sdk` command, `install`, `uninstall`, and `switch` commands
+
 ## 0.5.1
 
 - chore: upgrade mason_logger to ^0.3.3 and pub_updater to ^0.5.0

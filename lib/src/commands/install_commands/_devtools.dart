@@ -23,12 +23,11 @@ class DevToolsSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    await setupDevToolsEnvironment(_logger);
-    return ExitCode.success.code;
+    return setupDevToolsEnvironment(_logger);
   }
 }
 
-Future<void> setupDevToolsEnvironment(Logger l) async {
+Future<int> setupDevToolsEnvironment(Logger l) async {
   l.info('DevTools Development Environment Setup'.blue);
 
   // Check if Flutter and Dart are in PATH and verify the correct versions
@@ -37,7 +36,7 @@ Future<void> setupDevToolsEnvironment(Logger l) async {
     l.err(
       'Error: flutter and dart must be in your PATH. Please ensure Flutter SDK is correctly installed and added to PATH.',
     );
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
 
   // Clone the DevTools repo
@@ -77,7 +76,7 @@ Future<void> setupDevToolsEnvironment(Logger l) async {
   var toolDir = Directory('$cloneDir/tool');
   if (!await toolDir.exists()) {
     l.err('Error: devtools/tool directory not found.');
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
 
   // Run Flutter pub get for the tool directory
@@ -87,14 +86,7 @@ Future<void> setupDevToolsEnvironment(Logger l) async {
   );
 
   // Add the DevTools tool bin to the PATH
-  final shell = Platform.environment['SHELL'] ?? '';
-  final shellConfig = shell.contains('bash')
-      ? '.bashrc'
-      : shell.contains('zsh')
-          ? '.zshrc'
-          : '.profile';
-  final home = Platform.environment['HOME'] ?? '';
-  final configPath = '$home/$shellConfig';
+  final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   var shellFileContents = await configFile.readAsString();
 
@@ -107,7 +99,8 @@ Future<void> setupDevToolsEnvironment(Logger l) async {
       RunCommandKey.devTools.key,
       cloneDir,
     );
-    l.info('\nAdded\n $devtoolsToolBinPath to PATH in $shellConfig.\n');
+    l.info(
+        '\nAdded\n $devtoolsToolBinPath to PATH in ${configPath.split('/').last}.\n');
   }
 
   // Optional step: Check and update the DevTools Flutter SDK
@@ -123,6 +116,8 @@ Future<void> setupDevToolsEnvironment(Logger l) async {
     ..info(
         '`flutter run` on a sample Flutter project and connect it to DevTools.');
   await displayIncrementalInfo();
+
+  return ExitCode.success.code;
 }
 
 Future<void> displayIncrementalInfo() async {

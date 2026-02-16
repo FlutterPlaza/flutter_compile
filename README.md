@@ -1,4 +1,3 @@
-
 ## flutter_compile
 
 [![Build][build_badge]][build_link]
@@ -7,19 +6,17 @@
 [![License: BSD-3][license_badge]][license_link]
 [![Dart][dart_badge]][dart_link]
 
-A Dart CLI that automates setting up Flutter framework, DevTools, and Engine contributor development environments. No more following 20-step wiki guides — one command handles depot_tools, gclient sync, git remotes, GN flags, and ninja builds.
+A Dart CLI for Flutter contributors and power users. Automates contributor environment setup (framework, DevTools, engine), manages multiple Flutter SDK versions side-by-side, and wraps the engine build/run/test cycle into simple commands.
 
 ---
 
 ## Getting Started
 
-Activate globally via [pub](https://pub.dev):
-
 ```sh
 dart pub global activate flutter_compile
 ```
 
-Or locally from source:
+Or from source:
 
 ```sh
 dart pub global activate --source=path <path to this package>
@@ -29,24 +26,38 @@ dart pub global activate --source=path <path to this package>
 
 ---
 
-## Commands
+## SDK Management
 
-### `install` — Set up contributor environments
+Install and manage multiple Flutter SDK versions side-by-side — by version tag or channel.
 
 ```sh
-# Set up Flutter framework development environment
-flutter_compile install flutter
+# Install a specific version or channel
+flutter_compile sdk install 3.19.0
+flutter_compile sdk install stable
+flutter_compile sdk install beta
 
-# Set up DevTools development environment
-flutter_compile install devtools
+# List all installed SDKs
+flutter_compile sdk list
 
-# Set up Flutter engine development environment (default: host platform)
-flutter_compile install engine
+# Remove an SDK
+flutter_compile sdk remove 3.19.0
+```
 
-# Engine for a specific platform
+SDKs are stored in `~/.flutter_compile/versions/<version>/`.
+
+---
+
+## Contributor Environment Setup
+
+One-command setup for Flutter framework, DevTools, and engine contributor environments. Replaces the multi-step wiki guides.
+
+### `install` (alias: `i`)
+
+```sh
+flutter_compile install flutter    # Framework contributor environment
+flutter_compile install devtools   # DevTools contributor environment
+flutter_compile install engine     # Engine contributor environment (default: host platform)
 flutter_compile install engine --platform android
-flutter_compile install engine --platform ios
-flutter_compile install engine --platform web
 ```
 
 The engine install automates:
@@ -55,132 +66,87 @@ The engine install automates:
 - `gclient sync` (streams output — takes 20-40 min on first run)
 - Git remote setup (upstream = flutter/engine, origin = your fork)
 
-### `run` — Run a Flutter app with a local engine (alias: `r`)
+### `uninstall` (aliases: `delete`, `remove`)
 
 ```sh
-# Run app with default local engine (host_debug_unopt_arm64 on Apple Silicon)
+flutter_compile uninstall flutter
+flutter_compile uninstall devtools
+flutter_compile uninstall engine    # optionally removes depot_tools too
+```
+
+### `switch` (alias: `s`)
+
+Toggle your PATH between the contributor-built Flutter (from `install flutter`) and your system Flutter installation.
+
+```sh
+flutter_compile switch             # Toggle to whichever isn't active
+flutter_compile switch compiled    # Use the contributor-built Flutter
+flutter_compile switch normal      # Use your system Flutter
+```
+
+---
+
+## Engine Workflow
+
+Build, run, and test with a locally-built Flutter engine.
+
+### `build engine` (alias: `b`)
+
+```sh
+flutter_compile build engine                              # Host platform, debug, unoptimized
+flutter_compile build engine --platform android --cpu arm64
+flutter_compile build engine --platform ios --simulator
+flutter_compile build engine --mode release --no-unoptimized
+flutter_compile build engine --gn                         # Force GN re-run
+flutter_compile build engine --no-gn                      # Skip GN step
+flutter_compile build engine --clean                      # Clean build
+```
+
+GN is auto-skipped on incremental rebuilds when `build.ninja` already exists.
+
+### `run` (alias: `r`)
+
+Run a Flutter app with a local engine build.
+
+```sh
 flutter_compile run
-
-# Run targeting a specific engine build
 flutter_compile run -p android -c arm64
-
-# Run on iOS simulator, specific device
 flutter_compile run -p ios --simulator -- -d "iPhone 15"
-
-# Short alias
-flutter_compile r
 ```
 
-Everything after `--` is forwarded to `flutter run` (e.g. `-d chrome`, `--release`).
+Everything after `--` is forwarded to `flutter run`.
 
-**Run options:**
+### `test` (alias: `t`)
 
-| Option | Values | Default |
-|--------|--------|---------|
-| `--platform, -p` | android, ios, macos, linux, web, host | host |
-| `--cpu, -c` | arm, arm64, x64 | auto-detected |
-| `--mode, -m` | debug, profile, release | debug |
-| `--unoptimized` | flag | true |
-| `--simulator` | flag (iOS only) | false |
-
-### `test` — Run Flutter tests with a local engine (alias: `t`)
+Run Flutter tests with a local engine build.
 
 ```sh
-# Run tests with default local engine
 flutter_compile test
-
-# Run a specific test file
-flutter_compile test -- test/my_widget_test.dart
-
-# Run tests targeting an Android engine build
 flutter_compile test -p android -c arm64
-
-# Short alias
-flutter_compile t
+flutter_compile test -- test/my_widget_test.dart
 ```
 
-Everything after `--` is forwarded to `flutter test` (e.g. `test/my_test.dart`).
+Everything after `--` is forwarded to `flutter test`.
 
-**Test options:**
-
-| Option | Values | Default |
-|--------|--------|---------|
-| `--platform, -p` | android, ios, macos, linux, web, host | host |
-| `--cpu, -c` | arm, arm64, x64 | auto-detected |
-| `--mode, -m` | debug, profile, release | debug |
-| `--unoptimized` | flag | true |
-| `--simulator` | flag (iOS only) | false |
-
-### `clean` — Remove engine build artifacts (alias: `c`)
+### `clean` (alias: `c`)
 
 ```sh
-# List available builds with sizes
-flutter_compile clean
-
-# Delete a specific build
-flutter_compile clean host_debug_unopt_arm64
-
-# Delete all builds
-flutter_compile clean --all
-
-# Short alias
-flutter_compile c --all
+flutter_compile clean                        # List builds with sizes
+flutter_compile clean host_debug_unopt_arm64  # Delete a specific build
+flutter_compile clean --all                   # Delete all builds
 ```
 
-### `config` — View and modify settings (alias: `cf`)
-
-```sh
-# List all configuration values
-flutter_compile config list
-
-# Get a specific value (accepts friendly names: flutter, engine, devtools, depot_tools)
-flutter_compile config get engine
-
-# Set a value
-flutter_compile config set engine /path/to/engine
-
-# Short alias
-flutter_compile cf list
-```
-
-### `status` — Show engine status (alias: `st`)
+### `status` (alias: `st`)
 
 ```sh
 flutter_compile status
-flutter_compile st
 ```
 
 Displays engine path, source directory status, host CPU, available build directories with sizes, and whether the current directory is a Flutter project.
 
-### `build` — Build the Flutter engine
+### Engine options
 
-```sh
-# Build engine for host platform (default: debug, unoptimized)
-flutter_compile build engine
-
-# Incremental rebuild (GN auto-skipped if build.ninja exists)
-flutter_compile build engine
-
-# Force GN re-run
-flutter_compile build engine --gn
-
-# Skip GN explicitly
-flutter_compile build engine --no-gn
-
-# Build for Android
-flutter_compile build engine --platform android --cpu arm64
-
-# Build for iOS simulator on Apple Silicon
-flutter_compile build engine --platform ios --simulator
-
-# Release build
-flutter_compile build engine --mode release --no-unoptimized
-
-# Clean build
-flutter_compile build engine --clean
-```
-
-**Build options:**
+These options are shared by `build engine`, `run`, and `test`:
 
 | Option | Values | Default |
 |--------|--------|---------|
@@ -189,44 +155,30 @@ flutter_compile build engine --clean
 | `--mode, -m` | debug, profile, release | debug |
 | `--unoptimized` | flag | true |
 | `--simulator` | flag (iOS only) | false |
-| `--clean` | flag | false |
-| `--gn` | force GN re-run | false |
-| `--no-gn` | skip GN step | false |
 
-### `uninstall` — Remove environments
+`build engine` also accepts `--clean`, `--gn`, and `--no-gn`.
+
+---
+
+## Configuration & Maintenance
+
+### `config` (alias: `cf`)
 
 ```sh
-flutter_compile uninstall flutter
-flutter_compile uninstall devtool
-flutter_compile uninstall engine    # optionally removes depot_tools too
+flutter_compile config list               # Show all settings
+flutter_compile config get engine          # Get a value (flutter, engine, devtools, depot_tools)
+flutter_compile config set engine /path    # Set a value
 ```
 
-### `doctor` — Check environment health
+### `doctor` (alias: `dr`)
 
 ```sh
 flutter_compile doctor
 ```
 
-Reports status of:
-- Required tools (git, python3, dart, flutter)
-- Engine tools (depot_tools/gclient, ninja, Xcode on macOS)
-- Config file (`.flutter_compilerc`)
-- Flutter, DevTools, and Engine contributor environments (directory exists, git remotes configured)
+Reports status of required tools (git, python3, dart, flutter), engine tools (depot_tools, ninja, Xcode), config file, and contributor environments.
 
-### `switch` — Toggle Flutter installations
-
-```sh
-# Toggle between normal and compiled Flutter
-flutter_compile switch
-
-# Switch to compiled Flutter
-flutter_compile switch compiled
-
-# Switch back to normal Flutter
-flutter_compile switch normal
-```
-
-### `update` — Update the CLI
+### `update` (alias: `up`)
 
 ```sh
 flutter_compile update
@@ -235,10 +187,7 @@ flutter_compile update
 ### Other
 
 ```sh
-# Show version
 flutter_compile --version
-
-# Show help
 flutter_compile --help
 ```
 

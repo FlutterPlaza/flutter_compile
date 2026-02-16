@@ -8,7 +8,7 @@ import 'package:mason_logger/mason_logger.dart';
 /// {@template uninstall_command}
 ///
 /// `flutter_compile uninstall flutter`
-/// `flutter_compile uninstall devtool`
+/// `flutter_compile uninstall devtools`
 /// `flutter_compile uninstall engine`
 ///
 /// A [Command] to uninstall various Flutter development environments.
@@ -58,13 +58,15 @@ class FlutterUninstallSubCommand extends Command<int> {
 
 class DevToolsUninstallSubCommand extends Command<int> {
   DevToolsUninstallSubCommand(this._logger) {
-    argParser.addFlag('devtool',
+    argParser.addFlag('devtools',
         abbr: 'd', help: 'Uninstall DevTools environment');
   }
   final Logger _logger;
 
   @override
-  final String name = 'devtool';
+  final String name = 'devtools';
+  @override
+  final List<String> aliases = ['devtool'];
   @override
   final String description = 'Uninstall the DevTools development environment';
 
@@ -115,13 +117,7 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
   }
 
   // Remove the Flutter PATH export from shell config
-  final shell = Platform.environment['SHELL'] ?? '';
-  final shellConfig = shell.contains('bash')
-      ? '.bashrc'
-      : shell.contains('zsh')
-          ? '.zshrc'
-          : '.profile';
-  final configPath = '$home/$shellConfig';
+  final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
@@ -130,7 +126,8 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
     if (contents.contains(flutterExport)) {
       contents = contents.replaceAll(flutterExport, '');
       await configFile.writeAsString(contents);
-      l.info('Removed Flutter PATH export from $shellConfig.'.green);
+      l.info('Removed Flutter PATH export from ${configPath.split('/').last}.'
+          .green);
     }
   }
 
@@ -170,13 +167,7 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
   }
 
   // Remove the DevTools PATH export from shell config
-  final shell = Platform.environment['SHELL'] ?? '';
-  final shellConfig = shell.contains('bash')
-      ? '.bashrc'
-      : shell.contains('zsh')
-          ? '.zshrc'
-          : '.profile';
-  final configPath = '$home/$shellConfig';
+  final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
@@ -185,7 +176,8 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
     if (contents.contains(devtoolsExport)) {
       contents = contents.replaceAll(devtoolsExport, '');
       await configFile.writeAsString(contents);
-      l.info('Removed DevTools PATH export from $shellConfig.'.green);
+      l.info('Removed DevTools PATH export from ${configPath.split('/').last}.'
+          .green);
     }
   }
 
@@ -244,13 +236,7 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
     }
 
     // Remove depot_tools PATH export from shell config
-    final shell = Platform.environment['SHELL'] ?? '';
-    final shellConfig = shell.contains('bash')
-        ? '.bashrc'
-        : shell.contains('zsh')
-            ? '.zshrc'
-            : '.profile';
-    final configPath = '$home/$shellConfig';
+    final configPath = F.getShellConfigPath();
     final configFile = File(configPath);
     if (await configFile.exists()) {
       var contents = await configFile.readAsString();
@@ -259,7 +245,9 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
       if (contents.contains(depotToolsExport)) {
         contents = contents.replaceAll(depotToolsExport, '');
         await configFile.writeAsString(contents);
-        l.info('Removed depot_tools PATH export from $shellConfig.'.green);
+        l.info(
+            'Removed depot_tools PATH export from ${configPath.split('/').last}.'
+                .green);
       }
     }
 

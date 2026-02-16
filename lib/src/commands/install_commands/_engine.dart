@@ -27,25 +27,24 @@ class EngineSubCommand extends Command<int> {
   @override
   Future<int> run() async {
     final platform = argResults?['platform'] as String;
-    await setupEngineEnvironment(_logger, platform);
-    return ExitCode.success.code;
+    return setupEngineEnvironment(_logger, platform);
   }
 }
 
-Future<void> setupEngineEnvironment(Logger l, String platform) async {
+Future<int> setupEngineEnvironment(Logger l, String platform) async {
   l.info('Flutter Engine Development Environment Setup for $platform'.blue);
 
   final os = Platform.operatingSystem;
   if (os != 'linux' && os != 'macos') {
     l.err('This tool supports only Linux and macOS platforms.');
-    exit(ExitCode.usage.code);
+    return ExitCode.usage.code;
   }
 
   // Check prerequisites
   l.info('\nChecking prerequisites...');
   if (!await F.isCommandAvailable('git')) {
     l.err('Error: git is not installed. Please install Git and try again.');
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
   l.success('Git is installed.'.green);
 
@@ -53,7 +52,7 @@ Future<void> setupEngineEnvironment(Logger l, String platform) async {
     l.err(
       'Error: Python3 is not installed. Please install Python and try again.',
     );
-    exit(ExitCode.unavailable.code);
+    return ExitCode.unavailable.code;
   }
   l.success('Python3 is installed.'.green);
 
@@ -138,6 +137,8 @@ Future<void> setupEngineEnvironment(Logger l, String platform) async {
     ..info('\nNext steps:')
     ..info('  1. Run `flutter_compile build engine -p $platform` to build')
     ..info('  2. Run `flutter_compile doctor` to verify your environment');
+
+  return ExitCode.success.code;
 }
 
 Future<String> _ensureDepotTools(Logger l) async {
@@ -163,13 +164,7 @@ Future<String> _ensureDepotTools(Logger l) async {
   }
 
   // Add depot_tools to shell PATH config
-  final shell = Platform.environment['SHELL'] ?? '';
-  final shellConfig = shell.contains('bash')
-      ? '.bashrc'
-      : shell.contains('zsh')
-          ? '.zshrc'
-          : '.profile';
-  final configPath = '$home/$shellConfig';
+  final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
 
   if (await configFile.exists()) {
@@ -179,7 +174,8 @@ Future<String> _ensureDepotTools(Logger l) async {
     if (!contents.contains(depotToolsExport)) {
       contents += depotToolsExport;
       await configFile.writeAsString(contents);
-      l.info('Added depot_tools to PATH in $shellConfig.'.green);
+      l.info(
+          'Added depot_tools to PATH in ${configPath.split('/').last}.'.green);
     }
   }
 

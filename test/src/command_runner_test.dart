@@ -3,17 +3,14 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:cli_completion/cli_completion.dart';
 import 'package:flutter_compile/src/command_runner.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:pub_updater/pub_updater.dart';
 import 'package:test/test.dart';
 
-class _MockLogger extends Mock implements Logger {}
-
-class _MockProgress extends Mock implements Progress {}
-
-class _MockPubUpdater extends Mock implements PubUpdater {}
+import '../helpers/test_helpers.dart';
 
 const latestVersion = '0.0.0';
 
@@ -28,18 +25,10 @@ void main() {
     late FlutterCompileCommandRunner commandRunner;
 
     setUp(() {
-      pubUpdater = _MockPubUpdater();
-
-      when(
-        () => pubUpdater.getLatestVersion(any()),
-      ).thenAnswer((_) async => packageVersion);
-
-      logger = _MockLogger();
-
-      commandRunner = FlutterCompileCommandRunner(
-        logger: logger,
-        pubUpdater: pubUpdater,
-      );
+      final fixture = createTestCommandRunner();
+      logger = fixture.logger;
+      pubUpdater = fixture.pubUpdater;
+      commandRunner = fixture.commandRunner;
     });
 
     test('shows update message when newer version exists', () async {
@@ -85,7 +74,7 @@ void main() {
         ),
       ).thenAnswer((_) async => true);
 
-      final progress = _MockProgress();
+      final progress = MockProgress();
       final progressLogs = <String>[];
       when(() => progress.complete(any())).thenAnswer((answer) {
         final message = answer.positionalArguments.elementAt(0) as String?;
@@ -133,6 +122,33 @@ void main() {
       expect(result, equals(ExitCode.usage.code));
       verify(() => logger.err(exception.message)).called(1);
       verify(() => logger.info('exception usage')).called(1);
+    });
+
+    test('handles FlutterCompileException', () async {
+      var isFirstInvocation = true;
+      when(() => logger.info(any())).thenAnswer((_) {
+        if (isFirstInvocation) {
+          isFirstInvocation = false;
+          throw const FlutterCompileException(
+            'something went wrong',
+            exitCode: 42,
+          );
+        }
+      });
+      final result = await commandRunner.run(['--version']);
+      expect(result, equals(42));
+    });
+
+    test('FlutterCompileException defaults to software exit code', () async {
+      var isFirstInvocation = true;
+      when(() => logger.info(any())).thenAnswer((_) {
+        if (isFirstInvocation) {
+          isFirstInvocation = false;
+          throw const FlutterCompileException('no exit code');
+        }
+      });
+      final result = await commandRunner.run(['--version']);
+      expect(result, equals(ExitCode.software.code));
     });
 
     group('--version', () {

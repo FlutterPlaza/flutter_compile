@@ -8,11 +8,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:pub_updater/pub_updater.dart';
 import 'package:test/test.dart';
 
-class _MockLogger extends Mock implements Logger {}
-
-class _MockProgress extends Mock implements Progress {}
-
-class _MockPubUpdater extends Mock implements PubUpdater {}
+import '../../helpers/test_helpers.dart';
 
 void main() {
   const latestVersion = '0.0.0';
@@ -23,18 +19,13 @@ void main() {
     late FlutterCompileCommandRunner commandRunner;
 
     setUp(() {
-      final progress = _MockProgress();
+      final progress = MockProgress();
       final progressLogs = <String>[];
-      pubUpdater = _MockPubUpdater();
-      logger = _MockLogger();
-      commandRunner = FlutterCompileCommandRunner(
-        logger: logger,
-        pubUpdater: pubUpdater,
-      );
+      final fixture = createTestCommandRunner();
+      logger = fixture.logger;
+      pubUpdater = fixture.pubUpdater;
+      commandRunner = fixture.commandRunner;
 
-      when(
-        () => pubUpdater.getLatestVersion(any()),
-      ).thenAnswer((_) async => packageVersion);
       when(
         () => pubUpdater.update(
           packageName: packageName,
@@ -146,7 +137,7 @@ void main() {
         ).thenAnswer(
           (_) async => ProcessResult(0, ExitCode.success.code, null, null),
         );
-        when(() => logger.progress(any())).thenReturn(_MockProgress());
+        when(() => logger.progress(any())).thenReturn(MockProgress());
         final result = await commandRunner.run(['update']);
         expect(result, equals(ExitCode.success.code));
         verify(() => logger.progress('Checking for updates')).called(1);
@@ -166,7 +157,7 @@ void main() {
         when(
           () => pubUpdater.getLatestVersion(any()),
         ).thenAnswer((_) async => packageVersion);
-        when(() => logger.progress(any())).thenReturn(_MockProgress());
+        when(() => logger.progress(any())).thenReturn(MockProgress());
         final result = await commandRunner.run(['update']);
         expect(result, equals(ExitCode.success.code));
         verify(

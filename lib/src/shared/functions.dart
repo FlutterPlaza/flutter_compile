@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_compile/src/shared/constants.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/extension.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -57,11 +58,23 @@ class F {
     process.stderr.transform(utf8.decoder).listen((data) => stderr.write(data));
     final exitCode = await process.exitCode;
     if (exitCode != 0) {
-      logger.info(
-        'Error: Command "$command ${args.join(' ')}" exited with code $exitCode.',
-      );
-      exit(exitCode);
+      final message =
+          'Error: Command "$command ${args.join(' ')}" exited with code $exitCode.';
+      logger.info(message);
+      throw FlutterCompileException(message, exitCode: exitCode);
     }
+  }
+
+  /// Returns the path to the user's shell config file (e.g. /Users/foo/.zshrc).
+  static String getShellConfigPath() {
+    final home = Platform.environment['HOME'] ?? '';
+    final shell = Platform.environment['SHELL'] ?? '';
+    final shellConfig = shell.contains('bash')
+        ? '.bashrc'
+        : shell.contains('zsh')
+            ? '.zshrc'
+            : '.profile';
+    return '$home/$shellConfig';
   }
 
   static Future<String> getHostCpuArch() async {
@@ -79,8 +92,13 @@ class F {
     final flutterExecutable =
         '${await getPersistedPathFromRC(key: RunCommandKey.flutterCompile)}/flutter';
     if (!await File(flutterExecutable).exists()) {
-      logger.info('Error: Flutter executable not found at $flutterExecutable.');
-      exit(1);
+      final message =
+          'Error: Flutter executable not found at $flutterExecutable.';
+      logger.info(message);
+      throw FlutterCompileException(
+        message,
+        exitCode: ExitCode.unavailable.code,
+      );
     }
     await runCommand(flutterExecutable, args);
   }
@@ -88,22 +106,24 @@ class F {
   static Future<void> checkPrerequisites(String os) async {
     logger.info('\nChecking prerequisites...');
     if (!await isCommandAvailable('git')) {
-      logger.err(
-        'Error: git is not installed. Please install Git and try again.',
+      const message =
+          'Error: git is not installed. Please install Git and try again.';
+      logger.err(message);
+      throw FlutterCompileException(
+        message,
+        exitCode: ExitCode.unavailable.code,
       );
-      exit(
-        ExitCode.unavailable.code,
-      ); // Using ExitCode.unavailable for git not found
     }
     logger.success('✔ Git is installed.'.green);
 
     if (!await isCommandAvailable('python3')) {
-      logger.err(
-        'Error: Python3 is not installed. Please install Python and try again.',
+      const message =
+          'Error: Python3 is not installed. Please install Python and try again.';
+      logger.err(message);
+      throw FlutterCompileException(
+        message,
+        exitCode: ExitCode.unavailable.code,
       );
-      exit(
-        ExitCode.unavailable.code,
-      ); // Using ExitCode.unavailable for python3 not found
     }
     logger.success('✔ Python3 is installed.'.green);
 
@@ -120,12 +140,13 @@ class F {
     logger.info('\nInstalling Android platform tools...');
     if (os == 'macos') {
       if (!await isCommandAvailable('brew')) {
-        logger.err(
-          'Error: Homebrew is not installed. Please install Homebrew and try again.',
+        const message =
+            'Error: Homebrew is not installed. Please install Homebrew and try again.';
+        logger.err(message);
+        throw FlutterCompileException(
+          message,
+          exitCode: ExitCode.unavailable.code,
         );
-        exit(
-          ExitCode.unavailable.code,
-        ); // Using ExitCode.unavailable for brew not found
       }
       await runCommand('brew', ['install', '--cask', 'android-platform-tools']);
     } else if (os == 'linux') {
@@ -137,12 +158,13 @@ class F {
     }
 
     if (!await isCommandAvailable('adb')) {
-      logger.err(
-        'Error: adb is not in your PATH. Please ensure Android platform tools are correctly installed.',
+      const message =
+          'Error: adb is not in your PATH. Please ensure Android platform tools are correctly installed.';
+      logger.err(message);
+      throw FlutterCompileException(
+        message,
+        exitCode: ExitCode.unavailable.code,
       );
-      exit(
-        ExitCode.unavailable.code,
-      ); // Using ExitCode.unavailable for adb not found
     }
     logger.success('✔ adb is available in PATH.'.green);
   }
@@ -202,14 +224,7 @@ class F {
         key: RunCommandKey.flutterCompile,
       );
 
-      final shell = Platform.environment['SHELL'] ?? '';
-      final shellConfig = shell.contains('bash')
-          ? '.bashrc'
-          : shell.contains('zsh')
-              ? '.zshrc'
-              : '.profile';
-      final home = Platform.environment['HOME'] ?? '';
-      final configPath = '$home/$shellConfig';
+      final configPath = F.getShellConfigPath();
       final configFile = File(configPath);
       var contents = await configFile.readAsString();
 
@@ -245,10 +260,12 @@ class F {
         return;
       }
 
-      logger.info(Constants.restartShell.replaceAll('{{shell}}', shellConfig));
+      logger.info(Constants.restartShell
+          .replaceAll('{{shell}}', configPath.split('/').last));
     } catch (e) {
-      logger.err('Error: $e');
-      exit(1);
+      final message = 'Error: $e';
+      logger.err(message);
+      throw FlutterCompileException(message, exitCode: ExitCode.software.code);
     }
   }
 

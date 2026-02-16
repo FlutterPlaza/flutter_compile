@@ -14,6 +14,9 @@ class DoctorCommand extends Command<int> {
   final String name = 'doctor';
 
   @override
+  final List<String> aliases = ['dr'];
+
+  @override
   final String description =
       'Check the health of your Flutter contributor environment';
 
