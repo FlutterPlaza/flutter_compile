@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.4.0
+
+- feat: add `test` command to run Flutter tests with a local engine build (`--local-engine`)
+- feat: add `status` command to show engine configuration and available builds
+- feat: add `t` alias for `test` command and `st` alias for `status` command
+
 ## 0.3.1
 
 - ci: add code coverage reporting and Codecov integration

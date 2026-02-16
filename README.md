@@ -83,6 +83,43 @@ Everything after `--` is forwarded to `flutter run` (e.g. `-d chrome`, `--releas
 | `--unoptimized` | flag | true |
 | `--simulator` | flag (iOS only) | false |
 
+### `test` — Run Flutter tests with a local engine (alias: `t`)
+
+```sh
+# Run tests with default local engine
+flutter_compile test
+
+# Run a specific test file
+flutter_compile test -- test/my_widget_test.dart
+
+# Run tests targeting an Android engine build
+flutter_compile test -p android -c arm64
+
+# Short alias
+flutter_compile t
+```
+
+Everything after `--` is forwarded to `flutter test` (e.g. `test/my_test.dart`).
+
+**Test options:**
+
+| Option | Values | Default |
+|--------|--------|---------|
+| `--platform, -p` | android, ios, macos, linux, web, host | host |
+| `--cpu, -c` | arm, arm64, x64 | auto-detected |
+| `--mode, -m` | debug, profile, release | debug |
+| `--unoptimized` | flag | true |
+| `--simulator` | flag (iOS only) | false |
+
+### `status` — Show engine status (alias: `st`)
+
+```sh
+flutter_compile status
+flutter_compile st
+```
+
+Displays engine path, source directory status, host CPU, available build directories with sizes, and whether the current directory is a Flutter project.
+
 ### `build` — Build the Flutter engine
 
 ```sh
