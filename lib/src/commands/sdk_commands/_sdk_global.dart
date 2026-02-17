@@ -52,7 +52,7 @@ class SdkGlobalSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     await F.writeKeyValueToRcConfig(
       rcConfigFile,
@@ -77,7 +77,7 @@ class SdkGlobalSubCommand extends Command<int> {
     contents = contents.replaceAll(sdkManagerPattern, '');
 
     // Append new SDK manager block
-    final pathExport = Constants.sdkPATHExport
+    final pathExport = Constants.platformSdkPATHExport
         .replaceAll('{{path}}', sdkPath)
         .replaceAll('{{pub_cache_path}}', pubCachePath);
     contents += pathExport;
@@ -85,8 +85,10 @@ class SdkGlobalSubCommand extends Command<int> {
 
     _logger.success('Global SDK version set to "$version".');
     _logger.info(
-      Constants.restartShell
-          .replaceAll('{{shell}}', configPath.split('/').last),
+      Constants.platformRestartShell.replaceAll(
+        '{{shell}}',
+        configPath.split(Platform.isWindows ? r'\' : '/').last,
+      ),
     );
 
     return ExitCode.success.code;

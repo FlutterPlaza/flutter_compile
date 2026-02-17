@@ -17,6 +17,11 @@ void main() {
       expect(commands, contains('status'));
     });
 
+    test('status accepts --json flag', () {
+      final statusCmd = commandRunner.commands['status']!;
+      expect(statusCmd.argParser.options, contains('json'));
+    });
+
     test('status command has alias st', () {
       final statusCmd = commandRunner.commands['status']!;
       expect(statusCmd.aliases, contains('st'));

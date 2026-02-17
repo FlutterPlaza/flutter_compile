@@ -31,7 +31,7 @@ class CleanCommand extends Command<int> {
     final rest = argResults?.rest ?? [];
 
     // Read engine path from .flutter_compilerc
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     final enginePath = await F.readValueForKeyFromRcConfig(
       rcConfigFile,
@@ -105,6 +105,18 @@ class CleanCommand extends Command<int> {
   String _pad(String name) => ' ' * (30 - name.length).clamp(0, 30);
 
   Future<String> _dirSize(String path) async {
+    if (Platform.isWindows) {
+      final result = await Process.run(
+        'powershell',
+        [
+          '-Command',
+          '(Get-ChildItem -Recurse -File "$path" '
+              '| Measure-Object -Property Length -Sum).Sum / 1MB '
+              '| ForEach-Object { "{0:N1}M" -f \$_ }',
+        ],
+      );
+      return (result.stdout as String).trim();
+    }
     final result = await Process.run('du', ['-sh', path]);
     return (result.stdout as String).split('\t').first.trim();
   }

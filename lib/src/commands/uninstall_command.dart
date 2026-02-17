@@ -97,7 +97,7 @@ class EngineUninstallSubCommand extends Command<int> {
 Future<void> uninstallFlutterEnvironment(Logger l) async {
   l.info('Uninstalling Flutter Framework Development Environment'.blue);
 
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final rcConfigFile = File('$home/.flutter_compilerc');
 
   // Read flutter path from config, fall back to default
@@ -121,13 +121,14 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
-    final flutterExport =
-        Constants.flutterCompilePATHExport.replaceAll('{{path}}', flutterPath);
+    final flutterExport = Constants.platformFlutterCompilePATHExport
+        .replaceAll('{{path}}', flutterPath);
     if (contents.contains(flutterExport)) {
       contents = contents.replaceAll(flutterExport, '');
       await configFile.writeAsString(contents);
-      l.info('Removed Flutter PATH export from ${configPath.split('/').last}.'
-          .green);
+      l.info(
+          'Removed Flutter PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
+              .green);
     }
   }
 
@@ -149,7 +150,7 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
 Future<void> uninstallDevToolsEnvironment(Logger l) async {
   l.info('Uninstalling DevTools Development Environment'.blue);
 
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final rcConfigFile = File('$home/.flutter_compilerc');
 
   // Read devtools path from config, fall back to default
@@ -171,13 +172,14 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
-    final devtoolsExport =
-        Constants.devToolsPATHExport.replaceAll('{{path}}', devtoolsPath);
+    final devtoolsExport = Constants.platformDevToolsPATHExport
+        .replaceAll('{{path}}', devtoolsPath);
     if (contents.contains(devtoolsExport)) {
       contents = contents.replaceAll(devtoolsExport, '');
       await configFile.writeAsString(contents);
-      l.info('Removed DevTools PATH export from ${configPath.split('/').last}.'
-          .green);
+      l.info(
+          'Removed DevTools PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
+              .green);
     }
   }
 
@@ -197,7 +199,7 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
 Future<void> uninstallEngineEnvironment(Logger l) async {
   l.info('Uninstalling Flutter Engine Development Environment'.blue);
 
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final rcConfigFile = File('$home/.flutter_compilerc');
 
   // Read engine path from config, fall back to default
@@ -240,13 +242,13 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
     final configFile = File(configPath);
     if (await configFile.exists()) {
       var contents = await configFile.readAsString();
-      final depotToolsExport =
-          Constants.depotToolsPATHExport.replaceAll('{{path}}', depotToolsPath);
+      final depotToolsExport = Constants.platformDepotToolsPATHExport
+          .replaceAll('{{path}}', depotToolsPath);
       if (contents.contains(depotToolsExport)) {
         contents = contents.replaceAll(depotToolsExport, '');
         await configFile.writeAsString(contents);
         l.info(
-            'Removed depot_tools PATH export from ${configPath.split('/').last}.'
+            'Removed depot_tools PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
                 .green);
       }
     }

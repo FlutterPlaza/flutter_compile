@@ -51,6 +51,12 @@ void main() {
       expect(sdkCmd.subcommands, contains('exec'));
     });
 
+    test('sdk list accepts --json flag', () {
+      final sdkCmd = commandRunner.commands['sdk']!;
+      final listCmd = sdkCmd.subcommands['list']!;
+      expect(listCmd.argParser.options, contains('json'));
+    });
+
     test('sdk install with no version arg returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'install']);
       expect(result, equals(ExitCode.usage.code));

@@ -35,8 +35,8 @@ Future<int> setupEngineEnvironment(Logger l, String platform) async {
   l.info('Flutter Engine Development Environment Setup for $platform'.blue);
 
   final os = Platform.operatingSystem;
-  if (os != 'linux' && os != 'macos') {
-    l.err('This tool supports only Linux and macOS platforms.');
+  if (os != 'linux' && os != 'macos' && os != 'windows') {
+    l.err('This tool supports only Linux, macOS, and Windows platforms.');
     return ExitCode.usage.code;
   }
 
@@ -66,7 +66,7 @@ Future<int> setupEngineEnvironment(Logger l, String platform) async {
     defaultValue: '1',
   );
 
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final enginePath = '$home${Constants.engineInstallPath}';
   final engineDir = await F.promptUser(
     'Enter the directory for the engine workspace [Default: $enginePath]: ',
@@ -145,13 +145,14 @@ Future<String> _ensureDepotTools(Logger l) async {
   // Check if gclient is already available in PATH
   if (await F.isCommandAvailable('gclient')) {
     l.info('depot_tools (gclient) already available in PATH.'.green);
-    final result = await Process.run('which', ['gclient']);
+    final lookupCommand = Platform.isWindows ? 'where' : 'which';
+    final result = await Process.run(lookupCommand, ['gclient']);
     final gclientPath = (result.stdout as String).trim();
     // depot_tools dir is parent of gclient binary
     return File(gclientPath).parent.path;
   }
 
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final depotToolsPath = '$home${Constants.depotToolsInstallPath}';
   final depotToolsDir = Directory(depotToolsPath);
 
@@ -169,13 +170,14 @@ Future<String> _ensureDepotTools(Logger l) async {
 
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
-    final depotToolsExport =
-        Constants.depotToolsPATHExport.replaceAll('{{path}}', depotToolsPath);
+    final depotToolsExport = Constants.platformDepotToolsPATHExport
+        .replaceAll('{{path}}', depotToolsPath);
     if (!contents.contains(depotToolsExport)) {
       contents += depotToolsExport;
       await configFile.writeAsString(contents);
       l.info(
-          'Added depot_tools to PATH in ${configPath.split('/').last}.'.green);
+          'Added depot_tools to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
+              .green);
     }
   }
 

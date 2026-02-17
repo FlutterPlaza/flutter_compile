@@ -16,6 +16,16 @@ void main() {
       commandRunner = fixture.commandRunner;
     });
 
+    test('accepts --json flag', () {
+      final doctorCmd = commandRunner.commands['doctor']!;
+      expect(doctorCmd.argParser.options, contains('json'));
+    });
+
+    test('--json runs without throwing', () async {
+      final result = await commandRunner.run(['doctor', '--json']);
+      expect(result, equals(ExitCode.success.code));
+    });
+
     test('runs without throwing', () async {
       final result = await commandRunner.run(['doctor']);
       expect(result, equals(ExitCode.success.code));

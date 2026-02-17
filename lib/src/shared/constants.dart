@@ -1,3 +1,5 @@
+import 'dart:io';
+
 class Constants {
   // Flutter Compile Constants
   static const flutterCompileInstallPath = '$baseCliPath/flutter';
@@ -15,6 +17,15 @@ export PATH={{path}}/cache/dart-sdk/bin:$PATH
 
 ''';
 
+  static const flutterCompilePATHExportWindows = r'''
+
+# >>> Added by flutter_compile setup CLI >>>
+$env:PATH = "{{path}};$env:PATH"
+$env:PATH = "{{path}}\cache\dart-sdk\bin;$env:PATH"
+# <<< Added by flutter_compile setup CLI <<<
+
+''';
+
 // Engine Constants
   static const engineInstallPath = '$baseCliPath/engine';
   static const depotToolsInstallPath = '$baseCliPath/depot_tools';
@@ -24,6 +35,14 @@ export PATH={{path}}/cache/dart-sdk/bin:$PATH
 
 # >>> Added by flutter_compile setup CLI (depot_tools) >>>
 export PATH={{path}}:$PATH
+# <<< Added by flutter_compile setup CLI (depot_tools) <<<
+
+''';
+
+  static const depotToolsPATHExportWindows = r'''
+
+# >>> Added by flutter_compile setup CLI (depot_tools) >>>
+$env:PATH = "{{path}};$env:PATH"
 # <<< Added by flutter_compile setup CLI (depot_tools) <<<
 
 ''';
@@ -48,6 +67,14 @@ solutions = [
 
 # >>> Added by flutter_compile setup CLI >>>
 export PATH={{path}}/tool/bin:$PATH
+# <<< Added by flutter_compile setup CLI <<<
+
+''';
+
+  static const devToolsPATHExportWindows = r'''
+
+# >>> Added by flutter_compile setup CLI >>>
+$env:PATH = "{{path}}\tool\bin;$env:PATH"
 # <<< Added by flutter_compile setup CLI <<<
 
 ''';
@@ -160,11 +187,47 @@ export PUB_CACHE={{pub_cache_path}}
 # <<< Added by flutter_compile SDK manager <<<
 
 ''';
+
+  static const sdkPATHExportWindows = r'''
+
+# >>> Added by flutter_compile SDK manager >>>
+$env:PATH = "{{path}}\bin;$env:PATH"
+$env:PATH = "{{path}}\bin\cache\dart-sdk\bin;$env:PATH"
+$env:PUB_CACHE = "{{pub_cache_path}}"
+# <<< Added by flutter_compile SDK manager <<<
+
+''';
+
   static const restartShell =
       '\nPlease restart your terminal or source your shell configuration to apply changes. Run\n\nsource ~/{{shell}}\n';
 
+  static const restartShellWindows =
+      '\nPlease restart your terminal or reload your PowerShell profile to apply changes. Run\n\n. {{shell}}\n';
+
   static const gitHubUserNameRegex =
       r'^[a-zA-Z0-9](?:[a-zA-Z0-9\-]{2,}[a-zA-Z0-9])?$';
+
+  /// Returns the platform-appropriate PATH export template for flutter_compile.
+  static String get platformFlutterCompilePATHExport =>
+      _isWindows ? flutterCompilePATHExportWindows : flutterCompilePATHExport;
+
+  /// Returns the platform-appropriate PATH export template for depot_tools.
+  static String get platformDepotToolsPATHExport =>
+      _isWindows ? depotToolsPATHExportWindows : depotToolsPATHExport;
+
+  /// Returns the platform-appropriate PATH export template for devtools.
+  static String get platformDevToolsPATHExport =>
+      _isWindows ? devToolsPATHExportWindows : devToolsPATHExport;
+
+  /// Returns the platform-appropriate SDK PATH export template.
+  static String get platformSdkPATHExport =>
+      _isWindows ? sdkPATHExportWindows : sdkPATHExport;
+
+  /// Returns the platform-appropriate restart shell message.
+  static String get platformRestartShell =>
+      _isWindows ? restartShellWindows : restartShell;
+
+  static bool get _isWindows => Platform.isWindows;
 }
 
 enum RunCommandKey {

@@ -49,8 +49,7 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   var cloneUrl = cloneMethod == '2'
       ? 'https://github.com/flutter/devtools.git'
       : 'git@github.com:flutter/devtools.git';
-  final clonePath =
-      '${Platform.environment['HOME']}${Constants.devToolsInstallPath}';
+  final clonePath = '${F.homeDir()}${Constants.devToolsInstallPath}';
   final cloneDir = await F.promptUser(
     'Enter the directory to clone the DevTools repository [Default: $clonePath]: ',
     defaultValue: clonePath,
@@ -91,7 +90,7 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   var shellFileContents = await configFile.readAsString();
 
   final devtoolsToolBinPath =
-      Constants.devToolsPATHExport.replaceAll('{{path}}', cloneDir);
+      Constants.platformDevToolsPATHExport.replaceAll('{{path}}', cloneDir);
   if (!shellFileContents.contains(devtoolsToolBinPath)) {
     shellFileContents += devtoolsToolBinPath;
     await F.writeKeyValueToRcConfig(
@@ -100,7 +99,7 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
       cloneDir,
     );
     l.info(
-        '\nAdded\n $devtoolsToolBinPath to PATH in ${configPath.split('/').last}.\n');
+        '\nAdded\n $devtoolsToolBinPath to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.\n');
   }
 
   // Optional step: Check and update the DevTools Flutter SDK

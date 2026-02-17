@@ -1,5 +1,22 @@
 # CHANGE LOG
 
+## 0.9.0
+
+- feat: add `sync` command to sync contributor environments with upstream (`sync flutter`, `sync engine`, `sync devtools`)
+- feat: add `sy` alias for `sync` command
+- feat: bare `sync` (no subcommand) runs all three environments sequentially
+- feat: add `fcp` executable alias — `fcp` works everywhere `flutter_compile` does
+- feat: add `--json` flag to `sdk list`, `doctor`, `config list`, and `status` for machine-readable output
+- feat: add Windows support — cross-platform PATH management, shell config detection, and host architecture resolution
+- feat: add `F.homeDir()` cross-platform helper (HOME on Unix, USERPROFILE on Windows)
+- feat: `isCommandAvailable()` now uses `where` on Windows, `which` on Unix
+- feat: `getHostCpuArch()` uses PROCESSOR_ARCHITECTURE env var on Windows
+- feat: `getShellConfigPath()` returns PowerShell profile path on Windows
+- feat: add platform-aware PATH export templates for PowerShell
+- feat: `doctor` now checks for Visual Studio (cl.exe) on Windows
+- feat: `install flutter` and `install engine` now accept Windows as a supported platform
+- feat: `du` commands replaced with PowerShell equivalents on Windows for `status` and `clean`
+
 ## 0.8.0
 
 - feat: add `sdk exec` command to run commands through the resolved SDK (project `.flutter-version` → global default)

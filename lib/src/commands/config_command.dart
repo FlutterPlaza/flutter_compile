@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -42,7 +43,13 @@ String _normalizeKey(String key) {
 }
 
 class _ConfigListSubCommand extends Command<int> {
-  _ConfigListSubCommand(this._logger);
+  _ConfigListSubCommand(this._logger) {
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
+  }
 
   final Logger _logger;
 
@@ -54,11 +61,16 @@ class _ConfigListSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final home = Platform.environment['HOME'] ?? '';
+    final asJson = argResults?['json'] == true;
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
 
     if (!await rcConfigFile.exists()) {
-      _logger.info('No .flutter_compilerc file found.');
+      if (asJson) {
+        _logger.info(json.encode(<String, String>{}));
+      } else {
+        _logger.info('No .flutter_compilerc file found.');
+      }
       return ExitCode.success.code;
     }
 
@@ -66,7 +78,23 @@ class _ConfigListSubCommand extends Command<int> {
     final entries = lines.where((line) => line.contains(':')).toList();
 
     if (entries.isEmpty) {
-      _logger.info('.flutter_compilerc is empty.');
+      if (asJson) {
+        _logger.info(json.encode(<String, String>{}));
+      } else {
+        _logger.info('.flutter_compilerc is empty.');
+      }
+      return ExitCode.success.code;
+    }
+
+    if (asJson) {
+      final map = <String, String>{};
+      for (final entry in entries) {
+        final parts = entry.split(':');
+        if (parts.length == 2) {
+          map[parts[0]] = parts[1];
+        }
+      }
+      _logger.info(json.encode(map));
       return ExitCode.success.code;
     }
 
@@ -99,7 +127,7 @@ class _ConfigGetSubCommand extends Command<int> {
     }
 
     final key = _normalizeKey(rest.first);
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     final value = await F.readValueForKeyFromRcConfig(rcConfigFile, key);
 
@@ -135,7 +163,7 @@ class _ConfigSetSubCommand extends Command<int> {
 
     final key = _normalizeKey(rest[0]);
     final value = rest[1];
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
 
     await F.writeKeyValueToRcConfig(rcConfigFile, key, value);

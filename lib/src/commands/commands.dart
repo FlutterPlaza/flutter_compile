@@ -6,6 +6,7 @@ export 'flutter_switch_command.dart';
 export 'install_commands/install_command.dart';
 export 'run_command.dart';
 export 'sdk_commands/sdk_command.dart';
+export 'sync_commands/sync_command.dart';
 export 'status_command.dart';
 export 'test_command.dart';
 export 'uninstall_command.dart';

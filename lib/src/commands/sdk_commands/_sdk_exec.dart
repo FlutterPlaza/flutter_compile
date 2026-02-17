@@ -51,8 +51,8 @@ class SdkExecSubCommand extends Command<int> {
     final sdkPath = F.sdkVersionPath(version);
     final environment = {
       ...F.sdkEnvironment(sdkPath),
-      'PATH': '$sdkPath/bin:$sdkPath/bin/cache/dart-sdk/bin:'
-          '${Platform.environment['PATH'] ?? ''}',
+      'PATH': '$sdkPath/bin${F.envPathSeparator}$sdkPath/bin/cache/dart-sdk/bin'
+          '${F.envPathSeparator}${Platform.environment['PATH'] ?? ''}',
     };
 
     _logger.info('Using SDK "$version" at $sdkPath');

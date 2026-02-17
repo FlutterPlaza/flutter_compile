@@ -30,8 +30,8 @@ class FlutterSubCommand extends Command<int> {
 Future<int> setupFlutterEnvironment(Logger l) async {
   l.info('Flutter Framework Development Environment Setup'.blue);
   final os = Platform.operatingSystem;
-  if (os != 'linux' && os != 'macos') {
-    l.err('This tool supports only Linux and macOS platforms.');
+  if (os != 'linux' && os != 'macos' && os != 'windows') {
+    l.err('This tool supports only Linux, macOS, and Windows platforms.');
     return ExitCode.usage.code;
   }
 
@@ -46,8 +46,7 @@ Future<int> setupFlutterEnvironment(Logger l) async {
   final cloneUrl = cloneMethod == '2'
       ? 'https://github.com/flutter/flutter.git'
       : 'git@github.com:flutter/flutter.git';
-  final clonePath =
-      '${Platform.environment['HOME']}${Constants.flutterCompileInstallPath}';
+  final clonePath = '${F.homeDir()}${Constants.flutterCompileInstallPath}';
   final cloneDir = await F.promptUser(
     'Enter the directory to clone the Flutter repository [Default: $clonePath]: ',
     defaultValue: clonePath,

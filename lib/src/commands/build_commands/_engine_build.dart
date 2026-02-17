@@ -108,7 +108,7 @@ Future<int> buildEngine(
   l.info('Building Flutter Engine'.blue);
 
   // Read engine path from .flutter_compilerc
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final rcConfigFile = File('$home/.flutter_compilerc');
   final enginePath = await F.readValueForKeyFromRcConfig(
     rcConfigFile,

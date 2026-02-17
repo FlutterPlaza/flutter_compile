@@ -11,11 +11,22 @@ class F {
 
   static Logger logger = Logger();
 
+  /// Returns the user's home directory, cross-platform.
+  static String homeDir() {
+    if (Platform.isWindows) {
+      return Platform.environment['USERPROFILE'] ?? '';
+    }
+    return Platform.environment['HOME'] ?? '';
+  }
+
+  /// Returns the platform-specific PATH separator (`;` on Windows, `:` elsewhere).
+  static String get envPathSeparator => Platform.isWindows ? ';' : ':';
+
   static Future<String> getPersistedPathFromRC({
     required RunCommandKey key,
     String? preferredPath,
   }) async {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     logger.info(
       '\nChecking for persisted ${key.key} path in ~/.flutter_compilerc\n',
@@ -67,9 +78,17 @@ class F {
     }
   }
 
-  /// Returns the path to the user's shell config file (e.g. /Users/foo/.zshrc).
+  /// Returns the path to the user's shell config file.
+  ///
+  /// On Windows, returns the PowerShell profile path.
+  /// On Unix, returns ~/.zshrc, ~/.bashrc, or ~/.profile.
   static String getShellConfigPath() {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = homeDir();
+    if (Platform.isWindows) {
+      // PowerShell profile: Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1
+      final docs = Platform.environment['USERPROFILE'] ?? home;
+      return '$docs\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1';
+    }
     final shell = Platform.environment['SHELL'] ?? '';
     final shellConfig = shell.contains('bash')
         ? '.bashrc'
@@ -80,6 +99,10 @@ class F {
   }
 
   static Future<String> getHostCpuArch() async {
+    if (Platform.isWindows) {
+      final arch = Platform.environment['PROCESSOR_ARCHITECTURE'] ?? 'AMD64';
+      return arch == 'ARM64' ? 'arm64' : 'x86_64';
+    }
     final result = await Process.run('uname', ['-m']);
     return (result.stdout as String).trim();
   }
@@ -160,6 +183,10 @@ class F {
         'sudo',
         ['apt-get', 'install', '-y', 'android-tools-adb'],
       );
+    } else if (os == 'windows') {
+      logger.info(
+        'On Windows, install Android platform tools manually or via Android Studio.',
+      );
     }
 
     if (!await isCommandAvailable('adb')) {
@@ -185,7 +212,8 @@ class F {
 
   static Future<bool> isCommandAvailable(String command) async {
     try {
-      final result = await Process.run('which', [command]);
+      final lookupCommand = Platform.isWindows ? 'where' : 'which';
+      final result = await Process.run(lookupCommand, [command]);
       return result.exitCode == 0;
     } catch (e) {
       return false;
@@ -233,7 +261,8 @@ class F {
       final configFile = File(configPath);
       var contents = await configFile.readAsString();
 
-      final flutterCompilePATHExport = Constants.flutterCompilePATHExport
+      final flutterCompilePATHExport = Constants
+          .platformFlutterCompilePATHExport
           .replaceAll('{{path}}', flutterCompilePath);
 
       final isUsingCompiledVersion =
@@ -265,8 +294,10 @@ class F {
         return;
       }
 
-      logger.info(Constants.restartShell
-          .replaceAll('{{shell}}', configPath.split('/').last));
+      logger.info(Constants.platformRestartShell.replaceAll(
+        '{{shell}}',
+        configPath.split(Platform.isWindows ? r'\' : '/').last,
+      ));
     } catch (e) {
       final message = 'Error: $e';
       logger.err(message);
@@ -337,7 +368,7 @@ class F {
       {'PUB_CACHE': sdkPubCachePath(sdkPath)};
 
   static String sdkVersionPath(String version) {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = homeDir();
     return '$home${Constants.sdkVersionsPath}/$version';
   }
 
@@ -355,7 +386,7 @@ class F {
   }
 
   static Future<String?> readGlobalSdkVersion() async {
-    final home = Platform.environment['HOME'] ?? '';
+    final home = homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     return readValueForKeyFromRcConfig(
       rcConfigFile,

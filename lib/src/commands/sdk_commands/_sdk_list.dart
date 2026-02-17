@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -6,7 +7,13 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class SdkListSubCommand extends Command<int> {
-  SdkListSubCommand(this._logger);
+  SdkListSubCommand(this._logger) {
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
+  }
 
   final Logger _logger;
 
@@ -19,35 +26,61 @@ class SdkListSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    return listSdks(_logger);
+    final asJson = argResults?['json'] == true;
+    return listSdks(_logger, asJson: asJson);
   }
 }
 
-Future<int> listSdks(Logger l) async {
-  final home = Platform.environment['HOME'] ?? '';
+Future<int> listSdks(Logger l, {bool asJson = false}) async {
+  final home = F.homeDir();
   final versionsDir = Directory('$home${Constants.sdkVersionsPath}');
 
-  if (!versionsDir.existsSync()) {
-    l.info('No Flutter SDKs installed.');
-    l.info(
-      '\nRun "flutter_compile sdk install <version>" to install one.',
-    );
+  if (!versionsDir.existsSync() ||
+      versionsDir.listSync().whereType<Directory>().isEmpty) {
+    if (asJson) {
+      l.info(json.encode(<Map<String, dynamic>>[]));
+    } else {
+      l.info('No Flutter SDKs installed.');
+      l.info(
+        '\nRun "flutter_compile sdk install <version>" to install one.',
+      );
+    }
     return ExitCode.success.code;
   }
 
   final entries = versionsDir.listSync().whereType<Directory>().toList()
     ..sort((a, b) => a.path.compareTo(b.path));
 
-  if (entries.isEmpty) {
-    l.info('No Flutter SDKs installed.');
-    l.info(
-      '\nRun "flutter_compile sdk install <version>" to install one.',
-    );
-    return ExitCode.success.code;
-  }
-
   final globalVersion = await F.readGlobalSdkVersion();
   final projectVersion = await F.readProjectSdkVersion();
+
+  if (asJson) {
+    final sdks = <Map<String, dynamic>>[];
+    for (final dir in entries) {
+      final name = dir.path.split('/').last;
+      sdks.add({
+        'version': name,
+        'path': dir.path,
+        'global': name == globalVersion,
+        'project': name == projectVersion,
+      });
+    }
+
+    final compiledFlutterDir =
+        Directory('$home${Constants.flutterCompileInstallPath}');
+    if (compiledFlutterDir.existsSync()) {
+      sdks.add({
+        'version': 'compiled',
+        'path': compiledFlutterDir.path,
+        'global': false,
+        'project': false,
+        'contributor': true,
+      });
+    }
+
+    l.info(json.encode(sdks));
+    return ExitCode.success.code;
+  }
 
   l.info('Installed Flutter SDKs:\n');
   for (final dir in entries) {

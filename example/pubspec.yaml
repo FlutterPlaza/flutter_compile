@@ -10,5 +10,8 @@ dependencies:
   flutter_compile:
    path: ../
 
+dev_dependencies:
+  lints: ^5.1.1
+
 executables:
   flutter_compile:

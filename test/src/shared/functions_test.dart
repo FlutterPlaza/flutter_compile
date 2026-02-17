@@ -4,6 +4,30 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('F platform helpers', () {
+    test('homeDir returns a non-empty string', () {
+      expect(F.homeDir(), isNotEmpty);
+    });
+
+    test('envPathSeparator returns : on Unix or ; on Windows', () {
+      if (Platform.isWindows) {
+        expect(F.envPathSeparator, equals(';'));
+      } else {
+        expect(F.envPathSeparator, equals(':'));
+      }
+    });
+
+    test('getShellConfigPath returns a non-empty string', () {
+      final path = F.getShellConfigPath();
+      expect(path, isNotEmpty);
+    });
+
+    test('getHostCpuArch returns a recognized architecture', () async {
+      final arch = await F.getHostCpuArch();
+      expect(arch, anyOf('arm64', 'x86_64', 'aarch64'));
+    });
+  });
+
   group('F SDK helpers', () {
     test('sdkPubCachePath returns <path>/.pub-cache', () {
       expect(F.sdkPubCachePath('/some/sdk'), equals('/some/sdk/.pub-cache'));
@@ -16,7 +40,7 @@ void main() {
     });
 
     test('sdkVersionPath builds correct path', () {
-      final home = Platform.environment['HOME'] ?? '';
+      final home = F.homeDir();
       final path = F.sdkVersionPath('3.19.0');
       expect(path, equals('$home/flutter_compile/versions/3.19.0'));
     });

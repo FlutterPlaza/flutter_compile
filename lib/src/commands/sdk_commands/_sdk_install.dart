@@ -34,7 +34,7 @@ class SdkInstallSubCommand extends Command<int> {
 }
 
 Future<int> installSdk(Logger l, String version) async {
-  final home = Platform.environment['HOME'] ?? '';
+  final home = F.homeDir();
   final targetPath = '$home${Constants.sdkVersionsPath}/$version';
   final targetDir = Directory(targetPath);
 

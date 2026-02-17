@@ -22,6 +22,12 @@ void main() {
       expect(configCmd.aliases, contains('cf'));
     });
 
+    test('config list accepts --json flag', () {
+      final configCmd = commandRunner.commands['config']!;
+      final listCmd = configCmd.subcommands['list']!;
+      expect(listCmd.argParser.options, contains('json'));
+    });
+
     test('config command has list, get, set subcommands', () {
       final configCmd = commandRunner.commands['config']!;
       final subcommands = configCmd.subcommands;

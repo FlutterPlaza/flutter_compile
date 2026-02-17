@@ -64,7 +64,7 @@ class RunCommand extends Command<int> {
     final extraArgs = argResults?.rest ?? [];
 
     // Read engine path from .flutter_compilerc
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     final enginePath = await F.readValueForKeyFromRcConfig(
       rcConfigFile,

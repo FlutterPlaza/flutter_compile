@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
@@ -6,7 +7,13 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class StatusCommand extends Command<int> {
-  StatusCommand(this._logger);
+  StatusCommand(this._logger) {
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
+  }
 
   final Logger _logger;
 
@@ -21,8 +28,10 @@ class StatusCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    final asJson = argResults?['json'] == true;
+
     // Read engine path from .flutter_compilerc
-    final home = Platform.environment['HOME'] ?? '';
+    final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     final enginePath = await F.readValueForKeyFromRcConfig(
       rcConfigFile,
@@ -30,55 +39,84 @@ class StatusCommand extends Command<int> {
     );
 
     if (enginePath == null || enginePath.isEmpty) {
-      _logger.info(
-        'Engine not configured. '
-        'Run `flutter_compile install engine` first.',
-      );
+      if (asJson) {
+        _logger.info(json.encode({'configured': false}));
+      } else {
+        _logger.info(
+          'Engine not configured. '
+          'Run `flutter_compile install engine` first.',
+        );
+      }
       return ExitCode.success.code;
     }
 
     final srcDir = '$enginePath/src';
     final srcExists = await Directory(srcDir).exists();
+    final hostArch = await F.getHostCpuArch();
+    final hasPubspec = await File('pubspec.yaml').exists();
+
+    // Scan for available builds
+    final builds = <Map<String, String>>[];
+    if (srcExists) {
+      final outDir = Directory('$srcDir/out');
+      if (await outDir.exists()) {
+        await for (final entity in outDir.list()) {
+          if (entity is Directory) {
+            final name = entity.path.split('/').last;
+            String size;
+            if (Platform.isWindows) {
+              final sizeResult = await Process.run('powershell', [
+                '-Command',
+                '(Get-ChildItem -Recurse -File "${entity.path}" '
+                    '| Measure-Object -Property Length -Sum).Sum / 1MB '
+                    '| ForEach-Object { "{0:N1}M" -f \$_ }',
+              ]);
+              size = (sizeResult.stdout as String).trim();
+            } else {
+              final sizeResult = await Process.run('du', ['-sh', entity.path]);
+              size = (sizeResult.stdout as String).split('\t').first.trim();
+            }
+            builds.add({'name': name, 'size': size});
+          }
+        }
+      }
+    }
+
+    if (asJson) {
+      _logger.info(json.encode({
+        'configured': true,
+        'engine_path': enginePath,
+        'source_dir': srcDir,
+        'source_exists': srcExists,
+        'host_cpu': hostArch,
+        'builds': builds,
+        'flutter_project': hasPubspec,
+      }));
+      return ExitCode.success.code;
+    }
+
     final srcStatus = srcExists ? 'OK' : 'NOT FOUND';
 
     _logger.info('Engine path: $enginePath');
     _logger.info('Source dir:  $srcDir [$srcStatus]');
-
-    // Detect host CPU
-    final hostArch = await F.getHostCpuArch();
     _logger.info('Host CPU:    $hostArch');
 
-    // Scan for available builds
     if (srcExists) {
-      final outDir = Directory('$srcDir/out');
-      if (await outDir.exists()) {
-        final builds = <String>[];
-        await for (final entity in outDir.list()) {
-          if (entity is Directory) {
-            final name = entity.path.split('/').last;
-            final sizeResult = await Process.run('du', ['-sh', entity.path]);
-            final size = (sizeResult.stdout as String).split('\t').first.trim();
-            builds.add('  $name${' ' * (30 - name.length).clamp(0, 30)}$size');
-          }
-        }
-
-        _logger.info('');
-        if (builds.isEmpty) {
-          _logger.info('Available builds: (none)');
-        } else {
-          _logger.info('Available builds:');
-          for (final build in builds) {
-            _logger.info(build);
-          }
-        }
+      _logger.info('');
+      if (builds.isEmpty) {
+        _logger.info('Available builds: (none)');
       } else {
-        _logger.info('');
-        _logger.info('Available builds: (no out/ directory)');
+        _logger.info('Available builds:');
+        for (final b in builds) {
+          final name = b['name']!;
+          final size = b['size']!;
+          _logger.info(
+            '  $name${' ' * (30 - name.length).clamp(0, 30)}$size',
+          );
+        }
       }
     }
 
-    // Check for Flutter project
-    final hasPubspec = await File('pubspec.yaml').exists();
     _logger.info('');
     _logger.info(
       'Flutter project: ${hasPubspec ? 'yes (pubspec.yaml found)' : 'no'}',

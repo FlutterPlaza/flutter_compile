@@ -1,9 +1,9 @@
 import 'package:test/test.dart';
 
-import '../lib/src/version.dart';
+import 'package:flutter_compile/src/version.dart';
 
 void main() {
   test('version is up to date', () {
-    expect(packageVersion, '0.8.0');
+    expect(packageVersion, '0.9.0');
   });
 }
