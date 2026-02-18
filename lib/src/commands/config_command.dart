@@ -5,6 +5,38 @@ import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+Future<Map<String, String>> gatherConfig() async {
+  final home = F.homeDir();
+  final rcConfigFile = File('$home/.flutter_compilerc');
+
+  if (!await rcConfigFile.exists()) {
+    return <String, String>{};
+  }
+
+  final lines = await rcConfigFile.readAsLines();
+  final entries = lines.where((line) => line.contains(':')).toList();
+  final map = <String, String>{};
+  for (final entry in entries) {
+    final parts = entry.split(':');
+    if (parts.length == 2) {
+      map[parts[0]] = parts[1];
+    }
+  }
+  return map;
+}
+
+/// Normalize friendly key names to their raw config keys.
+String normalizeConfigKey(String key) {
+  const keyMap = {
+    'flutter': 'flutter_path',
+    'engine': 'engine_path',
+    'devtools': 'devtools_path',
+    'depot_tools': 'depot_tools_path',
+    'global_sdk': 'global_sdk_version',
+  };
+  return keyMap[key] ?? key;
+}
+
 class ConfigCommand extends Command<int> {
   ConfigCommand(this._logger) {
     addSubcommand(_ConfigListSubCommand(_logger));
@@ -30,18 +62,6 @@ class ConfigCommand extends Command<int> {
   }
 }
 
-/// Normalize friendly key names to their raw config keys.
-String _normalizeKey(String key) {
-  const keyMap = {
-    'flutter': 'flutter_path',
-    'engine': 'engine_path',
-    'devtools': 'devtools_path',
-    'depot_tools': 'depot_tools_path',
-    'global_sdk': 'global_sdk_version',
-  };
-  return keyMap[key] ?? key;
-}
-
 class _ConfigListSubCommand extends Command<int> {
   _ConfigListSubCommand(this._logger) {
     argParser.addFlag(
@@ -62,24 +82,15 @@ class _ConfigListSubCommand extends Command<int> {
   @override
   Future<int> run() async {
     final asJson = argResults?['json'] == true;
-    final home = F.homeDir();
-    final rcConfigFile = File('$home/.flutter_compilerc');
+    final config = await gatherConfig();
 
-    if (!await rcConfigFile.exists()) {
+    if (config.isEmpty) {
+      final home = F.homeDir();
+      final rcConfigFile = File('$home/.flutter_compilerc');
       if (asJson) {
         _logger.info(json.encode(<String, String>{}));
-      } else {
+      } else if (!await rcConfigFile.exists()) {
         _logger.info('No .flutter_compilerc file found.');
-      }
-      return ExitCode.success.code;
-    }
-
-    final lines = await rcConfigFile.readAsLines();
-    final entries = lines.where((line) => line.contains(':')).toList();
-
-    if (entries.isEmpty) {
-      if (asJson) {
-        _logger.info(json.encode(<String, String>{}));
       } else {
         _logger.info('.flutter_compilerc is empty.');
       }
@@ -87,19 +98,12 @@ class _ConfigListSubCommand extends Command<int> {
     }
 
     if (asJson) {
-      final map = <String, String>{};
-      for (final entry in entries) {
-        final parts = entry.split(':');
-        if (parts.length == 2) {
-          map[parts[0]] = parts[1];
-        }
-      }
-      _logger.info(json.encode(map));
+      _logger.info(json.encode(config));
       return ExitCode.success.code;
     }
 
-    for (final entry in entries) {
-      _logger.info(entry);
+    for (final entry in config.entries) {
+      _logger.info('${entry.key}:${entry.value}');
     }
 
     return ExitCode.success.code;
@@ -126,7 +130,7 @@ class _ConfigGetSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final key = _normalizeKey(rest.first);
+    final key = normalizeConfigKey(rest.first);
     final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     final value = await F.readValueForKeyFromRcConfig(rcConfigFile, key);
@@ -161,7 +165,7 @@ class _ConfigSetSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final key = _normalizeKey(rest[0]);
+    final key = normalizeConfigKey(rest[0]);
     final value = rest[1];
     final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');

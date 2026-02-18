@@ -1,5 +1,35 @@
 # CHANGE LOG
 
+## 0.10.0
+
+- feat: add `daemon` command — JSON-RPC 2.0 daemon for real-time IDE communication over stdin/stdout
+- feat: daemon supports `sdk.list`, `sdk.global.get/set`, `sdk.use.get/set`, `doctor`, `config.list/get/set`, `status`, `version`, `shutdown` methods
+- feat: daemon sends `sdk.changed` and `config.changed` notifications on file system changes
+- feat: add `ui` command — interactive terminal UI dashboard for SDK management
+- feat: TUI provides four tabs: SDKs (with install/set global), Environments, Builds, Doctor
+- feat: TUI keyboard navigation with arrow keys, number keys for tab switching, and action keys
+- feat: extract `gatherSdkList()`, `gatherDoctorChecks()`, `gatherStatus()`, `gatherConfig()` helpers for daemon/TUI reuse
+- feat: add file watcher with 500ms debounce for `.flutter_compilerc` and `.flutter-version` changes
+- deps: add `json_rpc_2` and `stream_channel` dependencies
+- test: add tests for daemon peer, file watcher, TUI key parser, TUI renderer, and new commands
+- feat: add VS Code extension MVP (`extensions/vscode/`) — status bar SDK version, quick pick switcher, Install SDK / Switch SDK / Doctor commands
+- feat: VS Code extension auto-updates `dart.flutterSdkPath` workspace setting on SDK switch
+- feat: VS Code extension watches `.flutter-version` for external changes and updates status bar + settings automatically
+- feat: add `--force` flag to `sdk install` to remove and re-install an existing SDK
+- feat: add `isValidGitRepo()` validation — detect and recover from partial/corrupted clones
+- feat: harden `cloneRepository()` with force mode and partial clone cleanup on failure
+- feat: `isSdkInstalled()` now validates `.git/HEAD` instead of just directory existence
+- feat: idempotent PATH management — `switch`, `uninstall`, and `sdk global` use regex-based block detection to prevent duplicate entries
+- feat: add `homeDirOverride` to `F` class for test isolation
+- feat: add shell completions documentation to README
+- ci: expand GitHub Actions to matrix strategy (Ubuntu, Windows, macOS)
+- test: add `TempHome` test helper for isolated filesystem tests
+- test: add behavioral tests for `config`, `clean`, `status`, and `sdk install` commands
+- test: add unit tests for `Constants`, `ConsoleColor` extension, `isValidGitRepo`, `writeKeyValueToRcConfig`, `readGlobalSdkVersion`
+- feat: add Android Studio / IntelliJ plugin MVP (`extensions/intellij/`) — toolbar combo box SDK switcher, tool window with SDK list and doctor output
+- feat: IntelliJ plugin auto-updates Flutter SDK path in project settings on SDK switch via `FlutterSdkUtil`
+- feat: IntelliJ plugin settings panel for configuring `flutter_compile` CLI path
+
 ## 0.9.0
 
 - feat: add `sync` command to sync contributor environments with upstream (`sync flutter`, `sync engine`, `sync devtools`)

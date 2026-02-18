@@ -31,12 +31,51 @@ class SdkListSubCommand extends Command<int> {
   }
 }
 
-Future<int> listSdks(Logger l, {bool asJson = false}) async {
+Future<List<Map<String, dynamic>>> gatherSdkList() async {
   final home = F.homeDir();
   final versionsDir = Directory('$home${Constants.sdkVersionsPath}');
 
   if (!versionsDir.existsSync() ||
       versionsDir.listSync().whereType<Directory>().isEmpty) {
+    return <Map<String, dynamic>>[];
+  }
+
+  final entries = versionsDir.listSync().whereType<Directory>().toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
+
+  final globalVersion = await F.readGlobalSdkVersion();
+  final projectVersion = await F.readProjectSdkVersion();
+
+  final sdks = <Map<String, dynamic>>[];
+  for (final dir in entries) {
+    final name = dir.path.split('/').last;
+    sdks.add({
+      'version': name,
+      'path': dir.path,
+      'global': name == globalVersion,
+      'project': name == projectVersion,
+    });
+  }
+
+  final compiledFlutterDir =
+      Directory('$home${Constants.flutterCompileInstallPath}');
+  if (compiledFlutterDir.existsSync()) {
+    sdks.add({
+      'version': 'compiled',
+      'path': compiledFlutterDir.path,
+      'global': false,
+      'project': false,
+      'contributor': true,
+    });
+  }
+
+  return sdks;
+}
+
+Future<int> listSdks(Logger l, {bool asJson = false}) async {
+  final sdks = await gatherSdkList();
+
+  if (sdks.isEmpty) {
     if (asJson) {
       l.info(json.encode(<Map<String, dynamic>>[]));
     } else {
@@ -48,58 +87,32 @@ Future<int> listSdks(Logger l, {bool asJson = false}) async {
     return ExitCode.success.code;
   }
 
-  final entries = versionsDir.listSync().whereType<Directory>().toList()
-    ..sort((a, b) => a.path.compareTo(b.path));
-
-  final globalVersion = await F.readGlobalSdkVersion();
-  final projectVersion = await F.readProjectSdkVersion();
-
   if (asJson) {
-    final sdks = <Map<String, dynamic>>[];
-    for (final dir in entries) {
-      final name = dir.path.split('/').last;
-      sdks.add({
-        'version': name,
-        'path': dir.path,
-        'global': name == globalVersion,
-        'project': name == projectVersion,
-      });
-    }
-
-    final compiledFlutterDir =
-        Directory('$home${Constants.flutterCompileInstallPath}');
-    if (compiledFlutterDir.existsSync()) {
-      sdks.add({
-        'version': 'compiled',
-        'path': compiledFlutterDir.path,
-        'global': false,
-        'project': false,
-        'contributor': true,
-      });
-    }
-
     l.info(json.encode(sdks));
     return ExitCode.success.code;
   }
 
   l.info('Installed Flutter SDKs:\n');
-  for (final dir in entries) {
-    final name = dir.path.split('/').last;
+  for (final sdk in sdks) {
+    if (sdk['contributor'] == true) continue;
+    final name = sdk['version'] as String;
+    final path = sdk['path'] as String;
     final markers = <String>[];
-    if (name == globalVersion) markers.add('global');
-    if (name == projectVersion) markers.add('project');
+    if (sdk['global'] == true) markers.add('global');
+    if (sdk['project'] == true) markers.add('project');
     final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
-    l.info('  $name    ${dir.path}$suffix');
+    l.info('  $name    $path$suffix');
   }
 
   // Show contributor environments if they exist
-  final compiledFlutterDir =
-      Directory('$home${Constants.flutterCompileInstallPath}');
-  if (compiledFlutterDir.existsSync()) {
+  final contributor = sdks.where((s) => s['contributor'] == true);
+  if (contributor.isNotEmpty) {
     l.info('\nContributor environments:');
-    l.info(
-      '  compiled  ${compiledFlutterDir.path}    (via install flutter)',
-    );
+    for (final sdk in contributor) {
+      l.info(
+        '  ${sdk['version']}  ${sdk['path']}    (via install flutter)',
+      );
+    }
   }
 
   return ExitCode.success.code;

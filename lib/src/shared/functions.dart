@@ -11,8 +11,12 @@ class F {
 
   static Logger logger = Logger();
 
+  /// Override for testing — when set, [homeDir] returns this value.
+  static String? homeDirOverride;
+
   /// Returns the user's home directory, cross-platform.
   static String homeDir() {
+    if (homeDirOverride != null) return homeDirOverride!;
     if (Platform.isWindows) {
       return Platform.environment['USERPROFILE'] ?? '';
     }
@@ -251,6 +255,14 @@ class F {
     return '';
   }
 
+  /// Regex that matches the flutter_compile setup CLI PATH block
+  /// regardless of the actual path content between the marker comments.
+  static final _flutterCompileBlockPattern = RegExp(
+    r'\n?# >>> Added by flutter_compile setup CLI >>>'
+    r'[\s\S]*?'
+    r'# <<< Added by flutter_compile setup CLI <<<\n?',
+  );
+
   static Future<void> switchFlutterEnvironment({FlutterMode? mode}) async {
     try {
       final flutterCompilePath = await F.getPersistedPathFromRC(
@@ -266,19 +278,19 @@ class F {
           .replaceAll('{{path}}', flutterCompilePath);
 
       final isUsingCompiledVersion =
-          contents.contains(flutterCompilePATHExport);
+          _flutterCompileBlockPattern.hasMatch(contents);
 
       if (mode == FlutterMode.compiled && !isUsingCompiledVersion) {
         contents += flutterCompilePATHExport;
         await configFile.writeAsString(contents);
         logger.success(Constants.flutterCompileSwitchedToCompiled);
       } else if (mode == FlutterMode.normal && isUsingCompiledVersion) {
-        contents = contents.replaceAll(flutterCompilePATHExport, '');
+        contents = contents.replaceAll(_flutterCompileBlockPattern, '');
         await configFile.writeAsString(contents);
         logger.success(Constants.flutterCompileSwitchedToNormal);
       } else if (mode == null) {
         contents = isUsingCompiledVersion
-            ? contents.replaceAll(flutterCompilePATHExport, '')
+            ? contents.replaceAll(_flutterCompileBlockPattern, '')
             : contents + flutterCompilePATHExport;
         await configFile.writeAsString(contents);
         logger.success(
@@ -305,16 +317,47 @@ class F {
     }
   }
 
-  static Future<void> cloneRepository(String url, String directory) async {
+  /// Returns true if [path] is a directory containing a valid `.git/HEAD` file.
+  static bool isValidGitRepo(String path) {
+    final dir = Directory(path);
+    if (!dir.existsSync()) return false;
+    final headFile = File('$path/.git/HEAD');
+    return headFile.existsSync();
+  }
+
+  static Future<void> cloneRepository(
+    String url,
+    String directory, {
+    bool force = false,
+  }) async {
     final dir = Directory(directory);
     if (dir.existsSync()) {
-      logger.info('Directory $directory already exists. Skipping clone.');
-      return;
+      if (force) {
+        logger.info('Removing existing directory and re-cloning...');
+        dir.deleteSync(recursive: true);
+      } else if (!isValidGitRepo(directory)) {
+        logger.info(
+          'Directory $directory exists but is not a valid git repo. '
+          'Cleaning up and re-cloning...',
+        );
+        dir.deleteSync(recursive: true);
+      } else {
+        logger.info('Directory $directory already exists. Skipping clone.');
+        return;
+      }
     }
-    await runCommand(
-      'git',
-      ['clone', url, directory],
-    );
+    try {
+      await runCommand(
+        'git',
+        ['clone', url, directory],
+      );
+    } catch (e) {
+      // Clean up partial clone on failure
+      if (dir.existsSync()) {
+        dir.deleteSync(recursive: true);
+      }
+      rethrow;
+    }
   }
 
   static Future<void> writeKeyValueToRcConfig(
@@ -373,7 +416,7 @@ class F {
   }
 
   static bool isSdkInstalled(String version) =>
-      Directory(sdkVersionPath(version)).existsSync();
+      isValidGitRepo(sdkVersionPath(version));
 
   static Future<String?> readProjectSdkVersion([String? directory]) async {
     final dir = directory ?? Directory.current.path;

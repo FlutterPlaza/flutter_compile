@@ -57,6 +57,12 @@ void main() {
       expect(listCmd.argParser.options, contains('json'));
     });
 
+    test('sdk install accepts --force flag', () {
+      final sdkCmd = commandRunner.commands['sdk']!;
+      final installCmd = sdkCmd.subcommands['install']!;
+      expect(installCmd.argParser.options, contains('force'));
+    });
+
     test('sdk install with no version arg returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'install']);
       expect(result, equals(ExitCode.usage.code));

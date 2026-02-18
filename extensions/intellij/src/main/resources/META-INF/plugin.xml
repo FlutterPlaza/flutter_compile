@@ -1,0 +1,63 @@
+<idea-plugin>
+    <id>com.flutterplaza.fluttercompile</id>
+    <name>Flutter Compile</name>
+    <vendor email="dev@flutterplaza.com" url="https://www.flutterplaza.com">FlutterPlaza</vendor>
+
+    <description><![CDATA[
+        Manage multiple Flutter SDK versions from Android Studio / IntelliJ IDEA.
+        <ul>
+            <li>Toolbar combo box to switch between installed Flutter SDKs</li>
+            <li>Tool window showing installed versions and doctor results</li>
+            <li>Automatic Flutter SDK path update in project settings on switch</li>
+        </ul>
+        <p>Requires the <code>flutter_compile</code> CLI to be installed and on PATH.</p>
+        <p>Licensed under the BSD 3-Clause License. See
+        <a href="https://github.com/flutterplaza/flutter_compile/blob/main/extensions/intellij/LICENSE">LICENSE</a>
+        for details.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>Dart</depends>
+    <depends>io.flutter</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="Flutter Compile"
+                    anchor="bottom"
+                    secondary="true"
+                    icon="AllIcons.Actions.Download"
+                    factoryClass="com.flutterplaza.fluttercompile.toolwindow.FlutterCompileToolWindowFactory"/>
+
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.flutterplaza.fluttercompile.settings.FlutterCompileConfigurable"
+                id="com.flutterplaza.fluttercompile.settings"
+                displayName="Flutter Compile"/>
+
+        <applicationService
+                serviceImplementation="com.flutterplaza.fluttercompile.settings.FlutterCompileSettings"/>
+    </extensions>
+
+    <actions>
+        <action id="FlutterCompile.InstallSdk"
+                class="com.flutterplaza.fluttercompile.actions.InstallSdkAction"
+                text="Install Flutter SDK..."
+                description="Install a Flutter SDK version via flutter_compile">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.Doctor"
+                class="com.flutterplaza.fluttercompile.actions.DoctorAction"
+                text="Flutter Compile Doctor"
+                description="Run flutter_compile doctor">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.SwitchSdk"
+                class="com.flutterplaza.fluttercompile.actions.SwitchSdkComboBoxAction"
+                text="Flutter SDK"
+                description="Switch the active Flutter SDK version">
+            <add-to-group group-id="MainToolBar" anchor="last"/>
+            <add-to-group group-id="NavBarToolBar" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>

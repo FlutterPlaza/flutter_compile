@@ -62,6 +62,8 @@ Every command at a glance. Detailed usage follows below.
 | `config list` | `cf list` | Display all `~/.flutter_compilerc` entries |
 | `config get <key>` | `cf get` | Read a single config value |
 | `config set <k> <v>` | `cf set` | Write a config value |
+| `daemon` | | Start a JSON-RPC 2.0 daemon for IDE communication |
+| `ui` | | Open the terminal UI dashboard |
 | `doctor` | `dr` | Health-check required tools, config file, and contributor environments |
 | `update` | `up` | Self-update flutter_compile to the latest pub version |
 
@@ -373,6 +375,138 @@ flutter_compile status --json          # Engine status as JSON object
 flutter_compile --version
 flutter_compile --help
 ```
+
+---
+
+## Daemon
+
+The `daemon` command starts a JSON-RPC 2.0 server over stdin/stdout, enabling IDE extensions to communicate with the CLI in real time instead of spawning one-off processes.
+
+```sh
+echo '{"jsonrpc":"2.0","method":"version","id":1}' | flutter_compile daemon
+```
+
+Each JSON-RPC message is a single line of JSON (same convention as `flutter daemon`).
+
+**Available methods:**
+
+| Method | Description |
+|--------|-------------|
+| `sdk.list` | List installed SDKs |
+| `sdk.global.get` | Get global SDK version |
+| `sdk.global.set` | Set global SDK version |
+| `sdk.use.get` | Get project SDK version |
+| `sdk.use.set` | Set project SDK version |
+| `doctor` | Run health checks |
+| `config.list` | List all config values |
+| `config.get` | Get a config value |
+| `config.set` | Set a config value |
+| `status` | Get engine status |
+| `version` | Get CLI version |
+| `shutdown` | Stop the daemon |
+
+**Notifications (server to client):**
+- `daemon.connected` — sent on startup with version and PID
+- `sdk.changed` — sent when global or project SDK version changes
+- `config.changed` — sent when `.flutter_compilerc` changes
+
+---
+
+## Terminal UI
+
+The `ui` command opens an interactive terminal dashboard for SDK management without needing an IDE.
+
+```sh
+flutter_compile ui
+```
+
+**Tabs:**
+- **SDKs** — view installed SDKs, set global default (Enter), install new SDK (i)
+- **Environments** — view contributor environment status
+- **Builds** — view available engine builds
+- **Doctor** — view health check results
+
+**Keyboard shortcuts:**
+- `1-4` — switch tabs
+- Arrow keys — navigate within a tab
+- `Tab` — cycle tabs
+- `i` — install SDK (on SDKs tab)
+- `r` — refresh data
+- `q` / `Esc` — quit
+
+---
+
+## VS Code Extension
+
+A companion VS Code extension lives in `extensions/vscode/`. It provides:
+
+- **Status bar** — shows the active Flutter SDK version. Click to open a quick pick switcher.
+- **Commands** — `Flutter Compile: Install SDK`, `Flutter Compile: Switch SDK`, `Flutter Compile: Doctor` available from the command palette.
+- **Auto-update** — switching SDK automatically sets `dart.flutterSdkPath` in workspace settings so the Dart extension picks up the new SDK.
+- **File watcher** — watches `.flutter-version` for external changes (e.g. from the CLI) and updates the status bar and settings automatically.
+
+### Install from source
+
+```sh
+cd extensions/vscode
+npm install
+npm run compile
+```
+
+Then press `F5` in VS Code to launch an Extension Development Host, or package with `vsce package`.
+
+The extension requires `flutter_compile` to be installed and available on PATH. You can configure a custom path via the `flutterCompile.cliPath` setting.
+
+---
+
+## Android Studio / IntelliJ Plugin
+
+A companion IntelliJ platform plugin lives in `extensions/intellij/`. It provides:
+
+- **Toolbar combo box** — SDK version switcher in the main toolbar. Shows the current global SDK and lets you switch with a single click.
+- **Tool window** — "Flutter Compile" tool window with two tabs:
+  - **SDKs** — lists all installed SDK versions with global/project markers, Switch and Refresh buttons.
+  - **Doctor** — runs `flutter_compile doctor` and displays the output.
+- **Auto-update** — switching SDK automatically updates the Flutter SDK path in project settings via the Flutter IntelliJ plugin's API.
+- **Settings** — configure the path to the `flutter_compile` CLI under **Settings > Tools > Flutter Compile**.
+- **Actions** — `Install SDK` and `Doctor` available from the Tools menu and Find Action dialog.
+
+### Build from source
+
+```sh
+cd extensions/intellij
+./gradlew buildPlugin
+```
+
+The built plugin ZIP will be in `build/distributions/`. Install it via **Settings > Plugins > Install Plugin from Disk**.
+
+Requires the [Dart](https://plugins.jetbrains.com/plugin/6351-dart) and [Flutter](https://plugins.jetbrains.com/plugin/9212-flutter) plugins to be installed.
+
+---
+
+## Shell Completions
+
+flutter_compile supports tab completion for commands, subcommands, and flags in bash, zsh, and fish shells.
+
+### Install completions
+
+```sh
+flutter_compile completion install
+```
+
+This writes the completion script for your current shell. After installation, restart your terminal or source your shell config.
+
+### Uninstall completions
+
+```sh
+flutter_compile completion uninstall
+```
+
+Once installed, you can use `<Tab>` to complete:
+
+- Commands: `flutter_compile <Tab>` shows `install`, `build`, `sdk`, `sync`, etc.
+- Subcommands: `flutter_compile sdk <Tab>` shows `install`, `list`, `global`, etc.
+- Flags: `flutter_compile build engine --<Tab>` shows `--platform`, `--cpu`, `--mode`, etc.
 
 ---
 

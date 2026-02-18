@@ -52,6 +52,8 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
     addCommand(StatusCommand(_logger));
     addCommand(SyncCommand(_logger));
     addCommand(TestCommand(_logger));
+    addCommand(DaemonCommand(_logger));
+    addCommand(UiCommand(_logger));
     addCommand(UninstallCommand(_logger));
     addCommand(UpdateCommand(logger: _logger, pubUpdater: _pubUpdater));
   }

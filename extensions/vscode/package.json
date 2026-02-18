@@ -1,0 +1,74 @@
+{
+  "name": "flutter-compile",
+  "displayName": "Flutter Compile",
+  "description": "Manage multiple Flutter SDK versions, switch SDKs, and run flutter_compile doctor from VS Code.",
+  "version": "0.1.0",
+  "publisher": "flutterPlaza-com",
+  "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/flutterplaza/flutter_compile",
+    "directory": "extensions/vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "flutter",
+    "sdk",
+    "version manager",
+    "flutter_compile"
+  ],
+  "activationEvents": [
+    "workspaceContains:**/pubspec.yaml",
+    "workspaceContains:**/.flutter-version"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "flutterCompile.installSdk",
+        "title": "Flutter Compile: Install SDK"
+      },
+      {
+        "command": "flutterCompile.switchSdk",
+        "title": "Flutter Compile: Switch SDK"
+      },
+      {
+        "command": "flutterCompile.doctor",
+        "title": "Flutter Compile: Doctor"
+      },
+      {
+        "command": "flutterCompile.selectSdk",
+        "title": "Flutter Compile: Select SDK"
+      }
+    ],
+    "configuration": {
+      "title": "Flutter Compile",
+      "properties": {
+        "flutterCompile.cliPath": {
+          "type": "string",
+          "default": "flutter_compile",
+          "description": "Path to the flutter_compile CLI executable."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
+    "eslint": "^8.56.0",
+    "typescript": "^5.3.0"
+  }
+}

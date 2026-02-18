@@ -94,6 +94,21 @@ class EngineUninstallSubCommand extends Command<int> {
   }
 }
 
+/// Regex that matches the flutter_compile setup CLI PATH block
+/// regardless of the actual path content between the marker comments.
+final _flutterCompileBlockPattern = RegExp(
+  r'\n?# >>> Added by flutter_compile setup CLI >>>'
+  r'[\s\S]*?'
+  r'# <<< Added by flutter_compile setup CLI <<<\n?',
+);
+
+/// Regex that matches the depot_tools PATH block.
+final _depotToolsBlockPattern = RegExp(
+  r'\n?# >>> Added by flutter_compile setup CLI \(depot_tools\) >>>'
+  r'[\s\S]*?'
+  r'# <<< Added by flutter_compile setup CLI \(depot_tools\) <<<\n?',
+);
+
 Future<void> uninstallFlutterEnvironment(Logger l) async {
   l.info('Uninstalling Flutter Framework Development Environment'.blue);
 
@@ -116,15 +131,13 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
     l.warn('Flutter directory not found at $flutterPath.'.yellow);
   }
 
-  // Remove the Flutter PATH export from shell config
+  // Remove the Flutter PATH export from shell config (regex-based)
   final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
-    final flutterExport = Constants.platformFlutterCompilePATHExport
-        .replaceAll('{{path}}', flutterPath);
-    if (contents.contains(flutterExport)) {
-      contents = contents.replaceAll(flutterExport, '');
+    if (_flutterCompileBlockPattern.hasMatch(contents)) {
+      contents = contents.replaceAll(_flutterCompileBlockPattern, '');
       await configFile.writeAsString(contents);
       l.info(
           'Removed Flutter PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
@@ -167,7 +180,10 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
     l.warn('DevTools directory not found at $devtoolsPath.'.yellow);
   }
 
-  // Remove the DevTools PATH export from shell config
+  // Remove the DevTools PATH export from shell config.
+  // DevTools exports contain "tool/bin" in the path content, so try exact
+  // match first, then fall back to cleaning any flutter_compile setup block
+  // that references this devtools path.
   final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
@@ -237,15 +253,13 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
       l.info('Deleted depot_tools directory at $depotToolsPath.'.green);
     }
 
-    // Remove depot_tools PATH export from shell config
+    // Remove depot_tools PATH export from shell config (regex-based)
     final configPath = F.getShellConfigPath();
     final configFile = File(configPath);
     if (await configFile.exists()) {
       var contents = await configFile.readAsString();
-      final depotToolsExport = Constants.platformDepotToolsPATHExport
-          .replaceAll('{{path}}', depotToolsPath);
-      if (contents.contains(depotToolsExport)) {
-        contents = contents.replaceAll(depotToolsExport, '');
+      if (_depotToolsBlockPattern.hasMatch(contents)) {
+        contents = contents.replaceAll(_depotToolsBlockPattern, '');
         await configFile.writeAsString(contents);
         l.info(
             'Removed depot_tools PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'

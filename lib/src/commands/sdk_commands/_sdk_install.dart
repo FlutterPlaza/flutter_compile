@@ -6,7 +6,12 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class SdkInstallSubCommand extends Command<int> {
-  SdkInstallSubCommand(this._logger);
+  SdkInstallSubCommand(this._logger) {
+    argParser.addFlag(
+      'force',
+      help: 'Remove existing SDK and re-install from scratch.',
+    );
+  }
 
   final Logger _logger;
 
@@ -14,11 +19,11 @@ class SdkInstallSubCommand extends Command<int> {
   final String name = 'install';
   @override
   final String description = 'Install a Flutter SDK version or channel.\n\n'
-      'Usage: flutter_compile sdk install <version|channel>\n'
+      'Usage: flutter_compile sdk install [--force] <version|channel>\n'
       'Examples:\n'
       '  flutter_compile sdk install 3.19.0\n'
       '  flutter_compile sdk install stable\n'
-      '  flutter_compile sdk install beta';
+      '  flutter_compile sdk install --force 3.19.0';
 
   @override
   Future<int> run() async {
@@ -29,27 +34,32 @@ class SdkInstallSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
     final version = rest.first;
-    return installSdk(_logger, version);
+    final force = argResults?['force'] as bool? ?? false;
+    return installSdk(_logger, version, force: force);
   }
 }
 
-Future<int> installSdk(Logger l, String version) async {
+Future<int> installSdk(Logger l, String version, {bool force = false}) async {
   final home = F.homeDir();
   final targetPath = '$home${Constants.sdkVersionsPath}/$version';
-  final targetDir = Directory(targetPath);
 
-  if (targetDir.existsSync()) {
+  if (!force && F.isValidGitRepo(targetPath)) {
     l.info('Flutter SDK "$version" is already installed at $targetPath');
     return ExitCode.success.code;
+  }
+
+  if (force) {
+    l.info('Removing existing SDK and re-installing...');
   }
 
   final progress = l.progress('Installing Flutter SDK "$version"');
 
   await Directory('$home${Constants.sdkVersionsPath}').create(recursive: true);
 
-  await F.runCommand(
-    'git',
-    ['clone', Constants.flutterGitUrl, targetPath],
+  await F.cloneRepository(
+    Constants.flutterGitUrl,
+    targetPath,
+    force: force,
   );
 
   await F.runCommand(
