@@ -1,5 +1,4 @@
 import 'package:flutter_compile/src/command_runner.dart';
-import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
