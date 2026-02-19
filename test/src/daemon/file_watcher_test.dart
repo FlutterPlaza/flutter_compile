@@ -34,7 +34,8 @@ void main() {
 
       watchedFile.writeAsStringSync('changed');
 
-      final result = await completer.future.timeout(const Duration(seconds: 5));
+      final result =
+          await completer.future.timeout(const Duration(seconds: 15));
       expect(result, equals(watchedFile.path));
 
       watcher.stop();
@@ -56,8 +57,8 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
       }
 
-      // Wait for debounce to fire (500ms + margin)
-      await Future<void>.delayed(const Duration(milliseconds: 800));
+      // Wait for debounce to fire (500ms + generous margin for Windows)
+      await Future<void>.delayed(const Duration(seconds: 3));
 
       // Should have been debounced to 1-2 calls, not 5
       expect(callCount, lessThanOrEqualTo(2));

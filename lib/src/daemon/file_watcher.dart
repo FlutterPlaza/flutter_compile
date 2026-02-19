@@ -15,9 +15,11 @@ class FileWatcher {
       // Watch parent directory for file creation events
       final parent = file.parent;
       if (parent.existsSync()) {
+        final fileName = file.uri.pathSegments.last;
         final sub = parent.watch().listen((event) {
           if (event.path == file.path ||
-              event.path.endsWith('/${file.uri.pathSegments.last}')) {
+              event.path.endsWith('/$fileName') ||
+              event.path.endsWith('\\$fileName')) {
             _debounce(path);
           }
         });

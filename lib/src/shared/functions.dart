@@ -370,9 +370,10 @@ class F {
     if (await file.exists()) {
       final lines = await file.readAsLines();
       for (var line in lines) {
-        final parts = line.split(':');
-        if (parts.length == 2) {
-          keyValuePairs[parts[0]] = parts[1];
+        final colonIndex = line.indexOf(':');
+        if (colonIndex != -1) {
+          keyValuePairs[line.substring(0, colonIndex)] =
+              line.substring(colonIndex + 1);
         }
       }
     }
@@ -394,9 +395,9 @@ class F {
     if (await file.exists()) {
       final lines = await file.readAsLines();
       for (var line in lines) {
-        final parts = line.split(':');
-        if (parts.length == 2 && parts[0] == key) {
-          return parts[1];
+        final colonIndex = line.indexOf(':');
+        if (colonIndex != -1 && line.substring(0, colonIndex) == key) {
+          return line.substring(colonIndex + 1);
         }
       }
     }
