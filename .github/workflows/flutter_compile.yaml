@@ -31,8 +31,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: ubuntu-latest
-            runs-on: [self-hosted, Linux]
+          - os: macos-latest
+            runs-on: [self-hosted, macOS]
           - os: windows-latest
             runs-on: windows-latest
           - os: macos-latest
