@@ -36,7 +36,7 @@ jobs:
           - os: windows-latest
             runs-on: windows-latest
           - os: macos-latest
-            runs-on: macos-latest
+            runs-on: [self-hosted, macOS]
     runs-on: ${{ matrix.runs-on }}
     steps:
       - name: 📚 Git Checkout
