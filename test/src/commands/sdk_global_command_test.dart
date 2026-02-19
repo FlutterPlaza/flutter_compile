@@ -3,18 +3,23 @@ import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
+import '../../helpers/temp_home.dart';
 import '../../helpers/test_helpers.dart';
 
 void main() {
   group('sdk global', () {
+    final tempHome = TempHome();
     late Logger logger;
     late FlutterCompileCommandRunner commandRunner;
 
     setUp(() {
+      tempHome.setUp();
       final fixture = createTestCommandRunner();
       logger = fixture.logger;
       commandRunner = fixture.commandRunner;
     });
+
+    tearDown(tempHome.tearDown);
 
     test('sdk global subcommand is registered', () {
       final sdkCmd = commandRunner.commands['sdk']!;
