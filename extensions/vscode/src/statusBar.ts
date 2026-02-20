@@ -26,6 +26,7 @@ export async function refresh(): Promise<void> {
   const projectVersion = await readProjectVersion();
   if (projectVersion) {
     statusBarItem.text = `$(versions) Flutter SDK: ${projectVersion} (project)`;
+    statusBarItem.backgroundColor = undefined;
     return;
   }
 
@@ -33,8 +34,12 @@ export async function refresh(): Promise<void> {
   const globalVersion = await cli.getGlobalSdkVersion();
   if (globalVersion) {
     statusBarItem.text = `$(versions) Flutter SDK: ${globalVersion}`;
+    statusBarItem.backgroundColor = undefined;
   } else {
     statusBarItem.text = "$(versions) Flutter SDK: (none)";
+    statusBarItem.backgroundColor = new vscode.ThemeColor(
+      "statusBarItem.warningBackground"
+    );
   }
 }
 

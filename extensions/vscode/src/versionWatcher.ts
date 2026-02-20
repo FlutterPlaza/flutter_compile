@@ -5,7 +5,9 @@ import { updateFlutterSdkPath } from "./sdkSettings";
 let watcher: vscode.FileSystemWatcher | undefined;
 
 /** Start watching `.flutter-version` in all workspace folders. */
-export function start(): vscode.Disposable[] {
+export function start(
+  onSdkChanged?: () => void
+): vscode.Disposable[] {
   const disposables: vscode.Disposable[] = [];
 
   watcher = vscode.workspace.createFileSystemWatcher(
@@ -19,10 +21,12 @@ export function start(): vscode.Disposable[] {
       if (version) {
         await statusBar.refresh();
         await updateFlutterSdkPath(version);
+        onSdkChanged?.();
       }
     } catch {
       // File may have been deleted — refresh will handle "(none)"
       await statusBar.refresh();
+      onSdkChanged?.();
     }
   };
 
@@ -30,6 +34,7 @@ export function start(): vscode.Disposable[] {
   watcher.onDidCreate(onChange);
   watcher.onDidDelete(async () => {
     await statusBar.refresh();
+    onSdkChanged?.();
   });
 
   disposables.push(watcher);

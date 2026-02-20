@@ -69,4 +69,50 @@ object FlutterCompileCli {
         val sdks = listSdks()
         return sdks.find { it.version == version }?.path
     }
+
+    /** Run doctor with JSON output and return structured checks. */
+    fun runDoctorJson(): List<DoctorCheck> {
+        val raw = run("doctor", "--json") ?: return emptyList()
+        return try {
+            val type = object : TypeToken<List<DoctorCheck>>() {}.type
+            gson.fromJson(raw, type)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse doctor --json output", e)
+            emptyList()
+        }
+    }
+
+    /** Get engine status via `status --json`. */
+    fun getStatus(): EngineStatus {
+        val raw = run("status", "--json") ?: return EngineStatus(configured = false)
+        return try {
+            gson.fromJson(raw, EngineStatus::class.java)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse status --json output", e)
+            EngineStatus(configured = false)
+        }
+    }
+
+    /** Remove an installed SDK. Returns true on success. */
+    fun removeSdk(version: String): Boolean {
+        return run("sdk", "remove", version) != null
+    }
+
+    /** Pin SDK to project via `sdk use <version>`. Returns true on success. */
+    fun useSdk(version: String): Boolean {
+        return run("sdk", "use", version) != null
+    }
+
+    /** Check if the CLI is available on PATH. */
+    fun isCliAvailable(): Boolean {
+        return try {
+            val cmd = GeneralCommandLine(cliPath(), "--version")
+                .withParentEnvironmentType(GeneralCommandLine.ParentEnvironmentType.CONSOLE)
+            val handler = CapturingProcessHandler(cmd)
+            val result = handler.runProcess(10_000)
+            result.exitCode == 0
+        } catch (_: Exception) {
+            false
+        }
+    }
 }

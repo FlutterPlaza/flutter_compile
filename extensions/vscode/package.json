@@ -1,10 +1,11 @@
 {
   "name": "flutter-compile",
   "displayName": "Flutter Compile",
-  "description": "Manage multiple Flutter SDK versions, switch SDKs, and run flutter_compile doctor from VS Code.",
-  "version": "0.1.0",
+  "description": "Manage multiple Flutter SDK versions — install, switch, pin, remove SDKs, run diagnostics, and monitor engine builds from the VS Code sidebar.",
+  "version": "0.2.0",
   "publisher": "flutterPlaza-com",
   "license": "BSD-3-Clause",
+  "icon": "media/flutter-compile.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/flutterplaza/flutter_compile",
@@ -14,8 +15,13 @@
     "vscode": "^1.85.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Programming Languages"
   ],
+  "galleryBanner": {
+    "color": "#0175C2",
+    "theme": "dark"
+  },
   "keywords": [
     "flutter",
     "sdk",
@@ -28,10 +34,48 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "flutterCompile",
+          "title": "Flutter Compile",
+          "icon": "media/flutter-compile.svg"
+        }
+      ]
+    },
+    "views": {
+      "flutterCompile": [
+        {
+          "id": "flutterCompile.sdks",
+          "name": "SDKs"
+        },
+        {
+          "id": "flutterCompile.doctor",
+          "name": "Doctor"
+        },
+        {
+          "id": "flutterCompile.builds",
+          "name": "Engine Builds"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "flutterCompile.sdks",
+        "contents": "No Flutter SDKs installed.\n[Install SDK](command:flutterCompile.installSdk)",
+        "when": "flutterCompile.noSdks"
+      },
+      {
+        "view": "flutterCompile.builds",
+        "contents": "No engine configured.\nRun `flutter_compile engine init` to set up the Flutter engine.",
+        "when": "flutterCompile.noEngine"
+      }
+    ],
     "commands": [
       {
         "command": "flutterCompile.installSdk",
-        "title": "Flutter Compile: Install SDK"
+        "title": "Flutter Compile: Install SDK",
+        "icon": "$(add)"
       },
       {
         "command": "flutterCompile.switchSdk",
@@ -44,8 +88,99 @@
       {
         "command": "flutterCompile.selectSdk",
         "title": "Flutter Compile: Select SDK"
+      },
+      {
+        "command": "flutterCompile.removeSdk",
+        "title": "Flutter Compile: Remove SDK",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "flutterCompile.setGlobalSdk",
+        "title": "Flutter Compile: Set Global SDK",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "flutterCompile.pinSdkToProject",
+        "title": "Flutter Compile: Pin SDK to Project",
+        "icon": "$(pin)"
+      },
+      {
+        "command": "flutterCompile.openSdkFolder",
+        "title": "Flutter Compile: Open SDK Folder",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "flutterCompile.refreshSdks",
+        "title": "Flutter Compile: Refresh SDKs",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flutterCompile.refreshDoctor",
+        "title": "Flutter Compile: Refresh Doctor",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flutterCompile.refreshBuilds",
+        "title": "Flutter Compile: Refresh Builds",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "flutterCompile.refreshAll",
+        "title": "Flutter Compile: Refresh All",
+        "icon": "$(refresh)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "flutterCompile.installSdk",
+          "when": "view == flutterCompile.sdks",
+          "group": "navigation@1"
+        },
+        {
+          "command": "flutterCompile.refreshSdks",
+          "when": "view == flutterCompile.sdks",
+          "group": "navigation@2"
+        },
+        {
+          "command": "flutterCompile.refreshDoctor",
+          "when": "view == flutterCompile.doctor",
+          "group": "navigation"
+        },
+        {
+          "command": "flutterCompile.refreshBuilds",
+          "when": "view == flutterCompile.builds",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "flutterCompile.setGlobalSdk",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk/",
+          "group": "inline@1"
+        },
+        {
+          "command": "flutterCompile.removeSdk",
+          "when": "view == flutterCompile.sdks && viewItem == sdk",
+          "group": "inline@2"
+        },
+        {
+          "command": "flutterCompile.pinSdkToProject",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk/",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "flutterCompile.openSdkFolder",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk/",
+          "group": "1_actions@2"
+        },
+        {
+          "command": "flutterCompile.removeSdk",
+          "when": "view == flutterCompile.sdks && viewItem == sdk",
+          "group": "2_destructive@1"
+        }
+      ]
+    },
     "configuration": {
       "title": "Flutter Compile",
       "properties": {

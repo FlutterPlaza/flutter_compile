@@ -1,0 +1,87 @@
+name: IntelliJ Plugin
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/intellij_plugin.yaml"
+      - "extensions/intellij/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/intellij_plugin.yaml"
+      - "extensions/intellij/**"
+    tags:
+      - "intellij-v*"
+
+defaults:
+  run:
+    working-directory: extensions/intellij
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📚 Git Checkout
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 🔨 Build
+        run: ./gradlew build
+
+      - name: 📤 Upload Plugin Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intellij-plugin
+          path: extensions/intellij/build/distributions/*.zip
+
+  publish:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/intellij-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 📚 Git Checkout
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: 🚀 Publish to JetBrains Marketplace
+        run: ./gradlew publishPlugin
+        env:
+          PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
+          CERTIFICATE_CHAIN: ${{ secrets.CERTIFICATE_CHAIN }}
+          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
+          PRIVATE_KEY_PASSWORD: ${{ secrets.PRIVATE_KEY_PASSWORD }}
+
+      - name: 📥 Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: intellij-plugin
+          path: dist
+
+      - name: 🏷️ Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

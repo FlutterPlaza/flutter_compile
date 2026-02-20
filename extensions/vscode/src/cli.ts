@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import type { DoctorCheck, EngineStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -88,4 +89,44 @@ export async function getSdkPath(
   const sdks = await listSdks();
   const match = sdks.find((s) => s.version === version);
   return match?.path;
+}
+
+/** Run doctor with JSON output. */
+export async function runDoctorJson(): Promise<DoctorCheck[]> {
+  try {
+    const raw = await run(["doctor", "--json"]);
+    return JSON.parse(raw) as DoctorCheck[];
+  } catch {
+    return [];
+  }
+}
+
+/** Get engine status via `status --json`. */
+export async function getStatus(): Promise<EngineStatus> {
+  try {
+    const raw = await run(["status", "--json"]);
+    return JSON.parse(raw) as EngineStatus;
+  } catch {
+    return { configured: false };
+  }
+}
+
+/** Remove an installed SDK via `sdk remove <version>`. */
+export async function removeSdk(version: string): Promise<void> {
+  await run(["sdk", "remove", version]);
+}
+
+/** Pin SDK to project via `sdk use <version>`. */
+export async function useSdk(version: string): Promise<void> {
+  await run(["sdk", "use", version]);
+}
+
+/** Check if the CLI is available. */
+export async function isCliAvailable(): Promise<boolean> {
+  try {
+    await run(["--version"]);
+    return true;
+  } catch {
+    return false;
+  }
 }

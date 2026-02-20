@@ -4,13 +4,47 @@
     <vendor email="dev@flutterplaza.com" url="https://www.flutterplaza.com">FlutterPlaza</vendor>
 
     <description><![CDATA[
-        Manage multiple Flutter SDK versions from Android Studio / IntelliJ IDEA.
+        <p>Manage multiple Flutter SDK versions from Android Studio or IntelliJ IDEA.
+        Install, switch, pin, and remove SDKs without leaving the IDE.</p>
+
+        <h2>Features</h2>
+
+        <h3>SDK Manager</h3>
         <ul>
-            <li>Toolbar combo box to switch between installed Flutter SDKs</li>
-            <li>Tool window showing installed versions and doctor results</li>
-            <li>Automatic Flutter SDK path update in project settings on switch</li>
+            <li>Tree view with status icons — green check (active), package (installed), plugin (contributor build)</li>
+            <li>Toolbar combo box for quick SDK switching from the main toolbar</li>
+            <li>Right-click context menu: Set as Global, Pin to Project, Open SDK Folder, Remove SDK</li>
+            <li>Double-click any SDK to set it as the global default</li>
+            <li>Install new SDKs by version number or channel (stable, beta, etc.)</li>
         </ul>
-        <p>Requires the <code>flutter_compile</code> CLI to be installed and on PATH.</p>
+
+        <h3>Doctor</h3>
+        <ul>
+            <li>Grouped diagnostic checks: Required Tools, Engine Tools, Configuration, Environments</li>
+            <li>Pass/fail/warning icons with summary counts per category (e.g. 3/4 OK)</li>
+            <li>Inline details: install paths, error messages, missing remotes</li>
+        </ul>
+
+        <h3>Engine Builds</h3>
+        <ul>
+            <li>Engine path, source status, and host CPU at a glance</li>
+            <li>Build targets with disk sizes for Flutter engine contributors</li>
+        </ul>
+
+        <h3>Automatic Refresh</h3>
+        <ul>
+            <li>File watcher detects <code>.flutter-version</code> changes and refreshes the SDK tree</li>
+            <li>CLI availability check on startup — shows install instructions if missing</li>
+            <li>Flutter SDK path in project settings updates automatically on switch</li>
+        </ul>
+
+        <h2>Getting Started</h2>
+        <ol>
+            <li>Install the CLI: <code>dart pub global activate flutter_compile</code></li>
+            <li>Make sure <code>~/.pub-cache/bin</code> is in your <code>PATH</code></li>
+            <li>Open a Flutter project — the Flutter Compile tool window appears in the bottom panel</li>
+        </ol>
+
         <p>Licensed under the BSD 3-Clause License. See
         <a href="https://github.com/flutterplaza/flutter_compile/blob/main/extensions/intellij/LICENSE">LICENSE</a>
         for details.</p>
@@ -24,7 +58,7 @@
         <toolWindow id="Flutter Compile"
                     anchor="bottom"
                     secondary="true"
-                    icon="AllIcons.Actions.Download"
+                    icon="/icons/flutterCompile.svg"
                     factoryClass="com.flutterplaza.fluttercompile.toolwindow.FlutterCompileToolWindowFactory"/>
 
         <applicationConfigurable
@@ -35,7 +69,18 @@
 
         <applicationService
                 serviceImplementation="com.flutterplaza.fluttercompile.settings.FlutterCompileSettings"/>
+
+        <notificationGroup id="Flutter Compile"
+                           displayType="BALLOON"/>
+
+        <postStartupActivity
+                implementation="com.flutterplaza.fluttercompile.startup.CliAvailabilityChecker"/>
     </extensions>
+
+    <projectListeners>
+        <listener class="com.flutterplaza.fluttercompile.listeners.VersionFileListener"
+                  topic="com.intellij.openapi.vfs.newvfs.BulkFileListener"/>
+    </projectListeners>
 
     <actions>
         <action id="FlutterCompile.InstallSdk"
@@ -49,6 +94,34 @@
                 class="com.flutterplaza.fluttercompile.actions.DoctorAction"
                 text="Flutter Compile Doctor"
                 description="Run flutter_compile doctor">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.RemoveSdk"
+                class="com.flutterplaza.fluttercompile.actions.RemoveSdkAction"
+                text="Remove Flutter SDK..."
+                description="Remove an installed Flutter SDK">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.PinSdkToProject"
+                class="com.flutterplaza.fluttercompile.actions.PinSdkToProjectAction"
+                text="Pin Flutter SDK to Project..."
+                description="Pin a Flutter SDK to the current project">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.OpenSdkFolder"
+                class="com.flutterplaza.fluttercompile.actions.OpenSdkFolderAction"
+                text="Open Flutter SDK Folder..."
+                description="Open an SDK installation folder in the file manager">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.Refresh"
+                class="com.flutterplaza.fluttercompile.actions.RefreshAction"
+                text="Refresh Flutter Compile"
+                description="Refresh all Flutter Compile panels">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
