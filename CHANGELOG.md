@@ -1,5 +1,15 @@
 # CHANGE LOG
 
+## 0.10.1
+
+- fix: rc config read/write now splits on first colon only, fixing Windows drive-letter paths (e.g. `C:\Users\...`)
+- fix: file watcher path matching now handles Windows backslash separators
+- fix: add `TempHome` isolation to `sdk exec` and `sdk global` tests to prevent failures on machines with a configured SDK
+- fix: remove unused import in `sdk_exec_command_test.dart`
+- fix: increase file watcher test timeouts for Windows CI reliability
+- chore: add `.kotlin/` to IntelliJ extension `.gitignore`
+- chore: add `.DS_Store` to root `.gitignore`
+
 ## 0.10.0
 
 - feat: add `daemon` command — JSON-RPC 2.0 daemon for real-time IDE communication over stdin/stdout

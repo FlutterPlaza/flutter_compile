@@ -4,6 +4,6 @@ import 'package:flutter_compile/src/version.dart';
 
 void main() {
   test('version is up to date', () {
-    expect(packageVersion, '0.10.0');
+    expect(packageVersion, '0.10.1');
   });
 }
