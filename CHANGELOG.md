@@ -1,5 +1,22 @@
 # CHANGE LOG
 
+## 0.11.0
+
+- feat: engine now builds from within the Flutter contributor checkout (monorepo alignment with flutter/flutter)
+- feat: `install engine` requires `install flutter` first — engine lives inside the Flutter checkout
+- feat: add `--force` flag to `install engine` and `sync engine` for forced `gclient sync` with automatic retry
+- feat: `build engine` now prepends depot_tools to PATH automatically (no manual PATH setup needed)
+- feat: `install flutter --ide vscode|intellij` flag — skip or auto-accept IDE-specific prompts when called from extensions
+- feat: `doctor` now probes known depot_tools locations for gclient beyond PATH
+- fix: `doctor` strips trailing `/bin` from rc config paths for correct repo root detection
+- fix: idempotent git remote setup in `install flutter`, `install devtools`, and `install engine` (safe to re-run)
+- fix: `install devtools` now saves path to rc config before modifying shell config
+- fix: gclient template updated for monorepo (`name: "."`, `{{flutter_url}}`)
+- fix: engine upstream URLs changed from flutter/engine to flutter/flutter
+- fix: better error messages and manual recovery instructions for gclient sync failures
+- feat: VS Code extension v0.3.0 — dual SDK backend (Native + FVM), SDK Manager toggle button, doctor install actions
+- feat: IntelliJ plugin v0.3.0 — mode dropdown for Native vs FVM backend, enhanced CLI integration
+
 ## 0.10.1
 
 - fix: rc config read/write now splits on first colon only, fixing Windows drive-letter paths (e.g. `C:\Users\...`)

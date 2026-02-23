@@ -8,13 +8,20 @@ import 'package:mason_logger/mason_logger.dart';
 
 class EngineSubCommand extends Command<int> {
   EngineSubCommand(this._logger) {
-    argParser.addOption(
-      'platform',
-      abbr: 'p',
-      help: 'Specify the target platform',
-      allowed: ['android', 'ios', 'macos', 'linux', 'web', 'host'],
-      defaultsTo: 'host',
-    );
+    argParser
+      ..addOption(
+        'platform',
+        abbr: 'p',
+        help: 'Specify the target platform',
+        allowed: ['android', 'ios', 'macos', 'linux', 'web', 'host'],
+        defaultsTo: 'host',
+      )
+      ..addFlag(
+        'force',
+        abbr: 'f',
+        help: 'Force gclient sync with --reset --force (resolves dirty repos)',
+        defaultsTo: false,
+      );
   }
   final Logger _logger;
 
@@ -27,11 +34,13 @@ class EngineSubCommand extends Command<int> {
   @override
   Future<int> run() async {
     final platform = argResults?['platform'] as String;
-    return setupEngineEnvironment(_logger, platform);
+    final force = argResults?['force'] as bool;
+    return setupEngineEnvironment(_logger, platform, force: force);
   }
 }
 
-Future<int> setupEngineEnvironment(Logger l, String platform) async {
+Future<int> setupEngineEnvironment(Logger l, String platform,
+    {bool force = false}) async {
   l.info('Flutter Engine Development Environment Setup for $platform'.blue);
 
   final os = Platform.operatingSystem;
@@ -56,72 +65,90 @@ Future<int> setupEngineEnvironment(Logger l, String platform) async {
   }
   l.success('Python3 is installed.'.green);
 
+  // Resolve the Flutter contributor directory (engine lives inside it)
+  final home = F.homeDir();
+  final rcConfigFile = File('$home/.flutter_compilerc');
+
+  var flutterBinPath = await F.readValueForKeyFromRcConfig(
+    rcConfigFile,
+    RunCommandKey.flutterCompile.key,
+  );
+  final defaultFlutterPath = '$home${Constants.flutterCompileInstallPath}';
+
+  // flutter_path in rc config stores the bin dir (e.g. .../flutter/bin);
+  // we need the repo root (e.g. .../flutter) for gclient and git ops.
+  String toRepoRoot(String p) {
+    final sep = Platform.isWindows ? r'\' : '/';
+    return p.endsWith('${sep}bin') ? p.substring(0, p.length - 4) : p;
+  }
+
+  final flutterDir = (flutterBinPath != null && flutterBinPath.isNotEmpty)
+      ? toRepoRoot(flutterBinPath)
+      : defaultFlutterPath;
+
+  if (!await Directory(flutterDir).exists()) {
+    l.err(
+      'Flutter contributor environment not found at $flutterDir.\n'
+      'Run "flutter_compile install flutter" first, then re-run this command.',
+    );
+    return ExitCode.config.code;
+  }
+
+  // Verify it's a git repo with an origin remote
+  final originResult = await Process.run(
+    'git',
+    ['remote', 'get-url', 'origin'],
+    workingDirectory: flutterDir,
+  );
+  if (originResult.exitCode != 0) {
+    l.err(
+      'Could not read git origin URL from $flutterDir.\n'
+      'Ensure the Flutter contributor environment is set up correctly.',
+    );
+    return ExitCode.config.code;
+  }
+  final originUrl = (originResult.stdout as String).trim();
+  l.info('Using Flutter checkout at $flutterDir'.green);
+  l.info('Fork URL: $originUrl');
+
   // Install depot_tools
   final depotToolsPath = await _ensureDepotTools(l);
 
-  // Get GitHub username and clone method
-  final githubUsername = await F.getGitHubName();
-  final cloneMethod = await F.promptUser(
-    'Choose clone method (1 for SSH, 2 for HTTPS) [Default: 1]: ',
-    defaultValue: '1',
-  );
-
-  final home = F.homeDir();
-  final enginePath = '$home${Constants.engineInstallPath}';
-  final engineDir = await F.promptUser(
-    'Enter the directory for the engine workspace [Default: $enginePath]: ',
-    defaultValue: enginePath,
-  );
-
-  // Create engine workspace directory
-  final dir = Directory(engineDir);
-  if (!await dir.exists()) {
-    await dir.create(recursive: true);
-    l.info('Created engine workspace at $engineDir');
+  // Generate .gclient file in the flutter directory
+  final gclientFile = File('$flutterDir/.gclient');
+  if (await gclientFile.exists()) {
+    l.info('.gclient already exists, skipping generation.'.green);
+  } else {
+    final gclientContent =
+        Constants.gclientFileTemplate.replaceAll('{{flutter_url}}', originUrl);
+    await F.writeFile('$flutterDir/.gclient', gclientContent);
+    l.info('Generated .gclient file.'.green);
   }
 
-  // Generate .gclient file
-  final forkUrl = cloneMethod == '2'
-      ? 'https://github.com/$githubUsername/engine.git'
-      : 'git@github.com:$githubUsername/engine.git';
-  final gclientContent =
-      Constants.gclientFileTemplate.replaceAll('{{engine_url}}', forkUrl);
-  await F.writeFile('$engineDir/.gclient', gclientContent);
-  l.info('Generated .gclient file.'.green);
+  // Prepend depot_tools to PATH so gclient/vpython3 are found
+  final syncEnv = <String, String>{};
+  final currentPath = Platform.environment['PATH'] ?? '';
+  syncEnv['PATH'] =
+      '$depotToolsPath${Platform.isWindows ? ';' : ':'}$currentPath';
 
-  // Run gclient sync (use full path since depot_tools may not be in PATH yet)
+  // Run gclient sync with automatic retry on failure
   l.info('\nRunning gclient sync (this may take 20-40 minutes)...\n'.yellow);
-  await F.runCommand(
-    '$depotToolsPath/gclient',
-    ['sync'],
-    workingDirectory: engineDir,
+  final syncResult = await _runGclientSync(
+    l,
+    gclientPath: '$depotToolsPath/gclient',
+    workingDirectory: flutterDir,
+    environment: syncEnv,
+    force: force,
   );
-  l.info('gclient sync completed.'.green);
-
-  // Configure git remotes on $engineDir/src/flutter
-  final flutterEngineDir = '$engineDir/src/flutter';
-  final upstreamUrl = cloneMethod == '2'
-      ? Constants.engineUpstreamHTTPS
-      : Constants.engineUpstreamSSH;
-
-  // Set upstream remote
-  try {
-    await F.runCommand(
-      'git',
-      ['remote', 'add', 'upstream', upstreamUrl],
-      workingDirectory: flutterEngineDir,
-    );
-  } catch (_) {
-    // upstream may already exist from gclient sync
+  if (syncResult != ExitCode.success.code) {
+    return syncResult;
   }
-  l.info('Configured git remotes on src/flutter.'.green);
 
-  // Save engine path to .flutter_compilerc
-  final rcConfigFile = File('$home/.flutter_compilerc');
+  // Save engine path (flutter/engine) to .flutter_compilerc
   await F.writeKeyValueToRcConfig(
     rcConfigFile,
     RunCommandKey.engine.key,
-    engineDir,
+    '$flutterDir/engine',
   );
   l.info('Saved engine path to .flutter_compilerc.'.green);
 
@@ -134,6 +161,7 @@ Future<int> setupEngineEnvironment(Logger l, String platform) async {
 
   l
     ..info('\nEngine environment setup complete!'.green)
+    ..info('\nThe engine builds from the same Flutter checkout at $flutterDir')
     ..info('\nNext steps:')
     ..info('  1. Run `flutter_compile build engine -p $platform` to build')
     ..info('  2. Run `flutter_compile doctor` to verify your environment');
@@ -182,4 +210,63 @@ Future<String> _ensureDepotTools(Logger l) async {
   }
 
   return depotToolsPath;
+}
+
+/// Runs gclient sync with automatic retry on failure.
+///
+/// Strategy:
+/// 1. If [force] is true, jump straight to forced sync.
+/// 2. Otherwise try a normal `gclient sync` first.
+/// 3. On failure, retry with `--force --reset --delete_unversioned_trees`
+///    which resolves dirty repos and leftover state.
+/// 4. On second failure, return an error with manual recovery instructions.
+Future<int> _runGclientSync(
+  Logger l, {
+  required String gclientPath,
+  required String workingDirectory,
+  required Map<String, String> environment,
+  required bool force,
+}) async {
+  if (!force) {
+    try {
+      await F.runCommand(
+        gclientPath,
+        ['sync'],
+        workingDirectory: workingDirectory,
+        environment: environment,
+      );
+      l.info('gclient sync completed.'.green);
+      return ExitCode.success.code;
+    } on Exception catch (e) {
+      l.warn(
+        '\ngclient sync failed: $e\n'
+                'Retrying with --force --reset to resolve dirty repos...\n'
+            .yellow,
+      );
+    }
+  }
+
+  // Forced sync: reset dirty repos and delete unversioned trees
+  try {
+    l.info('Running forced gclient sync...'.yellow);
+    await F.runCommand(
+      gclientPath,
+      ['sync', '--force', '--reset', '--delete_unversioned_trees'],
+      workingDirectory: workingDirectory,
+      environment: environment,
+    );
+    l.info('gclient sync completed (forced).'.green);
+    return ExitCode.success.code;
+  } on Exception catch (e) {
+    l.err(
+      '\ngclient sync failed even with --force --reset: $e\n\n'
+      'Manual recovery steps:\n'
+      '  1. cd $workingDirectory\n'
+      '  2. $gclientPath sync --force --reset --delete_unversioned_trees\n'
+      '  3. If that fails, delete engine/src and re-run:\n'
+      '     rm -rf $workingDirectory/engine/src\n'
+      '     flutter_compile install engine --force\n',
+    );
+    return ExitCode.software.code;
+  }
 }

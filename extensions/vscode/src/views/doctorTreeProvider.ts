@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import type { DoctorCheck } from "../types";
 import * as cli from "../cli";
+import { BuildEntryItem } from "./buildsTreeProvider";
 
-type DoctorNode = CategoryItem | CheckItem;
+type DoctorNode = CategoryItem | CheckItem | BuildsCategoryItem | BuildEntryItem;
 
 const CATEGORY_LABELS: Record<string, string> = {
   tools: "Required Tools",
@@ -39,7 +40,15 @@ class CategoryItem extends vscode.TreeItem {
   }
 }
 
-class CheckItem extends vscode.TreeItem {
+class BuildsCategoryItem extends vscode.TreeItem {
+  constructor(public readonly buildCount: number) {
+    super("Engine Builds", vscode.TreeItemCollapsibleState.Expanded);
+    this.description = `${buildCount} build${buildCount !== 1 ? "s" : ""}`;
+    this.iconPath = new vscode.ThemeIcon("package");
+  }
+}
+
+export class CheckItem extends vscode.TreeItem {
   constructor(public readonly check: DoctorCheck) {
     super(check.name, vscode.TreeItemCollapsibleState.None);
 
@@ -81,6 +90,13 @@ class CheckItem extends vscode.TreeItem {
         this.description = check.status;
     }
 
+    // Set contextValue — environment items get distinct values for uninstall action
+    if (check.category === "environments") {
+      this.contextValue = check.status === "ok" ? "envOk" : "envFailing";
+    } else {
+      this.contextValue = check.status === "ok" ? "doctorCheckOk" : "doctorCheckFailing";
+    }
+
     const lines = [`**${check.name}**`, `Status: ${check.status}`];
     if (check.path) {
       lines.push(`Path: \`${check.path}\``);
@@ -104,6 +120,7 @@ export class DoctorTreeProvider
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   private checks: DoctorCheck[] = [];
+  private builds: { name: string; size: string }[] = [];
 
   refresh(): void {
     this._onDidChangeTreeData.fire();
@@ -118,8 +135,19 @@ export class DoctorTreeProvider
       return element.checks.map((c) => new CheckItem(c));
     }
 
-    // Root level — fetch and group by category
-    this.checks = await cli.runDoctorJson();
+    if (element instanceof BuildsCategoryItem) {
+      return this.builds.map((b) => new BuildEntryItem(b.name, b.size));
+    }
+
+    // Root level — fetch doctor checks and engine status in parallel
+    const [checks, status] = await Promise.all([
+      cli.runDoctorJson(),
+      cli.getStatus(),
+    ]);
+
+    this.checks = checks;
+    this.builds = status.builds ?? [];
+
     const groups = new Map<string, DoctorCheck[]>();
     for (const check of this.checks) {
       const list = groups.get(check.category) ?? [];
@@ -128,13 +156,19 @@ export class DoctorTreeProvider
     }
 
     const order = ["tools", "engine_tools", "config", "environments"];
-    const items: CategoryItem[] = [];
+    const items: DoctorNode[] = [];
     for (const cat of order) {
-      const checks = groups.get(cat);
-      if (checks) {
-        items.push(new CategoryItem(cat, checks));
+      const catChecks = groups.get(cat);
+      if (catChecks) {
+        items.push(new CategoryItem(cat, catChecks));
       }
     }
+
+    // Add engine builds section if there are builds
+    if (this.builds.length > 0) {
+      items.push(new BuildsCategoryItem(this.builds.length));
+    }
+
     return items;
   }
 }

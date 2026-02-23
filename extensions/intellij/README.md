@@ -1,6 +1,6 @@
 # Flutter Compile — IntelliJ / Android Studio Plugin
 
-Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds from IntelliJ IDEA or Android Studio. No terminal needed.
+Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds from IntelliJ IDEA or Android Studio. Supports both **Native** and **FVM** backends.
 
 ## Prerequisites
 
@@ -11,33 +11,36 @@ Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds
 | **Dart** plugin | Bundled with Android Studio, or install from JetBrains Marketplace |
 | **Flutter** plugin | Bundled with Android Studio, or install from JetBrains Marketplace |
 
-> The CLI must be on your `PATH`. Run `flutter_compile --version` in a terminal to verify.
-> If the CLI is missing when you open a project, the plugin will show a notification balloon with a link to installation instructions.
+> The CLI must be on your `PATH`. Run `flutter_compile --version` to verify.
 
 ## Installation
 
 ### From JetBrains Marketplace
 
-1. Open **Settings** (`Cmd+,` / `Ctrl+Alt+S`)
-2. Go to **Plugins** > **Marketplace**
-3. Search for **Flutter Compile**
-4. Click **Install** and restart the IDE
+1. **Settings** > **Plugins** > **Marketplace**
+2. Search **Flutter Compile**
+3. Click **Install** and restart
 
-### From Disk (manual)
+### From Disk
 
-1. Download the `.zip` from the [Releases](https://github.com/flutterplaza/flutter_compile/releases) page
-2. Open **Settings** > **Plugins** > gear icon > **Install Plugin from Disk...**
-3. Select the `.zip` file and restart
+1. Download `.zip` from [Releases](https://github.com/flutterplaza/flutter_compile/releases)
+2. **Settings** > **Plugins** > gear icon > **Install Plugin from Disk...**
+
+---
+
+## Walkthrough
+
+![IntelliJ Plugin Walkthrough](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij_fcp.gif)
+
+---
 
 ## Features
 
-### Tool Window
+### SDK Manager
 
-Open the **Flutter Compile** tool window from the bottom panel. It contains three tabs:
+![SDK Manager](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-sdk-manager.png)
 
-#### SDKs Tab
-
-Browse, switch, pin, and remove Flutter SDKs from a tree view.
+Browse, switch, pin, and remove Flutter SDKs from the **SDKs** tab in the Flutter Compile tool window.
 
 | Icon | Meaning |
 |---|---|
@@ -45,116 +48,76 @@ Browse, switch, pin, and remove Flutter SDKs from a tree view.
 | Package icon | Installed but inactive |
 | Plugin icon | Locally compiled contributor build |
 
-**Toolbar actions:**
+**Toolbar:** Install (`+`), Refresh. **Right-click:** Set Global, Pin to Project, Open Folder, Remove. **Double-click** to set global.
 
-- **Install SDK** (`+` button) — enter a version number or channel (e.g. `3.24.0`, `stable`, `beta`)
-- **Refresh** — reload the SDK list from the CLI
+### Mode Dropdown (Native / FVM)
 
-**Right-click context menu:**
+![Mode Dropdown](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-mode-dropdown.png)
 
-- **Set as Global** — make this SDK the global default
-- **Pin to Project** — write a `.flutter-version` file in your project root so this project always uses this SDK
-- **Open SDK Folder** — reveal the SDK directory in Finder / Explorer / Files
-- **Remove SDK** — delete this SDK from disk (with confirmation dialog; disabled for contributor builds)
+A **"Mode:"** dropdown in the tool window toolbar lets you switch between **Native** and **FVM** SDK backends. All SDK operations route through the selected backend.
 
-**Double-click** any SDK to set it as the global default.
+### Doctor
 
-#### Doctor Tab
+![Doctor](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-doctor.png)
 
-Grouped diagnostic checks with pass/fail indicators.
+Grouped diagnostic checks (Required Tools, Engine Tools, Configuration, Environments) with pass/fail icons and summary counts. Click the wrench icon on failing checks to install or configure.
 
-- **Four categories:** Required Tools, Engine Tools, Configuration, Environments
-- Each category header shows a summary count (e.g. `3/4 OK`)
-- **Green check** = passing, **Red X** = failing/missing, **Yellow warning** = not configured or partial issue
-- Details shown inline: install path, error message, or missing remotes
-- Click **Refresh** to re-run all checks
+### Engine Builds
 
-#### Engine Builds Tab
+![Engine Builds](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-engine-builds.png)
 
-At-a-glance engine status for contributors compiling the Flutter engine.
-
-- **Engine path** — where the engine source lives on disk
-- **Source status** — whether source files exist (green check or red X)
-- **Host CPU** — detected architecture (e.g. `arm64`, `x86_64`)
-- **Build targets** — each configured build with its name and disk size
-
-When no engine is configured, the panel shows: "No engine configured. Run: flutter_compile engine init"
+Engine path, source status, host CPU, and build targets with disk sizes. Delete builds from the context menu.
 
 ### Toolbar Combo Box
 
-A combo box in the main toolbar shows the current global SDK version. Click to open a dropdown of all installed SDKs and switch instantly. The combo box text updates to reflect the active version.
+SDK version switcher in the main toolbar. Shows the current global SDK — click to switch instantly.
 
 ### File Watcher
 
-The plugin watches for changes to `.flutter-version` files in your project:
-
-- Creating, editing, or deleting `.flutter-version` triggers an automatic refresh of the SDK tree
-- External changes (e.g. running `flutter_compile sdk use` in a terminal) are picked up immediately
-
-### CLI Availability Check
-
-On project open, the plugin checks if `flutter_compile` is available. If not found, a warning notification balloon appears with an **Install Instructions** link.
+Watches `.flutter-version` files. External changes are picked up immediately.
 
 ### Automatic SDK Path Updates
 
-When you switch SDKs (set global, pin to project, or select from the combo box), the plugin updates the Flutter SDK path in IntelliJ's project settings via the Flutter plugin API. The Dart analysis server picks up the change immediately.
+Switching SDKs updates the Flutter SDK path in IntelliJ project settings via the Flutter plugin API.
+
+---
 
 ## Menu Actions
-
-All actions are also available from the **Tools** menu:
 
 | Menu Item | Description |
 |---|---|
 | Install Flutter SDK... | Install a new SDK version or channel |
-| Flutter Compile Doctor | Run diagnostics and show the tool window |
+| Flutter Compile Doctor | Run diagnostics and show tool window |
 | Remove Flutter SDK... | Choose and remove an installed SDK |
-| Pin Flutter SDK to Project... | Choose and pin an SDK to the current project |
-| Open Flutter SDK Folder... | Choose and reveal an SDK directory in the file manager |
-| Refresh Flutter Compile | Refresh all three panels |
+| Pin Flutter SDK to Project... | Pin an SDK to the current project |
+| Open Flutter SDK Folder... | Reveal SDK directory in file manager |
+| Refresh Flutter Compile | Refresh all panels |
 
 ## Settings
 
-Go to **Settings** > **Tools** > **Flutter Compile**:
+**Settings** > **Tools** > **Flutter Compile**:
 
 | Setting | Default | Description |
 |---|---|---|
-| CLI Path | `flutter_compile` | Path to the `flutter_compile` CLI executable. Change this if the CLI is not on your `PATH`. |
-
-## How It Works
-
-The plugin calls the `flutter_compile` CLI under the hood:
-
-| CLI command | Plugin feature |
-|---|---|
-| `sdk list --json` | SDK tree view, toolbar combo box |
-| `config get global_sdk` | Toolbar combo box text |
-| `sdk global <version>` | Set as Global |
-| `sdk use <version>` | Pin to Project |
-| `sdk install <version>` | Install SDK |
-| `sdk remove <version>` | Remove SDK |
-| `doctor --json` | Doctor tree view |
-| `status --json` | Engine Builds view |
-| `--version` | CLI availability check on startup |
-
-All CLI commands use a 120-second timeout (10 seconds for `--version`).
+| CLI Path | `flutter_compile` | Path to the CLI executable |
+| SDK Manager Mode | `Native` | Backend mode: Native or FVM |
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| "flutter_compile CLI not found" balloon | Install the CLI: `dart pub global activate flutter_compile`. Make sure `~/.pub-cache/bin` is in your `PATH`. |
-| SDK tree is empty | Click the Refresh button. If still empty, run `flutter_compile sdk list` in a terminal to check if SDKs are installed. |
-| Doctor shows all red | The CLI may not be configured. Run `flutter_compile doctor` in a terminal to see detailed output. |
-| Toolbar combo shows "(none)" | No global SDK is set. Use **Set as Global** from the SDK tree's right-click menu. |
-| SDK switch doesn't take effect | Restart the Dart analysis server: **File** > **Invalidate Caches / Restart**, or close and reopen the project. |
-| Plugin not visible | Make sure the Dart and Flutter plugins are installed and enabled. The Flutter Compile plugin depends on both. |
+| "flutter_compile CLI not found" | Install: `dart pub global activate flutter_compile`. Ensure `~/.pub-cache/bin` is in PATH. |
+| SDK tree is empty | Click Refresh. Run `flutter_compile sdk list` in a terminal. |
+| Doctor shows all red | Run `flutter_compile doctor` in a terminal. |
+| Toolbar combo shows "(none)" | Use **Set as Global** from the SDK tree context menu. |
+| Plugin not visible | Ensure Dart and Flutter plugins are installed and enabled. |
 
 ## Building from Source
 
 ```sh
 cd extensions/intellij
 ./gradlew build     # compile and package
-./gradlew runIde    # launch a sandbox IDE with the plugin loaded
+./gradlew runIde    # launch sandbox IDE with plugin
 ```
 
 Requires JDK 17+ and Gradle 8.13+.

@@ -1,6 +1,6 @@
 # Flutter Compile — VS Code Extension
 
-Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds — all from the VS Code sidebar. No terminal needed.
+Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds — all from the VS Code sidebar. Supports both **Native** and **FVM** backends.
 
 ## Prerequisites
 
@@ -10,26 +10,34 @@ Manage multiple Flutter SDK versions, run diagnostics, and monitor engine builds
 | VS Code **1.85.0** or later | [code.visualstudio.com](https://code.visualstudio.com/) |
 
 > The CLI must be on your `PATH`. Run `flutter_compile --version` to verify.
-> If you open a project without the CLI installed, the extension will show a warning notification with a link to installation instructions.
 
 ## Installation
 
-1. Open VS Code
-2. Go to **Extensions** (`Cmd+Shift+X` / `Ctrl+Shift+X`)
-3. Search for **Flutter Compile**
-4. Click **Install**
+1. Open **Extensions** (`Cmd+Shift+X` / `Ctrl+Shift+X`)
+2. Search **Flutter Compile**
+3. Click **Install**
 
-Or install from the command line:
+Or from the command line:
 
 ```sh
 code --install-extension flutterPlaza-com.flutter-compile
 ```
 
+---
+
+## Walkthrough
+
+![VS Code Extension Walkthrough](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscod_fcp.gif)
+
+---
+
 ## Features
 
-### SDK Manager (Sidebar)
+### SDK Manager
 
-The **SDKs** view in the Flutter Compile sidebar lets you browse, switch, pin, and remove Flutter SDKs.
+![SDK Manager](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-sdk-manager.png)
+
+Browse, install, switch, pin, and remove Flutter SDKs from the sidebar.
 
 | Icon | Meaning |
 |---|---|
@@ -37,111 +45,78 @@ The **SDKs** view in the Flutter Compile sidebar lets you browse, switch, pin, a
 | Package icon | Installed but inactive |
 | Beaker icon | Locally compiled contributor build |
 
-**Available actions:**
+**Actions:** Install (`+`), Set Global, Pin to Project, Open Folder, Remove, Refresh
 
-- **Install SDK** — click the `+` button in the view header, then enter a version number or channel (e.g. `3.24.0`, `stable`, `beta`)
-- **Set Global** — inline button on each SDK row, or right-click > Set Global SDK
-- **Pin to Project** — right-click > Pin SDK to Project (writes a `.flutter-version` file in your project root)
-- **Open SDK Folder** — right-click > Open SDK Folder (reveals the SDK directory in Finder / Explorer)
-- **Remove SDK** — inline trash button, or right-click > Remove SDK (with confirmation dialog)
-- **Refresh** — click the refresh button in the view header
+### SDK Manager Toggle (Native / FVM)
 
-Double descriptions appear next to each SDK entry: `global`, `project`, or both.
+![SDK Manager Toggle](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-sdk-toggle.png)
+
+Switch between **Native** and **FVM** SDK backends with the swap-arrows button in the SDKs view title bar. The view title shows the active mode: "SDKs — Native" or "SDKs — FVM".
 
 ### Doctor
 
-The **Doctor** view shows grouped diagnostic checks with pass/fail indicators — no need to read terminal output.
+![Doctor](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-doctor.png)
 
-- **Four categories:** Required Tools, Engine Tools, Configuration, Environments
-- Each category header shows a summary (e.g. `3/4 OK`)
-- **Green check** = passing, **Red X** = failing/missing, **Yellow warning** = not configured or partial
-- Hover over any check for detailed tooltip (path, error message, missing remotes)
-- Click **Refresh** in the view header to re-run all checks
+Grouped diagnostic checks with pass/fail indicators. Click the wrench icon on failing checks to auto-install or configure missing tools.
+
+**Categories:** Required Tools, Engine Tools, Configuration, Environments
 
 ### Engine Builds
 
-The **Engine Builds** view gives contributors an at-a-glance view of their local Flutter engine.
+![Engine Builds](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-engine-builds.png)
 
-- **Engine path** — where the engine source lives on disk
-- **Source status** — whether source files exist (green check or red X)
-- **Host CPU** — detected architecture (e.g. `arm64`, `x86_64`)
-- **Build targets** — each configured build with its name and disk size
-
-When no engine is configured, the view shows a welcome message with setup instructions.
+At-a-glance engine status: engine path, source status, host CPU, and build targets with disk sizes. Initialize, build, and delete engine builds from the sidebar.
 
 ### Status Bar
 
-An always-visible indicator in the bottom status bar:
-
-- Shows the current global or project-pinned SDK version
-- **Yellow warning background** when no SDK is set
-- Click it to open the SDK quick picker
+Always-visible SDK version indicator. Yellow warning when no SDK is set. Click to open the quick picker.
 
 ### File Watcher
 
-The extension watches for changes to `.flutter-version` files in your workspace:
-
-- Creating, editing, or deleting `.flutter-version` triggers an automatic refresh of the SDK tree and status bar
-- This means external tools (like `flutter_compile sdk use` in a terminal) are picked up immediately
+Watches `.flutter-version` files — external changes (CLI, other tools) are picked up immediately.
 
 ### Automatic SDK Path Updates
 
-When you switch SDKs (set global, pin to project, or select from the quick picker), the extension automatically updates `dart.flutterSdkPath` in your workspace settings. The Dart/Flutter VS Code extensions pick up the change immediately — no restart needed.
+Switching SDKs automatically updates `dart.flutterSdkPath` in workspace settings. No restart needed.
+
+---
 
 ## Commands
-
-All commands are available via the Command Palette (`Cmd+Shift+P` / `Ctrl+Shift+P`):
 
 | Command | Description |
 |---|---|
 | `Flutter Compile: Install SDK` | Install a new Flutter SDK version or channel |
 | `Flutter Compile: Select SDK` | Pick from installed SDKs with a quick picker |
 | `Flutter Compile: Switch SDK` | Alias for Select SDK |
+| `Flutter Compile: Switch SDK Manager` | Toggle between Native and FVM backends |
 | `Flutter Compile: Set Global SDK` | Set an SDK as the global default |
 | `Flutter Compile: Pin SDK to Project` | Write `.flutter-version` for the current workspace |
 | `Flutter Compile: Remove SDK` | Delete an installed SDK from disk |
 | `Flutter Compile: Open SDK Folder` | Reveal an SDK directory in the system file manager |
-| `Flutter Compile: Doctor` | Run diagnostics and print raw output to the output channel |
-| `Flutter Compile: Refresh SDKs` | Refresh the SDK tree view |
-| `Flutter Compile: Refresh Doctor` | Re-run doctor checks |
-| `Flutter Compile: Refresh Builds` | Refresh engine build status |
-| `Flutter Compile: Refresh All` | Refresh all three views and the status bar |
+| `Flutter Compile: Doctor` | Run diagnostics and print output |
+| `Flutter Compile: Initialize Engine` | Set up the engine build environment |
+| `Flutter Compile: Build Engine` | Build the engine with platform/mode/flag selection |
+| `Flutter Compile: Delete Build` | Delete an engine build output |
+| `Flutter Compile: Install / Configure` | Install or configure a failing doctor check |
+| `Flutter Compile: Uninstall Environment` | Remove a contributor environment |
+| `Flutter Compile: Refresh SDKs / Doctor / Builds / All` | Refresh views |
 
 ## Extension Settings
 
-Configure via **Settings** (`Cmd+,` / `Ctrl+,`) or `.vscode/settings.json`:
-
 | Setting | Type | Default | Description |
 |---|---|---|---|
-| `flutterCompile.cliPath` | `string` | `"flutter_compile"` | Path to the `flutter_compile` CLI executable. Change this if the CLI is not on your `PATH`. |
-
-## How It Works
-
-The extension calls the `flutter_compile` CLI under the hood:
-
-| CLI command | Extension feature |
-|---|---|
-| `sdk list --json` | SDK tree view |
-| `config get global_sdk` | Status bar, quick picker |
-| `sdk global <version>` | Set Global SDK |
-| `sdk use <version>` | Pin to Project |
-| `sdk install <version>` | Install SDK (runs in terminal) |
-| `sdk remove <version>` | Remove SDK |
-| `doctor --json` | Doctor tree view |
-| `status --json` | Engine Builds view |
-| `--version` | CLI availability check |
-
-All JSON-based commands use a 120-second timeout.
+| `flutterCompile.sdkManager` | `"native"` \| `"fvm"` | `"native"` | SDK management backend |
+| `flutterCompile.cliPath` | `string` | `"flutter_compile"` | Path to the CLI executable |
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| "flutter_compile CLI not found" notification | Install the CLI: `dart pub global activate flutter_compile`. Make sure `~/.pub-cache/bin` is in your `PATH`. |
-| SDK tree is empty | Click the refresh button. If still empty, run `flutter_compile sdk list` in a terminal to verify SDKs are installed. |
-| Doctor shows all red | The CLI may not be configured. Run `flutter_compile doctor` in a terminal to see detailed output. |
-| Status bar shows "(none)" with yellow background | No global or project SDK is set. Use **Set Global SDK** or **Pin SDK to Project** to fix this. |
-| SDK switch doesn't take effect in Dart extension | Restart the Dart analysis server: Command Palette > `Dart: Restart Analysis Server`. |
+| "flutter_compile CLI not found" | Install: `dart pub global activate flutter_compile`. Ensure `~/.pub-cache/bin` is in PATH. |
+| SDK tree is empty | Click refresh. Run `flutter_compile sdk list` in a terminal to verify. |
+| Doctor shows all red | Run `flutter_compile doctor` in a terminal for detailed output. |
+| Status bar shows "(none)" | Use **Set Global SDK** or **Pin SDK to Project**. |
+| SDK switch not picked up by Dart extension | Command Palette > `Dart: Restart Analysis Server`. |
 
 ## License
 

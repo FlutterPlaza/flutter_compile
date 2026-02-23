@@ -1,7 +1,8 @@
 package com.flutterplaza.fluttercompile.toolwindow
 
-import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.Constants
 import com.flutterplaza.fluttercompile.cli.SdkEntry
+import com.flutterplaza.fluttercompile.sdk.SdkBackendProvider
 import com.flutterplaza.fluttercompile.settings.SdkPathUpdater
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.actionSystem.*
@@ -28,13 +29,13 @@ import javax.swing.tree.DefaultTreeModel
 class SdkTreePanel(private val project: Project) {
     val component: JComponent
 
-    private val rootNode = DefaultMutableTreeNode("SDKs")
+    private val rootNode = DefaultMutableTreeNode(Constants.ROOT_SDKS)
     private val treeModel = DefaultTreeModel(rootNode)
     private val tree = Tree(treeModel).apply {
         isRootVisible = false
         showsRootHandles = false
         cellRenderer = SdkCellRenderer()
-        emptyText.text = "No SDKs installed. Click + to install."
+        emptyText.text = Constants.EMPTY_SDKS_HINT
     }
 
     var onMutation: (() -> Unit)? = null
@@ -54,10 +55,10 @@ class SdkTreePanel(private val project: Project) {
 
         val toolbarPanel = ToolbarDecorator.createDecorator(tree)
             .setAddAction { installSdk() }
-            .setAddActionName("Install SDK")
+            .setAddActionName(Constants.ACTION_INSTALL_SDK)
             .disableRemoveAction()
             .disableUpDownActions()
-            .addExtraAction(object : AnAction("Refresh", "Refresh SDK list", AllIcons.Actions.Refresh) {
+            .addExtraAction(object : AnAction(Constants.ACTION_REFRESH, Constants.DESC_REFRESH_SDKS, AllIcons.Actions.Refresh) {
                 override fun actionPerformed(e: AnActionEvent) = refresh()
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
             })
@@ -70,7 +71,7 @@ class SdkTreePanel(private val project: Project) {
 
     private fun setupPopupMenu() {
         val group = DefaultActionGroup().apply {
-            add(object : AnAction("Set as Global", "Set this SDK as the global default", AllIcons.Actions.SetDefault) {
+            add(object : AnAction(Constants.ACTION_SET_AS_GLOBAL, Constants.DESC_SET_AS_GLOBAL, AllIcons.Actions.SetDefault) {
                 override fun actionPerformed(e: AnActionEvent) {
                     selectedSdk()?.let { setGlobalSdk(it) }
                 }
@@ -79,7 +80,7 @@ class SdkTreePanel(private val project: Project) {
                 }
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
             })
-            add(object : AnAction("Pin to Project", "Pin this SDK to the current project", AllIcons.Actions.PinTab) {
+            add(object : AnAction(Constants.ACTION_PIN_TO_PROJECT, Constants.DESC_PIN_TO_PROJECT, AllIcons.Actions.PinTab) {
                 override fun actionPerformed(e: AnActionEvent) {
                     selectedSdk()?.let { pinSdkToProject(it) }
                 }
@@ -88,7 +89,7 @@ class SdkTreePanel(private val project: Project) {
                 }
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
             })
-            add(object : AnAction("Open SDK Folder", "Reveal SDK folder in file manager", AllIcons.Actions.MenuOpen) {
+            add(object : AnAction(Constants.ACTION_OPEN_SDK_FOLDER, Constants.DESC_OPEN_SDK_FOLDER, AllIcons.Actions.MenuOpen) {
                 override fun actionPerformed(e: AnActionEvent) {
                     selectedSdk()?.let { openSdkFolder(it) }
                 }
@@ -98,7 +99,7 @@ class SdkTreePanel(private val project: Project) {
                 override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.EDT
             })
             addSeparator()
-            add(object : AnAction("Remove SDK", "Remove this SDK installation", AllIcons.Actions.GC) {
+            add(object : AnAction(Constants.ACTION_REMOVE_SDK, Constants.DESC_REMOVE_SDK, AllIcons.Actions.GC) {
                 override fun actionPerformed(e: AnActionEvent) {
                     selectedSdk()?.let { removeSdk(it) }
                 }
@@ -118,7 +119,7 @@ class SdkTreePanel(private val project: Project) {
                     val path = tree.getPathForLocation(e.x, e.y) ?: return
                     tree.selectionPath = path
                     val popupMenu = ActionManager.getInstance()
-                        .createActionPopupMenu("FlutterCompile.SdkTree", group)
+                        .createActionPopupMenu(Constants.POPUP_SDK_TREE, group)
                     popupMenu.component.show(tree, e.x, e.y)
                 }
             }
@@ -132,9 +133,10 @@ class SdkTreePanel(private val project: Project) {
 
     fun refresh() {
         ProgressManager.getInstance().run(
-            object : Task.Backgroundable(project, "Loading SDKs...") {
+            object : Task.Backgroundable(project, Constants.PROGRESS_LOADING_SDKS) {
                 override fun run(indicator: ProgressIndicator) {
-                    val sdks = FlutterCompileCli.listSdks()
+                    val backend = SdkBackendProvider.get()
+                    val sdks = backend.listSdks(project.basePath)
                     ApplicationManager.getApplication().invokeLater {
                         rootNode.removeAllChildren()
                         sdks.forEach { rootNode.add(DefaultMutableTreeNode(it)) }
@@ -150,7 +152,7 @@ class SdkTreePanel(private val project: Project) {
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Setting global SDK to ${sdk.version}...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val success = FlutterCompileCli.setGlobalSdk(sdk.version)
+                    val success = SdkBackendProvider.get().setGlobalSdk(sdk.version)
                     if (success) {
                         ApplicationManager.getApplication().invokeLater {
                             SdkPathUpdater.updateFlutterSdkPath(project, sdk.version)
@@ -164,10 +166,11 @@ class SdkTreePanel(private val project: Project) {
     }
 
     private fun pinSdkToProject(sdk: SdkEntry) {
+        val projectPath = project.basePath ?: return
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Pinning ${sdk.version} to project...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val success = FlutterCompileCli.useSdk(sdk.version)
+                    val success = SdkBackendProvider.get().pinToProject(sdk.version, projectPath)
                     if (success) {
                         ApplicationManager.getApplication().invokeLater {
                             SdkPathUpdater.updateFlutterSdkPath(project, sdk.version)
@@ -185,7 +188,7 @@ class SdkTreePanel(private val project: Project) {
         if (file.exists()) {
             RevealFileAction.openDirectory(file)
         } else {
-            Messages.showErrorDialog(project, "SDK folder not found: ${sdk.path}", "Flutter Compile")
+            Messages.showErrorDialog(project, "SDK folder not found: ${sdk.path}", Constants.PLUGIN_NAME)
         }
     }
 
@@ -193,7 +196,7 @@ class SdkTreePanel(private val project: Project) {
         val result = Messages.showYesNoDialog(
             project,
             "Remove Flutter SDK ${sdk.version}?\n\nThis will delete the SDK from disk.",
-            "Remove SDK",
+            Constants.DIALOG_REMOVE_SDK,
             Messages.getWarningIcon(),
         )
         if (result != Messages.YES) return
@@ -201,13 +204,13 @@ class SdkTreePanel(private val project: Project) {
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Removing SDK ${sdk.version}...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val success = FlutterCompileCli.removeSdk(sdk.version)
+                    val success = SdkBackendProvider.get().removeSdk(sdk.version)
                     ApplicationManager.getApplication().invokeLater {
                         if (success) {
                             refresh()
                             onMutation?.invoke()
                         } else {
-                            Messages.showErrorDialog(project, "Failed to remove SDK ${sdk.version}.", "Flutter Compile")
+                            Messages.showErrorDialog(project, "Failed to remove SDK ${sdk.version}.", Constants.PLUGIN_NAME)
                         }
                     }
                 }
@@ -218,8 +221,8 @@ class SdkTreePanel(private val project: Project) {
     private fun installSdk() {
         val version = Messages.showInputDialog(
             project,
-            "Enter Flutter SDK version or channel to install:",
-            "Install Flutter SDK",
+            Constants.MSG_ENTER_SDK_VERSION,
+            Constants.DIALOG_INSTALL_SDK,
             null,
         )
         if (version.isNullOrBlank()) return
@@ -228,14 +231,14 @@ class SdkTreePanel(private val project: Project) {
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Installing Flutter SDK $trimmed...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val success = FlutterCompileCli.installSdk(trimmed)
+                    val success = SdkBackendProvider.get().installSdk(trimmed, indicator)
                     ApplicationManager.getApplication().invokeLater {
                         if (success) {
-                            Messages.showInfoMessage(project, "Flutter SDK $trimmed installed.", "Flutter Compile")
+                            Messages.showInfoMessage(project, "Flutter SDK $trimmed installed.", Constants.PLUGIN_NAME)
                             refresh()
                             onMutation?.invoke()
                         } else {
-                            Messages.showErrorDialog(project, "Failed to install Flutter SDK $trimmed.", "Flutter Compile")
+                            Messages.showErrorDialog(project, "Failed to install Flutter SDK $trimmed.", Constants.PLUGIN_NAME)
                         }
                     }
                 }
@@ -266,9 +269,9 @@ class SdkTreePanel(private val project: Project) {
             append(sdk.version, SimpleTextAttributes.REGULAR_BOLD_ATTRIBUTES)
 
             val markers = mutableListOf<String>()
-            if (sdk.global) markers.add("global")
-            if (sdk.project) markers.add("project")
-            if (sdk.contributor) markers.add("contributor")
+            if (sdk.global) markers.add(Constants.MARKER_GLOBAL)
+            if (sdk.project) markers.add(Constants.MARKER_PROJECT)
+            if (sdk.contributor) markers.add(Constants.MARKER_CONTRIBUTOR)
             if (markers.isNotEmpty()) {
                 append("  ${markers.joinToString(", ")}", SimpleTextAttributes.GRAYED_ATTRIBUTES)
             }

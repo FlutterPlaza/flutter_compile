@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
-import type { SdkEntry } from "../cli";
-import * as cli from "../cli";
+import type { SdkEntry } from "../sdkProvider";
+import { getBackend } from "../sdkProvider";
 
 export class SdkTreeItem extends vscode.TreeItem {
   constructor(public readonly sdk: SdkEntry) {
@@ -57,7 +57,7 @@ export class SdkTreeProvider
   }
 
   async getChildren(): Promise<SdkTreeItem[]> {
-    const sdks = await cli.listSdks();
+    const sdks = await getBackend().listSdks();
     await vscode.commands.executeCommand(
       "setContext",
       "flutterCompile.noSdks",

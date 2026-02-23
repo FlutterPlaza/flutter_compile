@@ -1,10 +1,12 @@
 import * as vscode from "vscode";
 import * as statusBar from "./statusBar";
 import { updateFlutterSdkPath } from "./sdkSettings";
+import { getMode } from "./sdkProvider";
 
 let watcher: vscode.FileSystemWatcher | undefined;
+let fvmrcWatcher: vscode.FileSystemWatcher | undefined;
 
-/** Start watching `.flutter-version` in all workspace folders. */
+/** Start watching `.flutter-version` (and `.fvmrc` in FVM mode) in all workspace folders. */
 export function start(
   onSdkChanged?: () => void
 ): vscode.Disposable[] {
@@ -38,11 +40,30 @@ export function start(
   });
 
   disposables.push(watcher);
+
+  // Also watch .fvmrc when in FVM mode
+  if (getMode() === "fvm") {
+    fvmrcWatcher = vscode.workspace.createFileSystemWatcher("**/.fvmrc");
+
+    const onFvmrcChange = async () => {
+      await statusBar.refresh();
+      onSdkChanged?.();
+    };
+
+    fvmrcWatcher.onDidChange(onFvmrcChange);
+    fvmrcWatcher.onDidCreate(onFvmrcChange);
+    fvmrcWatcher.onDidDelete(onFvmrcChange);
+
+    disposables.push(fvmrcWatcher);
+  }
+
   return disposables;
 }
 
-/** Stop the file watcher. */
+/** Stop all file watchers. */
 export function stop(): void {
   watcher?.dispose();
   watcher = undefined;
+  fvmrcWatcher?.dispose();
+  fvmrcWatcher = undefined;
 }

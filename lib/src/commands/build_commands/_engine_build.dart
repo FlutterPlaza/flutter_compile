@@ -125,7 +125,20 @@ Future<int> buildEngine(
   final srcDir = '$enginePath/src';
   if (!await Directory(srcDir).exists()) {
     l.err('Error: Engine src directory not found at $srcDir.');
+    l.err('Run `gclient sync` from $enginePath first.');
     return ExitCode.unavailable.code;
+  }
+
+  // Read depot_tools path and prepend to PATH so vpython3/gn/ninja are found
+  final depotToolsPath = await F.readValueForKeyFromRcConfig(
+    rcConfigFile,
+    RunCommandKey.depotTools.key,
+  );
+  final buildEnv = <String, String>{};
+  if (depotToolsPath != null && depotToolsPath.isNotEmpty) {
+    final currentPath = Platform.environment['PATH'] ?? '';
+    buildEnv['PATH'] =
+        '$depotToolsPath${Platform.isWindows ? ';' : ':'}$currentPath';
   }
 
   // Detect host CPU
@@ -180,6 +193,7 @@ Future<int> buildEngine(
       './flutter/tools/gn',
       gnFlags,
       workingDirectory: srcDir,
+      environment: buildEnv,
     );
     l.info('GN completed.'.green);
   } else {
@@ -194,6 +208,7 @@ Future<int> buildEngine(
     'ninja',
     ['-C', 'out/$outputDir'],
     workingDirectory: srcDir,
+    environment: buildEnv,
   );
 
   l

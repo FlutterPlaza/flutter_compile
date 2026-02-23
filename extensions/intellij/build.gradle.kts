@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.flutterplaza.fluttercompile"
-version = "0.2.0"
+version = "0.3.0"
 
 repositories {
     mavenCentral()
@@ -22,6 +22,7 @@ dependencies {
     intellijPlatform {
         intellijIdeaCommunity("2025.1")
         bundledPlugin("com.intellij.modules.platform")
+        bundledPlugin("org.jetbrains.plugins.terminal")
         plugin("Dart", "251.27623.5")
         plugin("io.flutter", "89.0.0")
         pluginVerifier()

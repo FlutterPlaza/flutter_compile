@@ -1,6 +1,7 @@
 package com.flutterplaza.fluttercompile.actions
 
-import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.Constants
+import com.flutterplaza.fluttercompile.sdk.SdkBackendProvider
 import com.flutterplaza.fluttercompile.settings.SdkPathUpdater
 import com.flutterplaza.fluttercompile.toolwindow.FlutterCompileToolWindowFactory
 import com.intellij.openapi.actionSystem.ActionUpdateThread
@@ -12,24 +13,26 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.ui.Messages
 
-/** Pins an SDK to the current project via `sdk use`. */
+/** Pins an SDK to the current project via the active backend. */
 class PinSdkToProjectAction : AnAction() {
 
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val sdks = FlutterCompileCli.listSdks()
+        val projectPath = project.basePath ?: return
+        val backend = SdkBackendProvider.get()
+        val sdks = backend.listSdks(projectPath)
         if (sdks.isEmpty()) {
-            Messages.showInfoMessage(project, "No SDKs installed.", "Flutter Compile")
+            Messages.showInfoMessage(project, Constants.MSG_NO_SDKS_INSTALLED, Constants.PLUGIN_NAME)
             return
         }
 
         val versions = sdks.map { it.displayLabel() }.toTypedArray()
         val choice = Messages.showChooseDialog(
             project,
-            "Select SDK to pin to this project:",
-            "Pin SDK to Project",
+            Constants.MSG_SELECT_SDK_PIN,
+            Constants.DIALOG_PIN_SDK,
             null,
             versions,
             versions.first(),
@@ -40,7 +43,7 @@ class PinSdkToProjectAction : AnAction() {
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Pinning ${selected.version} to project...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val success = FlutterCompileCli.useSdk(selected.version)
+                    val success = backend.pinToProject(selected.version, projectPath)
                     if (success) {
                         ApplicationManager.getApplication().invokeLater {
                             SdkPathUpdater.updateFlutterSdkPath(project, selected.version)

@@ -58,18 +58,25 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   await F.cloneRepository(cloneUrl, cloneDir);
   Directory.current = cloneDir;
 
-  // Add upstream remote and set up tracking branch
-  await F.runCommand('git',
-      ['remote', 'add', 'upstream', 'https://github.com/flutter/devtools.git']);
-  await F.runCommand('git', ['fetch', 'upstream']);
-  await F.runCommand(
-      'git', ['branch', '--set-upstream-to=upstream/master', 'master']);
-
-  // Add origin remote (for the user's fork)
+  // Set up git remotes (idempotent — safe to re-run)
+  final upstreamUrl = 'https://github.com/flutter/devtools.git';
   final forkUrl = cloneMethod == '2'
       ? 'https://github.com/$githubUsername/devtools.git'
       : 'git@github.com:$githubUsername/devtools.git';
-  await F.runCommand('git', ['remote', 'add', 'origin', forkUrl]);
+  await _ensureRemote(l, 'upstream', upstreamUrl, cloneDir);
+  await _ensureRemote(l, 'origin', forkUrl, cloneDir);
+
+  // Fetch upstream and set tracking branch
+  l.info('Fetching upstream...');
+  await F.runCommand('git', ['fetch', 'upstream'], workingDirectory: cloneDir);
+  try {
+    await F.runCommand(
+        'git', ['branch', '--set-upstream-to=upstream/master', 'master'],
+        workingDirectory: cloneDir);
+  } catch (_) {
+    // May fail if already set or branch name differs — non-fatal
+    l.warn('Could not set upstream tracking branch (may already be set).');
+  }
 
   // Ensure the DevTools 'tool' directory exists
   var toolDir = Directory('$cloneDir/tool');
@@ -84,32 +91,46 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
     ['pub', 'get', '--directory', toolDir.path],
   );
 
+  // Save devtools path to .flutter_compilerc
+  final home = F.homeDir();
+  final rcConfigFile = File('$home/.flutter_compilerc');
+  await F.writeKeyValueToRcConfig(
+    rcConfigFile,
+    RunCommandKey.devTools.key,
+    cloneDir,
+  );
+
   // Add the DevTools tool bin to the PATH
   final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
+  if (!await configFile.exists()) {
+    await configFile.create(recursive: true);
+  }
   var shellFileContents = await configFile.readAsString();
 
   final devtoolsToolBinPath =
       Constants.platformDevToolsPATHExport.replaceAll('{{path}}', cloneDir);
-  if (!shellFileContents.contains(devtoolsToolBinPath)) {
+  if (!shellFileContents.contains(devtoolsToolBinPath.trim())) {
     shellFileContents += devtoolsToolBinPath;
-    await F.writeKeyValueToRcConfig(
-      configFile,
-      RunCommandKey.devTools.key,
-      cloneDir,
-    );
+    await configFile.writeAsString(shellFileContents);
     l.info(
-        '\nAdded\n $devtoolsToolBinPath to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.\n');
+        'Added DevTools tool/bin to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
+            .green);
   }
 
   // Optional step: Check and update the DevTools Flutter SDK
-  await F
-      .runCommand('devtools_tool', ['update-flutter-sdk', '--update-on-path']);
+  try {
+    await F.runCommand(
+        'devtools_tool', ['update-flutter-sdk', '--update-on-path']);
+  } catch (e) {
+    l.warn(
+        'devtools_tool update-flutter-sdk failed (may need terminal restart): $e');
+  }
 
   // Inform the user to restart their terminal
   l
     ..info(
-        'Setup complete! Please restart your terminal or source your shell configuration to apply PATH changes.\n'
+        '\nSetup complete! Please restart your terminal or source your shell configuration to apply PATH changes.\n'
             .green)
     ..info('To verify the setup, run the following command:')
     ..info(
@@ -117,6 +138,33 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   await displayIncrementalInfo();
 
   return ExitCode.success.code;
+}
+
+/// Ensure a git remote exists with the given URL.
+/// If it already exists, update its URL. If not, add it.
+Future<void> _ensureRemote(
+    Logger l, String name, String url, String workingDirectory) async {
+  final result = await Process.run(
+    'git',
+    ['remote', 'get-url', name],
+    workingDirectory: workingDirectory,
+  );
+  if (result.exitCode == 0) {
+    // Remote exists — update URL if different
+    final currentUrl = (result.stdout as String).trim();
+    if (currentUrl != url) {
+      await F.runCommand('git', ['remote', 'set-url', name, url],
+          workingDirectory: workingDirectory);
+      l.info('Updated remote "$name" to $url'.green);
+    } else {
+      l.info('Remote "$name" already set to $url'.green);
+    }
+  } else {
+    // Remote doesn't exist — add it
+    await F.runCommand('git', ['remote', 'add', name, url],
+        workingDirectory: workingDirectory);
+    l.info('Added remote "$name" → $url'.green);
+  }
 }
 
 Future<void> displayIncrementalInfo() async {

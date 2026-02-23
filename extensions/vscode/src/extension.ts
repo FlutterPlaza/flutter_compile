@@ -3,6 +3,7 @@ import * as statusBar from "./statusBar";
 import * as commands from "./commands";
 import * as versionWatcher from "./versionWatcher";
 import * as cli from "./cli";
+import { reloadBackend, getMode } from "./sdkProvider";
 import { SdkTreeProvider } from "./views/sdkTreeProvider";
 import { DoctorTreeProvider } from "./views/doctorTreeProvider";
 import { BuildsTreeProvider } from "./views/buildsTreeProvider";
@@ -10,20 +11,13 @@ import { BuildsTreeProvider } from "./views/buildsTreeProvider";
 export async function activate(
   context: vscode.ExtensionContext
 ): Promise<void> {
-  // Check CLI availability
+  // Soft check for CLI availability (info-level, not blocking)
   const available = await cli.isCliAvailable();
   if (!available) {
-    const action = await vscode.window.showWarningMessage(
-      "flutter_compile CLI not found. Install it to use this extension.",
-      "Show Install Instructions"
+    vscode.window.showInformationMessage(
+      "flutter_compile CLI not found. SDK management uses the built-in backend. " +
+        "Install the CLI for doctor/engine features.",
     );
-    if (action === "Show Install Instructions") {
-      vscode.env.openExternal(
-        vscode.Uri.parse(
-          "https://github.com/flutterplaza/flutter_compile#installation"
-        )
-      );
-    }
   }
 
   // Status bar — shows active Flutter SDK version
@@ -36,10 +30,13 @@ export async function activate(
   const doctorProvider = new DoctorTreeProvider();
   const buildsProvider = new BuildsTreeProvider();
 
+  const sdkTreeView = vscode.window.createTreeView("flutterCompile.sdks", {
+    treeDataProvider: sdkProvider,
+  });
+  sdkTreeView.description = getMode() === "fvm" ? "FVM" : "Native";
+
   context.subscriptions.push(
-    vscode.window.createTreeView("flutterCompile.sdks", {
-      treeDataProvider: sdkProvider,
-    }),
+    sdkTreeView,
     vscode.window.createTreeView("flutterCompile.doctor", {
       treeDataProvider: doctorProvider,
     }),
@@ -113,7 +110,31 @@ export async function activate(
       doctorProvider.refresh();
       buildsProvider.refresh();
       statusBar.refresh();
-    })
+    }),
+    vscode.commands.registerCommand(
+      "flutterCompile.initEngine",
+      commands.initEngine
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.buildEngine",
+      commands.buildEngine
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.deleteBuild",
+      commands.deleteBuild
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.installDoctorCheck",
+      commands.installDoctorCheck
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.uninstallEnvironment",
+      commands.uninstallDoctorEnvironment
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.toggleSdkManager",
+      commands.toggleSdkManager
+    )
   );
 
   // Watch .flutter-version for external changes
@@ -127,6 +148,25 @@ export async function activate(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       statusBar.refresh();
       sdkProvider.refresh();
+    })
+  );
+
+  // Listen for sdkManager setting changes and reload the backend
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("flutterCompile.sdkManager")) {
+        reloadBackend();
+        // Restart watchers for the new mode
+        versionWatcher.stop();
+        const newDisposables = versionWatcher.start(() => {
+          sdkProvider.refresh();
+        });
+        context.subscriptions.push(...newDisposables);
+        // Refresh everything with the new backend
+        sdkTreeView.description = getMode() === "fvm" ? "FVM" : "Native";
+        sdkProvider.refresh();
+        statusBar.refresh();
+      }
     })
   );
 }

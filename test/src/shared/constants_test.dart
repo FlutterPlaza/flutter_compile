@@ -141,7 +141,7 @@ void main() {
   group('Constants templates', () {
     test('gclientFileTemplate contains solutions', () {
       expect(Constants.gclientFileTemplate, contains('solutions'));
-      expect(Constants.gclientFileTemplate, contains('{{engine_url}}'));
+      expect(Constants.gclientFileTemplate, contains('{{flutter_url}}'));
     });
 
     test('flutterVersionFile is .flutter-version', () {

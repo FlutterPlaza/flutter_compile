@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **SDK Manager mode dropdown** — "Mode:" combo box in the tool window toolbar to switch between Native and FVM backends
+- **Enhanced CLI integration** — new `sdk list --json --mode fvm` support for FVM backend
+- **Improved CLI availability check** — richer notification with version display and install instructions
+- **Doctor install actions** — wrench button on failing checks to trigger install or configuration
+- **Engine Builds improvements** — enhanced tree rendering with disk sizes and build target details
+
+### Changed
+
+- All SDK operations (list, global, use, remove, install) now route through the selected backend mode
+- Settings page updated with SDK Manager mode selector
+- Tool window panels refresh automatically on mode change
+
 ## 0.2.0
 
 Major GUI overhaul — feature parity with the VS Code extension.

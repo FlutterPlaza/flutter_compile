@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as cli from "./cli";
+import { getBackend } from "./sdkProvider";
 
 let statusBarItem: vscode.StatusBarItem;
 
@@ -31,7 +31,7 @@ export async function refresh(): Promise<void> {
   }
 
   // Fall back to global
-  const globalVersion = await cli.getGlobalSdkVersion();
+  const globalVersion = await getBackend().getGlobalSdkVersion();
   if (globalVersion) {
     statusBarItem.text = `$(versions) Flutter SDK: ${globalVersion}`;
     statusBarItem.backgroundColor = undefined;

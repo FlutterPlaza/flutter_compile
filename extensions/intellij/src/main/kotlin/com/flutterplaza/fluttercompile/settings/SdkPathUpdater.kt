@@ -1,11 +1,8 @@
 package com.flutterplaza.fluttercompile.settings
 
-import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.sdk.SdkBackendProvider
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.projectRoots.ProjectJdkTable
-import com.intellij.openapi.roots.ProjectRootManager
-import io.flutter.sdk.FlutterSdk
 import io.flutter.sdk.FlutterSdkUtil
 
 /**
@@ -22,15 +19,15 @@ object SdkPathUpdater {
      * Must be called on the EDT (Event Dispatch Thread).
      */
     fun updateFlutterSdkPath(project: Project, version: String) {
-        val sdkPath = FlutterCompileCli.getSdkPath(version)
+        val sdkPath = SdkBackendProvider.get().getSdkPath(version)
         if (sdkPath == null) {
             LOG.warn("Could not resolve SDK path for version $version")
             return
         }
 
         try {
-            FlutterSdkUtil.updateKnownSdkPaths(sdkPath)
-            LOG.info("Updated Flutter SDK path to $sdkPath for version $version")
+            FlutterSdkUtil.setFlutterSdkPath(project, sdkPath)
+            LOG.info("Set project Flutter SDK to $sdkPath for version $version")
         } catch (e: Exception) {
             LOG.warn("Failed to update Flutter SDK path", e)
         }

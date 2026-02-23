@@ -9,11 +9,15 @@ class BuildsInfoItem extends vscode.TreeItem {
   }
 }
 
-class BuildEntryItem extends vscode.TreeItem {
-  constructor(name: string, size: string) {
-    super(name, vscode.TreeItemCollapsibleState.None);
-    this.description = size;
+export class BuildEntryItem extends vscode.TreeItem {
+  constructor(
+    public readonly buildName: string,
+    public readonly buildSize: string
+  ) {
+    super(buildName, vscode.TreeItemCollapsibleState.None);
+    this.description = buildSize;
     this.iconPath = new vscode.ThemeIcon("package");
+    this.contextValue = "buildEntry";
   }
 }
 

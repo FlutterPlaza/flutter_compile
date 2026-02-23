@@ -2,7 +2,7 @@
   "name": "flutter-compile",
   "displayName": "Flutter Compile",
   "description": "Manage multiple Flutter SDK versions — install, switch, pin, remove SDKs, run diagnostics, and monitor engine builds from the VS Code sidebar.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "flutterPlaza-com",
   "license": "BSD-3-Clause",
   "icon": "media/flutter-compile.png",
@@ -67,7 +67,7 @@
       },
       {
         "view": "flutterCompile.builds",
-        "contents": "No engine configured.\nRun `flutter_compile engine init` to set up the Flutter engine.",
+        "contents": "No engine configured.\n[Initialize Engine](command:flutterCompile.initEngine)",
         "when": "flutterCompile.noEngine"
       }
     ],
@@ -128,10 +128,45 @@
         "command": "flutterCompile.refreshAll",
         "title": "Flutter Compile: Refresh All",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "flutterCompile.initEngine",
+        "title": "Flutter Compile: Initialize Engine",
+        "icon": "$(play)"
+      },
+      {
+        "command": "flutterCompile.buildEngine",
+        "title": "Flutter Compile: Build Engine",
+        "icon": "$(tools)"
+      },
+      {
+        "command": "flutterCompile.deleteBuild",
+        "title": "Flutter Compile: Delete Build",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "flutterCompile.installDoctorCheck",
+        "title": "Flutter Compile: Install / Configure",
+        "icon": "$(wrench)"
+      },
+      {
+        "command": "flutterCompile.uninstallEnvironment",
+        "title": "Flutter Compile: Uninstall Environment",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "flutterCompile.toggleSdkManager",
+        "title": "Flutter Compile: Switch SDK Manager",
+        "icon": "$(arrow-swap)"
       }
     ],
     "menus": {
       "view/title": [
+        {
+          "command": "flutterCompile.toggleSdkManager",
+          "when": "view == flutterCompile.sdks",
+          "group": "navigation@0"
+        },
         {
           "command": "flutterCompile.installSdk",
           "when": "view == flutterCompile.sdks",
@@ -148,9 +183,19 @@
           "group": "navigation"
         },
         {
+          "command": "flutterCompile.buildEngine",
+          "when": "view == flutterCompile.builds",
+          "group": "navigation@1"
+        },
+        {
+          "command": "flutterCompile.initEngine",
+          "when": "view == flutterCompile.builds",
+          "group": "navigation@2"
+        },
+        {
           "command": "flutterCompile.refreshBuilds",
           "when": "view == flutterCompile.builds",
-          "group": "navigation"
+          "group": "navigation@3"
         }
       ],
       "view/item/context": [
@@ -178,16 +223,66 @@
           "command": "flutterCompile.removeSdk",
           "when": "view == flutterCompile.sdks && viewItem == sdk",
           "group": "2_destructive@1"
+        },
+        {
+          "command": "flutterCompile.deleteBuild",
+          "when": "view == flutterCompile.builds && viewItem == buildEntry",
+          "group": "inline"
+        },
+        {
+          "command": "flutterCompile.deleteBuild",
+          "when": "view == flutterCompile.builds && viewItem == buildEntry",
+          "group": "1_destructive@1"
+        },
+        {
+          "command": "flutterCompile.installDoctorCheck",
+          "when": "view == flutterCompile.doctor && viewItem =~ /^(doctorCheckFailing|envFailing)$/",
+          "group": "inline"
+        },
+        {
+          "command": "flutterCompile.installDoctorCheck",
+          "when": "view == flutterCompile.doctor && viewItem =~ /^(doctorCheckFailing|envFailing)$/",
+          "group": "1_actions@1"
+        },
+        {
+          "command": "flutterCompile.uninstallEnvironment",
+          "when": "view == flutterCompile.doctor && viewItem == envOk",
+          "group": "inline"
+        },
+        {
+          "command": "flutterCompile.uninstallEnvironment",
+          "when": "view == flutterCompile.doctor && viewItem == envOk",
+          "group": "2_destructive@1"
+        },
+        {
+          "command": "flutterCompile.deleteBuild",
+          "when": "view == flutterCompile.doctor && viewItem == buildEntry",
+          "group": "inline"
+        },
+        {
+          "command": "flutterCompile.deleteBuild",
+          "when": "view == flutterCompile.doctor && viewItem == buildEntry",
+          "group": "1_destructive@1"
         }
       ]
     },
     "configuration": {
       "title": "Flutter Compile",
       "properties": {
+        "flutterCompile.sdkManager": {
+          "type": "string",
+          "enum": ["native", "fvm"],
+          "default": "native",
+          "enumDescriptions": [
+            "Manage Flutter SDKs natively (no external tools required)",
+            "Delegate SDK management to FVM (requires fvm CLI)"
+          ],
+          "description": "Choose the SDK management backend."
+        },
         "flutterCompile.cliPath": {
           "type": "string",
           "default": "flutter_compile",
-          "description": "Path to the flutter_compile CLI executable."
+          "description": "Path to the flutter_compile CLI executable (used for doctor/engine features)."
         }
       }
     }

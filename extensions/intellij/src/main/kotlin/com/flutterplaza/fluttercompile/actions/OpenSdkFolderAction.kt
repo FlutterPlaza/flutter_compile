@@ -1,6 +1,7 @@
 package com.flutterplaza.fluttercompile.actions
 
-import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.Constants
+import com.flutterplaza.fluttercompile.sdk.SdkBackendProvider
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -15,17 +16,18 @@ class OpenSdkFolderAction : AnAction() {
 
     override fun actionPerformed(e: AnActionEvent) {
         val project = e.project ?: return
-        val sdks = FlutterCompileCli.listSdks()
+        val backend = SdkBackendProvider.get()
+        val sdks = backend.listSdks(project.basePath)
         if (sdks.isEmpty()) {
-            Messages.showInfoMessage(project, "No SDKs installed.", "Flutter Compile")
+            Messages.showInfoMessage(project, Constants.MSG_NO_SDKS_INSTALLED, Constants.PLUGIN_NAME)
             return
         }
 
         val versions = sdks.map { it.displayLabel() }.toTypedArray()
         val choice = Messages.showChooseDialog(
             project,
-            "Select SDK folder to open:",
-            "Open SDK Folder",
+            Constants.MSG_SELECT_SDK_OPEN,
+            Constants.DIALOG_OPEN_SDK_FOLDER,
             null,
             versions,
             versions.first(),
@@ -37,7 +39,7 @@ class OpenSdkFolderAction : AnAction() {
         if (file.exists()) {
             RevealFileAction.openDirectory(file)
         } else {
-            Messages.showErrorDialog(project, "SDK folder not found: ${selected.path}", "Flutter Compile")
+            Messages.showErrorDialog(project, "SDK folder not found: ${selected.path}", Constants.PLUGIN_NAME)
         }
     }
 }

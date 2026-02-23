@@ -21,7 +21,7 @@ Future<List<Map<String, dynamic>>> gatherDoctorChecks() async {
   }
 
   // Check engine-related tools
-  final gclientAvailable = await F.isCommandAvailable('gclient');
+  final gclientAvailable = await _isGclientAvailable();
   checks.add({
     'name': 'gclient',
     'category': 'engine_tools',
@@ -96,11 +96,33 @@ Future<List<Map<String, dynamic>>> gatherDoctorChecks() async {
     label: 'Engine contributor environment',
     configKey: RunCommandKey.engine.key,
     defaultPath: '$home${Constants.engineInstallPath}',
-    gitSubpath: 'src/flutter',
     checks: checks,
   );
 
   return checks;
+}
+
+/// Check for gclient on PATH, then probe known depot_tools locations.
+Future<bool> _isGclientAvailable() async {
+  if (await F.isCommandAvailable('gclient')) return true;
+
+  final home = F.homeDir();
+  final bin = Platform.isWindows ? 'gclient.bat' : 'gclient';
+
+  // Check depot_tools_path from .flutter_compilerc
+  final rcFile = File('$home/.flutter_compilerc');
+  final depotPath =
+      await F.readValueForKeyFromRcConfig(rcFile, RunCommandKey.depotTools.key);
+  if (depotPath != null && depotPath.isNotEmpty) {
+    final gclient = File('$depotPath/$bin');
+    if (await gclient.exists()) return true;
+  }
+
+  // Check default install location
+  final defaultGclient = File('$home${Constants.depotToolsInstallPath}/$bin');
+  if (await defaultGclient.exists()) return true;
+
+  return false;
 }
 
 Future<void> _checkEnvironmentForGather({
@@ -124,6 +146,14 @@ Future<void> _checkEnvironmentForGather({
   }
 
   envPath = envPath.isEmpty ? defaultPath : envPath;
+
+  // The rc config may store the bin path (e.g. ~/flutter_compile/flutter/bin)
+  // instead of the repo root. Strip trailing /bin to get the actual git repo.
+  final sep = Platform.isWindows ? r'\' : '/';
+  if (envPath.endsWith('${sep}bin')) {
+    envPath = envPath.substring(0, envPath.length - 4);
+  }
+
   final dir = Directory(envPath);
   if (!await dir.exists()) {
     checks.add({

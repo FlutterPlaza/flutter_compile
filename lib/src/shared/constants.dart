@@ -27,7 +27,8 @@ $env:PATH = "{{path}}\cache\dart-sdk\bin;$env:PATH"
 ''';
 
 // Engine Constants
-  static const engineInstallPath = '$baseCliPath/engine';
+  // Engine lives inside the Flutter contributor checkout
+  static const engineInstallPath = '$flutterCompileInstallPath/engine';
   static const depotToolsInstallPath = '$baseCliPath/depot_tools';
   static const depotToolsCloneUrl =
       'https://chromium.googlesource.com/chromium/tools/depot_tools.git';
@@ -49,17 +50,17 @@ $env:PATH = "{{path}};$env:PATH"
   static const gclientFileTemplate = '''
 solutions = [
   {
-    "managed": False,
-    "name": "src/flutter",
-    "url": "{{engine_url}}",
     "custom_deps": {},
     "deps_file": "DEPS",
+    "managed": False,
+    "name": ".",
     "safesync_url": "",
+    "url": "{{flutter_url}}",
   },
 ]
 ''';
-  static const engineUpstreamSSH = 'git@github.com:flutter/engine.git';
-  static const engineUpstreamHTTPS = 'https://github.com/flutter/engine.git';
+  static const engineUpstreamSSH = 'git@github.com:flutter/flutter.git';
+  static const engineUpstreamHTTPS = 'https://github.com/flutter/flutter.git';
 
 // DevTools Constants
   static const devToolsInstallPath = '$baseCliPath/devtools';

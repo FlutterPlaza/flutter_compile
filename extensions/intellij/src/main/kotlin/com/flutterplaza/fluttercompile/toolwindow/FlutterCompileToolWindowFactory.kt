@@ -1,5 +1,6 @@
 package com.flutterplaza.fluttercompile.toolwindow
 
+import com.flutterplaza.fluttercompile.Constants
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
@@ -17,13 +18,13 @@ class FlutterCompileToolWindowFactory : ToolWindowFactory, DumbAware {
 
     companion object {
         val PANEL_KEY = com.intellij.openapi.util.Key.create<FlutterCompileToolWindowPanel>(
-            "FlutterCompileToolWindowPanel"
+            Constants.TOOL_WINDOW_PANEL_KEY_NAME
         )
 
         /** Retrieve the panel from an open tool window. */
         fun getPanel(project: Project): FlutterCompileToolWindowPanel? {
             val toolWindow = com.intellij.openapi.wm.ToolWindowManager.getInstance(project)
-                .getToolWindow("Flutter Compile") ?: return null
+                .getToolWindow(Constants.TOOL_WINDOW_ID) ?: return null
             val content = toolWindow.contentManager.getContent(0) ?: return null
             return content.getUserData(PANEL_KEY)
         }

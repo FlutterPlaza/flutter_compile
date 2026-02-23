@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- **Dual SDK backend** — switch between Native and FVM SDK management via the `flutterCompile.sdkManager` setting
+- **SDK Manager toggle button** — swap-arrows icon in the SDKs view title bar opens a QuickPick to switch between Native and FVM modes
+- **Mode label** — SDKs view title shows "SDKs — Native" or "SDKs — FVM" to indicate the active backend
+- **Doctor install actions** — wrench button on failing checks to auto-install or configure missing tools (ninja, Xcode CLI, depot_tools, Python, git, `.flutter_compilerc`, contributor environments)
+- **Doctor uninstall action** — trash button on passing environment checks to uninstall contributor environments
+- **Engine build command** — build the Flutter engine with platform, mode, and flag selection from the sidebar
+- **Engine init command** — initialize engine environment from the Engine Builds view
+- **Delete build action** — inline trash button and context menu to delete engine build outputs
+- **Switch SDK Manager command** — `Flutter Compile: Switch SDK Manager` available from the Command Palette
+- Commands: Initialize Engine, Build Engine, Delete Build, Install/Configure Doctor Check, Uninstall Environment
+
+### Changed
+
+- SDK tree view, status bar, and file watcher now use the pluggable backend system (native or FVM)
+- Configuration change listener reloads backend and refreshes all views automatically
+
 ## 0.2.0
 
 ### Added

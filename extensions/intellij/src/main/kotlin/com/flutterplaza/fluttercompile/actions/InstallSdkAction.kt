@@ -1,6 +1,7 @@
 package com.flutterplaza.fluttercompile.actions
 
-import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.Constants
+import com.flutterplaza.fluttercompile.sdk.SdkBackendProvider
 import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
@@ -10,7 +11,7 @@ import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.ui.Messages
 
-/** Prompts for a version string and runs `flutter_compile sdk install <version>`. */
+/** Prompts for a version string and installs the SDK via the active backend. */
 class InstallSdkAction : AnAction() {
 
     override fun getActionUpdateThread(): ActionUpdateThread = ActionUpdateThread.BGT
@@ -19,8 +20,8 @@ class InstallSdkAction : AnAction() {
         val project = e.project ?: return
         val version = Messages.showInputDialog(
             project,
-            "Enter Flutter SDK version or channel to install:",
-            "Install Flutter SDK",
+            Constants.MSG_ENTER_SDK_VERSION,
+            Constants.DIALOG_INSTALL_SDK,
             null,
         )
         if (version.isNullOrBlank()) return
@@ -29,12 +30,12 @@ class InstallSdkAction : AnAction() {
         ProgressManager.getInstance().run(
             object : Task.Backgroundable(project, "Installing Flutter SDK $trimmed...") {
                 override fun run(indicator: ProgressIndicator) {
-                    val result = FlutterCompileCli.installSdk(trimmed)
+                    val result = SdkBackendProvider.get().installSdk(trimmed, indicator)
                     ApplicationManager.getApplication().invokeLater {
                         if (result) {
-                            Messages.showInfoMessage(project, "Flutter SDK $trimmed installed.", "Flutter Compile")
+                            Messages.showInfoMessage(project, "Flutter SDK $trimmed installed.", Constants.PLUGIN_NAME)
                         } else {
-                            Messages.showErrorDialog(project, "Failed to install Flutter SDK $trimmed.", "Flutter Compile")
+                            Messages.showErrorDialog(project, "Failed to install Flutter SDK $trimmed.", Constants.PLUGIN_NAME)
                         }
                     }
                 }

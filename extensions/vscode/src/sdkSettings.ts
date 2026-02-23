@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as cli from "./cli";
+import { getBackend } from "./sdkProvider";
 
 /**
  * Update `dart.flutterSdkPath` in workspace settings to point
@@ -8,7 +8,7 @@ import * as cli from "./cli";
 export async function updateFlutterSdkPath(
   version: string
 ): Promise<void> {
-  const sdkPath = await cli.getSdkPath(version);
+  const sdkPath = await getBackend().getSdkPath(version);
   if (!sdkPath) {
     return;
   }

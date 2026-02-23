@@ -2,11 +2,19 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
+import 'package:flutter_compile/src/shared/extension.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class SyncEngineSubCommand extends Command<int> {
-  SyncEngineSubCommand(this._logger);
+  SyncEngineSubCommand(this._logger) {
+    argParser.addFlag(
+      'force',
+      abbr: 'f',
+      help: 'Force gclient sync with --reset --force (resolves dirty repos)',
+      defaultsTo: false,
+    );
+  }
 
   final Logger _logger;
 
@@ -17,6 +25,7 @@ class SyncEngineSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    final force = argResults?['force'] as bool;
     _logger.info('Syncing Flutter engine...');
 
     final home = F.homeDir();
@@ -43,6 +52,9 @@ class SyncEngineSubCommand extends Command<int> {
       return ExitCode.config.code;
     }
 
+    // gclient and git operate on the Flutter repo root (parent of engine dir)
+    final flutterRoot = Directory(enginePath).parent.path;
+
     final depotToolsPath = await F.readValueForKeyFromRcConfig(
       rcConfigFile,
       RunCommandKey.depotTools.key,
@@ -56,31 +68,80 @@ class SyncEngineSubCommand extends Command<int> {
       return ExitCode.config.code;
     }
 
-    final engineSrcFlutter = '$enginePath/src/flutter';
+    // Prepend depot_tools to PATH
+    final syncEnv = <String, String>{};
+    final currentPath = Platform.environment['PATH'] ?? '';
+    syncEnv['PATH'] =
+        '$depotToolsPath${Platform.isWindows ? ';' : ':'}$currentPath';
 
-    await F.runCommand(
-      'git',
-      ['fetch', 'upstream'],
-      workingDirectory: engineSrcFlutter,
-    );
-    await F.runCommand(
-      'git',
-      ['rebase', 'upstream/main'],
-      workingDirectory: engineSrcFlutter,
-    );
-
-    _logger.info('Running gclient sync...');
-    await F.runCommand(
-      '$depotToolsPath/gclient',
-      ['sync'],
-      workingDirectory: enginePath,
-    );
-
-    _logger
-      ..success('Engine synced successfully.')
-      ..info(
-        'Run "flutter_compile build engine" to rebuild.',
+    // Git remotes are on the Flutter repo root (parent of engine dir)
+    try {
+      await F.runCommand(
+        'git',
+        ['fetch', 'upstream'],
+        workingDirectory: flutterRoot,
       );
-    return ExitCode.success.code;
+      await F.runCommand(
+        'git',
+        ['rebase', 'upstream/master'],
+        workingDirectory: flutterRoot,
+      );
+    } on Exception catch (e) {
+      _logger.err(
+        'Git sync failed: $e\n'
+        'You may need to resolve merge conflicts manually in $flutterRoot.',
+      );
+      return ExitCode.software.code;
+    }
+
+    _logger.info('Running gclient sync...'.yellow);
+
+    // Try normal sync first, retry with --force --reset on failure
+    if (!force) {
+      try {
+        await F.runCommand(
+          '$depotToolsPath/gclient',
+          ['sync'],
+          workingDirectory: flutterRoot,
+          environment: syncEnv,
+        );
+        _logger
+          ..success('Engine synced successfully.')
+          ..info('Run "flutter_compile build engine" to rebuild.');
+        return ExitCode.success.code;
+      } on Exception catch (e) {
+        _logger.warn(
+          '\ngclient sync failed: $e\n'
+                  'Retrying with --force --reset to resolve dirty repos...\n'
+              .yellow,
+        );
+      }
+    }
+
+    // Forced sync
+    try {
+      _logger.info('Running forced gclient sync...'.yellow);
+      await F.runCommand(
+        '$depotToolsPath/gclient',
+        ['sync', '--force', '--reset', '--delete_unversioned_trees'],
+        workingDirectory: enginePath,
+        environment: syncEnv,
+      );
+      _logger
+        ..success('Engine synced successfully (forced).')
+        ..info('Run "flutter_compile build engine" to rebuild.');
+      return ExitCode.success.code;
+    } on Exception catch (e) {
+      _logger.err(
+        '\ngclient sync failed even with --force --reset: $e\n\n'
+        'Manual recovery steps:\n'
+        '  1. cd $flutterRoot\n'
+        '  2. gclient sync --force --reset --delete_unversioned_trees\n'
+        '  3. If that fails, delete engine/src and re-run:\n'
+        '     rm -rf $enginePath/src\n'
+        '     flutter_compile install engine --force\n',
+      );
+      return ExitCode.software.code;
+    }
   }
 }
