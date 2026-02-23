@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.11.1
+
+- fix: switch CI to GitHub-hosted runners (ubuntu-latest, windows-latest, macos-latest)
+- fix: correct build matrix — replace duplicate macOS entry with Ubuntu for coverage uploads
+- deps: upgrade `json_rpc_2` to ^4.1.0 and `lints` to ^6.1.0
+
 ## 0.11.0
 
 - feat: engine now builds from within the Flutter contributor checkout (monorepo alignment with flutter/flutter)

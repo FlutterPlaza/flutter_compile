@@ -1,6 +1,6 @@
 name: flutter_compile
 description: A CLI that automates Flutter framework, DevTools, and engine contributor environment setup — depot_tools, gclient sync, GN flags, and ninja builds.
-version: 0.11.0
+version: 0.11.1
 repository: https://github.com/FlutterPlaza/flutter_compile
 homepage: https://www.flutterplaza.com/
 issue_tracker: https://github.com/FlutterPlaza/flutter_compile/issues
@@ -11,13 +11,13 @@ environment:
 dependencies:
   args: ^2.5.0
   cli_completion: ^0.5.0
-  json_rpc_2: ^3.0.2
+  json_rpc_2: ^4.1.0
   mason_logger: ^0.3.3
   pub_updater: ^0.5.0
   stream_channel: ^2.1.2
 
 dev_dependencies:
-  lints: ^5.1.1
+  lints: ^6.1.0
   mocktail: ^1.0.4
   test: ^1.25.8
 
