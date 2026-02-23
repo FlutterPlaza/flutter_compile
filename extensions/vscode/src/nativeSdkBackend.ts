@@ -10,6 +10,13 @@ const RC_FILE = ".flutter_compilerc";
 const GLOBAL_SDK_KEY = "global_sdk_version";
 const FLUTTER_VERSION_FILE = ".flutter-version";
 
+const SDK_PATH_BLOCK_START =
+  "# >>> Added by flutter_compile SDK manager >>>";
+const SDK_PATH_BLOCK_END =
+  "# <<< Added by flutter_compile SDK manager <<<";
+
+const ENV_FILE = ".flutter_compile_env";
+
 /** Returns the user's home directory. */
 function homeDir(): string {
   return os.homedir();
@@ -90,13 +97,250 @@ function readRcConfigValue(key: string): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Shell config helpers (PATH management)
+// ---------------------------------------------------------------------------
+
+/** Detect the user's shell config file path. */
+function shellConfigPath(): string {
+  const home = homeDir();
+  if (process.platform === "win32") {
+    const docs = process.env.USERPROFILE ?? home;
+    return path.join(
+      docs,
+      "Documents",
+      "WindowsPowerShell",
+      "Microsoft.PowerShell_profile.ps1",
+    );
+  }
+  const shell = process.env.SHELL ?? "";
+  const rc = shell.includes("bash")
+    ? ".bashrc"
+    : shell.includes("zsh")
+      ? ".zshrc"
+      : ".profile";
+  return path.join(home, rc);
+}
+
+/** Returns the path to the dedicated env file (~/.flutter_compile_env). */
+function envFilePath(): string {
+  return path.join(homeDir(), ENV_FILE);
+}
+
+/** Source line added to the user's shell RC. */
+const SOURCE_LINE = `\n[ -f ~/.${ENV_FILE} ] && source ~/.${ENV_FILE}\n`;
+const SOURCE_LINE_WINDOWS = `\nif (Test-Path "$HOME\\.${ENV_FILE}") { . "$HOME\\.${ENV_FILE}" }\n`;
+
+/** Regex to detect the source line already present in shell RC. */
+const SOURCE_LINE_RE =
+  process.platform === "win32"
+    ? /\n?if \(Test-Path "\$HOME\\\.flutter_compile_env"\) \{ \. "\$HOME\\\.flutter_compile_env" \}\n?/
+    : /\n?\[ *-f *~\/\.flutter_compile_env *\] *&& *source *~\/\.flutter_compile_env\n?/;
+
+/** Regex that matches the SDK manager PATH block. */
+const SDK_PATH_BLOCK_RE = new RegExp(
+  "\\n?# >>> Added by flutter_compile SDK manager >>>" +
+    "[\\s\\S]*?" +
+    "# <<< Added by flutter_compile SDK manager <<<\\n?",
+);
+
+/**
+ * Idempotently ensure the shell RC has a `source` line for the env file.
+ * Also strips any legacy SDK manager PATH blocks from the shell RC as migration.
+ */
+function ensureSourceLine(): void {
+  const configFile = shellConfigPath();
+  let contents = "";
+  try {
+    contents = fs.readFileSync(configFile, "utf-8");
+  } catch {
+    // File doesn't exist yet
+  }
+
+  let changed = false;
+
+  // Migration: remove old SDK manager blocks from shell RC
+  if (SDK_PATH_BLOCK_RE.test(contents)) {
+    contents = contents.replace(SDK_PATH_BLOCK_RE, "");
+    changed = true;
+  }
+
+  // Add source line if not already present
+  if (!SOURCE_LINE_RE.test(contents)) {
+    const line =
+      process.platform === "win32" ? SOURCE_LINE_WINDOWS : SOURCE_LINE;
+    contents += line;
+    changed = true;
+  }
+
+  if (changed) {
+    const dir = path.dirname(configFile);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(configFile, contents, "utf-8");
+  }
+}
+
+/** Build the SDK PATH export block for the given SDK path. */
+function buildSdkPathBlock(sdkDir: string, pubCachePath: string): string {
+  if (process.platform === "win32") {
+    return [
+      "",
+      SDK_PATH_BLOCK_START,
+      `if (-not $env:FLUTTER_COMPILE_SDK) {`,
+      `  $env:PATH = "${sdkDir}\\bin;$env:PATH"`,
+      `  $env:PATH = "${sdkDir}\\bin\\cache\\dart-sdk\\bin;$env:PATH"`,
+      `  $env:PUB_CACHE = "${pubCachePath}"`,
+      `} else {`,
+      `  $env:PATH = "$env:FLUTTER_COMPILE_SDK\\bin;$env:FLUTTER_COMPILE_SDK\\bin\\cache\\dart-sdk\\bin;$env:PATH"`,
+      `  $env:PUB_CACHE = "$env:FLUTTER_COMPILE_SDK\\.pub-cache"`,
+      `}`,
+      SDK_PATH_BLOCK_END,
+      "",
+    ].join("\n");
+  }
+  return [
+    "",
+    SDK_PATH_BLOCK_START,
+    `if [ -z "$FLUTTER_COMPILE_SDK" ]; then`,
+    `  export PATH=${sdkDir}/bin:$PATH`,
+    `  export PATH=${sdkDir}/bin/cache/dart-sdk/bin:$PATH`,
+    `  export PUB_CACHE=${pubCachePath}`,
+    `else`,
+    `  export PATH="$FLUTTER_COMPILE_SDK/bin:$FLUTTER_COMPILE_SDK/bin/cache/dart-sdk/bin:$PATH"`,
+    `  export PUB_CACHE="$FLUTTER_COMPILE_SDK/.pub-cache"`,
+    `fi`,
+    SDK_PATH_BLOCK_END,
+    "",
+  ].join("\n");
+}
+
+/** Write the SDK PATH block into the env file, replacing any existing block. */
+function updateShellConfigPath(sdkDir: string, pubCachePath: string): void {
+  ensureSourceLine();
+
+  const envFile = envFilePath();
+  let contents = "";
+  try {
+    contents = fs.readFileSync(envFile, "utf-8");
+  } catch {
+    // File doesn't exist yet — start with empty string
+  }
+
+  // Remove existing block
+  contents = contents.replace(SDK_PATH_BLOCK_RE, "");
+
+  // Append new block
+  contents += buildSdkPathBlock(sdkDir, pubCachePath);
+
+  const dir = path.dirname(envFile);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  fs.writeFileSync(envFile, contents, "utf-8");
+}
+
+/** Remove the SDK PATH block from the env file and legacy shell RC. */
+function removeShellConfigPath(): void {
+  // Clean env file
+  const envFile = envFilePath();
+  if (fs.existsSync(envFile)) {
+    let contents = fs.readFileSync(envFile, "utf-8");
+    contents = contents.replace(SDK_PATH_BLOCK_RE, "");
+    fs.writeFileSync(envFile, contents, "utf-8");
+  }
+
+  // Migration: also strip legacy block from shell RC
+  const configFile = shellConfigPath();
+  if (fs.existsSync(configFile)) {
+    let contents = fs.readFileSync(configFile, "utf-8");
+    if (SDK_PATH_BLOCK_RE.test(contents)) {
+      contents = contents.replace(SDK_PATH_BLOCK_RE, "");
+      fs.writeFileSync(configFile, contents, "utf-8");
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Env file migration
+// ---------------------------------------------------------------------------
+
+/**
+ * Migrate the env file: rewrite old-style SDK blocks with the new
+ * FLUTTER_COMPILE_SDK-guarded template. No-op if already migrated.
+ *
+ * Called once on extension activation so that existing users get the
+ * project-pin fix without having to re-set their global SDK.
+ */
+export function migrateEnvFile(): void {
+  const envFile = envFilePath();
+  let contents = "";
+  try {
+    contents = fs.readFileSync(envFile, "utf-8");
+  } catch {
+    return; // No env file, nothing to migrate
+  }
+
+  // Nothing to migrate if no SDK block or already guarded
+  if (
+    !SDK_PATH_BLOCK_RE.test(contents) ||
+    contents.includes("FLUTTER_COMPILE_SDK")
+  ) {
+    return;
+  }
+
+  // Resolve the global SDK to rewrite the block with the new template
+  const globalVersion = readRcConfigValue(GLOBAL_SDK_KEY);
+  if (!globalVersion || !globalVersion.trim()) {
+    return;
+  }
+
+  // Use fallback scan to handle directories with trailing whitespace
+  const trimmed = globalVersion.trim();
+  let sdkDir = sdkVersionPath(trimmed);
+  if (!fs.existsSync(sdkDir)) {
+    // Fallback: scan versions dir for trimmed name match
+    const vDir = versionsDir();
+    let found = false;
+    if (fs.existsSync(vDir)) {
+      try {
+        for (const d of fs.readdirSync(vDir, { withFileTypes: true })) {
+          if (d.isDirectory() && d.name.trim() === trimmed) {
+            sdkDir = path.join(vDir, d.name);
+            found = true;
+            break;
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+    if (!found) {
+      return;
+    }
+  }
+
+  const pubCache = path.join(sdkDir, ".pub-cache");
+  updateShellConfigPath(sdkDir, pubCache);
+}
+
+// ---------------------------------------------------------------------------
 // Git helpers
 // ---------------------------------------------------------------------------
 
-/** Returns true if the path is a directory containing `.git/HEAD`. */
-function isValidGitRepo(dirPath: string): boolean {
+/**
+ * Returns true if the path contains a usable Flutter SDK (`bin/flutter`).
+ *
+ * Checks for the flutter executable rather than `.git/HEAD` so that SDKs
+ * installed from release archives (no `.git`) still work.
+ */
+function isFlutterSdk(sdkPath: string): boolean {
+  const flutter =
+    process.platform === "win32"
+      ? path.join(sdkPath, "bin", "flutter.bat")
+      : path.join(sdkPath, "bin", "flutter");
   try {
-    return fs.statSync(path.join(dirPath, ".git", "HEAD")).isFile();
+    return fs.statSync(flutter).isFile();
   } catch {
     return false;
   }
@@ -113,13 +357,13 @@ export class NativeSdkBackend implements SdkBackend {
       return [];
     }
 
-    let entries: string[];
+    let entries: { name: string; dirName: string }[];
     try {
       entries = fs
         .readdirSync(vDir, { withFileTypes: true })
         .filter((d) => d.isDirectory())
-        .map((d) => d.name)
-        .sort();
+        .map((d) => ({ name: d.name.trim(), dirName: d.name }))
+        .sort((a, b) => a.name.localeCompare(b.name));
     } catch {
       return [];
     }
@@ -128,7 +372,7 @@ export class NativeSdkBackend implements SdkBackend {
       return [];
     }
 
-    const globalVersion = readRcConfigValue(GLOBAL_SDK_KEY);
+    const globalVersion = readRcConfigValue(GLOBAL_SDK_KEY)?.trim();
 
     let projectVersion: string | undefined;
     const root = projectRoot ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -139,11 +383,11 @@ export class NativeSdkBackend implements SdkBackend {
       }
     }
 
-    const sdks: SdkEntry[] = entries.map((name) => ({
-      version: name,
-      path: path.join(vDir, name),
-      global: name === globalVersion,
-      project: name === projectVersion,
+    const sdks: SdkEntry[] = entries.map((e) => ({
+      version: e.name,
+      path: path.join(vDir, e.dirName),
+      global: e.name === globalVersion,
+      project: e.name === projectVersion,
       contributor: false,
     }));
 
@@ -168,11 +412,15 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async setGlobalSdk(version: string): Promise<void> {
-    const sdkPath = await this.getSdkPath(version);
-    if (!sdkPath || !isValidGitRepo(sdkPath)) {
+    const sdkDir = await this.getSdkPath(version);
+    if (!sdkDir || !isFlutterSdk(sdkDir)) {
       throw new Error(`SDK "${version}" is not installed.`);
     }
     writeRcConfigKey(GLOBAL_SDK_KEY, version);
+
+    // Update shell config so new terminal sessions use this SDK
+    const pubCachePath = path.join(sdkDir, ".pub-cache");
+    updateShellConfigPath(sdkDir, pubCachePath);
   }
 
   installSdkInTerminal(version: string): void {
@@ -195,23 +443,24 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async removeSdk(version: string): Promise<void> {
-    const sdkPath = sdkVersionPath(version);
-    if (!fs.existsSync(sdkPath)) {
+    const sdkDir = sdkVersionPath(version);
+    if (!fs.existsSync(sdkDir)) {
       throw new Error(`SDK "${version}" is not installed.`);
     }
 
-    fs.rmSync(sdkPath, { recursive: true, force: true });
+    fs.rmSync(sdkDir, { recursive: true, force: true });
 
-    // If it was the global version, clear the config
+    // If it was the global version, clear the config and shell PATH
     const globalVersion = readRcConfigValue(GLOBAL_SDK_KEY);
     if (globalVersion === version) {
       removeRcConfigKey(GLOBAL_SDK_KEY);
+      removeShellConfigPath();
     }
   }
 
   async pinToProject(version: string, projectRoot: string): Promise<void> {
     const sdkPath = await this.getSdkPath(version);
-    if (!sdkPath || !isValidGitRepo(sdkPath)) {
+    if (!sdkPath || !isFlutterSdk(sdkPath)) {
       throw new Error(`SDK "${version}" is not installed.`);
     }
     const filePath = path.join(projectRoot, FLUTTER_VERSION_FILE);
@@ -219,12 +468,29 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async getSdkPath(version: string): Promise<string | undefined> {
-    const sdkPath = sdkVersionPath(version);
+    const trimmed = version.trim();
+    const sdkPath = sdkVersionPath(trimmed);
     if (fs.existsSync(sdkPath)) {
       return sdkPath;
     }
+
+    // Fallback: scan versions dir for a directory whose trimmed name matches
+    // (handles directories created with trailing whitespace)
+    const vDir = versionsDir();
+    if (fs.existsSync(vDir)) {
+      try {
+        for (const d of fs.readdirSync(vDir, { withFileTypes: true })) {
+          if (d.isDirectory() && d.name.trim() === trimmed) {
+            return path.join(vDir, d.name);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
     // Also check the compiled environment
-    if (version === "compiled") {
+    if (trimmed === "compiled") {
       const compiledDir = path.join(homeDir(), "flutter_compile", "flutter");
       if (fs.existsSync(compiledDir)) {
         return compiledDir;
@@ -234,6 +500,7 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async isSdkInstalled(version: string): Promise<boolean> {
-    return isValidGitRepo(sdkVersionPath(version));
+    const sdkPath = await this.getSdkPath(version);
+    return sdkPath != null && isFlutterSdk(sdkPath);
   }
 }

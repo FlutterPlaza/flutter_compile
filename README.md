@@ -18,16 +18,12 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 
 ![VS Code Extension Walkthrough](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscod_fcp.gif)
 
-![VS Code SDK Manager](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-sdk-manager.png)
-
 - Browse, install, switch, pin, and remove Flutter SDKs from the sidebar
 - Toggle between **Native** and **FVM** SDK backends with one click
 - Doctor diagnostics with install/fix actions for failing checks
 - Engine Builds view for contributors compiling the Flutter engine
 - Status bar with active SDK version — click to switch
 - Auto-updates `dart.flutterSdkPath` on SDK switch
-
-![VS Code Doctor & Engine](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-doctor-engine.png)
 
 See the full [VS Code Extension README](extensions/vscode/README.md) for details.
 
@@ -37,16 +33,12 @@ Install from the [JetBrains Marketplace](https://plugins.jetbrains.com/plugin/XX
 
 ![IntelliJ Plugin Walkthrough](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij_fcp.gif)
 
-![IntelliJ SDK Manager](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-sdk-manager.png)
-
 - Tool window with SDKs, Doctor, and Engine Builds tabs
 - Mode dropdown to switch between **Native** and **FVM** backends
 - Toolbar combo box for instant SDK switching
 - Right-click context menu: Set Global, Pin to Project, Open Folder, Remove
 - File watcher for `.flutter-version` changes
 - Auto-updates Flutter SDK path in project settings
-
-![IntelliJ Doctor & Engine](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-doctor-engine.png)
 
 See the full [IntelliJ Plugin README](extensions/intellij/README.md) for details.
 

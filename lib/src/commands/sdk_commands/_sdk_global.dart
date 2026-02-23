@@ -44,7 +44,8 @@ class SdkGlobalSubCommand extends Command<int> {
   }
 
   Future<int> _setGlobalVersion(String version) async {
-    if (!F.isSdkInstalled(version)) {
+    final sdkPath = F.getSdkPath(version);
+    if (sdkPath == null || !F.isFlutterSdk(sdkPath)) {
       _logger.err(
         'Flutter SDK "$version" is not installed. '
         'Run "flutter_compile sdk install $version" first.',
@@ -52,44 +53,20 @@ class SdkGlobalSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
+    final trimmed = version.trim();
     final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     await F.writeKeyValueToRcConfig(
       rcConfigFile,
       Constants.globalSdkVersionKey,
-      version,
+      trimmed,
     );
-
-    final sdkPath = F.sdkVersionPath(version);
-    final pubCachePath = F.sdkPubCachePath(sdkPath);
 
     // Update shell config with SDK manager PATH block
-    final configPath = F.getShellConfigPath();
-    final configFile = File(configPath);
-    var contents = await configFile.readAsString();
+    await F.updateShellSdkPath(sdkPath);
 
-    // Remove any existing SDK manager block
-    final sdkManagerPattern = RegExp(
-      r'\n# >>> Added by flutter_compile SDK manager >>>'
-      r'[\s\S]*?'
-      r'# <<< Added by flutter_compile SDK manager <<<\n',
-    );
-    contents = contents.replaceAll(sdkManagerPattern, '');
-
-    // Append new SDK manager block
-    final pathExport = Constants.platformSdkPATHExport
-        .replaceAll('{{path}}', sdkPath)
-        .replaceAll('{{pub_cache_path}}', pubCachePath);
-    contents += pathExport;
-    await configFile.writeAsString(contents);
-
-    _logger.success('Global SDK version set to "$version".');
-    _logger.info(
-      Constants.platformRestartShell.replaceAll(
-        '{{shell}}',
-        configPath.split(Platform.isWindows ? r'\' : '/').last,
-      ),
-    );
+    _logger.success('Global SDK version set to "$trimmed".');
+    _logger.info(Constants.platformRestartShell);
 
     return ExitCode.success.code;
   }

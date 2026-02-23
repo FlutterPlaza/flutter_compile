@@ -2,6 +2,7 @@ package com.flutterplaza.fluttercompile.startup
 
 import com.flutterplaza.fluttercompile.Constants
 import com.flutterplaza.fluttercompile.cli.FlutterCompileCli
+import com.flutterplaza.fluttercompile.sdk.ShellConfig
 import com.flutterplaza.fluttercompile.settings.FlutterCompileSettings
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.process.CapturingProcessHandler
@@ -23,6 +24,9 @@ import com.intellij.openapi.startup.ProjectActivity
 class CliAvailabilityChecker : ProjectActivity {
 
     override suspend fun execute(project: Project) {
+        // Migrate old env file SDK blocks to the new guarded template
+        ShellConfig.migrateBlock()
+
         val mode = FlutterCompileSettings.getInstance().sdkManager
 
         if (mode == Constants.MODE_FVM) {

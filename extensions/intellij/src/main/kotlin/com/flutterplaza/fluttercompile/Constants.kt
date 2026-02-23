@@ -58,8 +58,16 @@ object Constants {
     // ── Shell config ─────────────────────────────────────────────────────
     const val SHELL_RC_ZSH = ".zshrc"
     const val SHELL_RC_BASH = ".bashrc"
+    const val SHELL_RC_PROFILE = ".profile"
     const val DEPOT_TOOLS_PATH_COMMENT_START = "# >>> Added by flutter_compile setup CLI (depot_tools) >>>"
     const val DEPOT_TOOLS_PATH_COMMENT_END = "# <<< Added by flutter_compile setup CLI (depot_tools) <<<"
+    const val SDK_PATH_BLOCK_START = "# >>> Added by flutter_compile SDK manager >>>"
+    const val SDK_PATH_BLOCK_END = "# <<< Added by flutter_compile SDK manager <<<"
+
+    // ── Env file (dedicated PATH export file) ───────────────────────────
+    const val ENV_FILE = ".flutter_compile_env"
+    const val SOURCE_LINE = "\n[ -f ~/.flutter_compile_env ] && source ~/.flutter_compile_env\n"
+    const val SOURCE_LINE_WINDOWS = "\nif (Test-Path \"\$HOME\\.flutter_compile_env\") { . \"\$HOME\\.flutter_compile_env\" }\n"
 
     // ── URLs ─────────────────────────────────────────────────────────────
     const val URL_FVM_INSTALL = "https://fvm.app/documentation/getting-started/installation"
@@ -268,6 +276,7 @@ object Constants {
     const val RC_FILE_DEFAULT_CONTENT = "{}\n"
     const val SHELL_ENV_KEY = "SHELL"
     const val ENV_PUB_CACHE = "PUB_CACHE"
+    const val ENV_FLUTTER_COMPILE_SDK = "FLUTTER_COMPILE_SDK"
     const val ENV_LOCAL_APP_DATA = "LOCALAPPDATA"
     const val SHELL_ZSH = "zsh"
     const val TOOL_WINDOW_PANEL_KEY_NAME = "FlutterCompileToolWindowPanel"

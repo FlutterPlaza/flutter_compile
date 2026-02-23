@@ -167,26 +167,7 @@ class TuiApp {
     );
 
     final sdkPath = F.sdkVersionPath(version);
-    final pubCachePath = F.sdkPubCachePath(sdkPath);
-
-    final configPath = F.getShellConfigPath();
-    final configFile = File(configPath);
-    if (await configFile.exists()) {
-      var contents = await configFile.readAsString();
-
-      final sdkManagerPattern = RegExp(
-        r'\n# >>> Added by flutter_compile SDK manager >>>'
-        r'[\s\S]*?'
-        r'# <<< Added by flutter_compile SDK manager <<<\n',
-      );
-      contents = contents.replaceAll(sdkManagerPattern, '');
-
-      final pathExport = Constants.platformSdkPATHExport
-          .replaceAll('{{path}}', sdkPath)
-          .replaceAll('{{pub_cache_path}}', pubCachePath);
-      contents += pathExport;
-      await configFile.writeAsString(contents);
-    }
+    await F.updateShellSdkPath(sdkPath);
 
     _state.statusMessage = 'Global SDK set to "$version".';
     _state.sdkList = await gatherSdkList();

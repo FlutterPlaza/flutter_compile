@@ -192,21 +192,22 @@ Future<String> _ensureDepotTools(Logger l) async {
     l.info('depot_tools directory already exists at $depotToolsPath.'.green);
   }
 
-  // Add depot_tools to shell PATH config
-  final configPath = F.getShellConfigPath();
-  final configFile = File(configPath);
+  // Add depot_tools to env file (and ensure source line in shell RC)
+  await F.ensureSourceLineInShellRc();
+  final envPath = F.getEnvFilePath();
+  final envFile = File(envPath);
 
-  if (await configFile.exists()) {
-    var contents = await configFile.readAsString();
-    final depotToolsExport = Constants.platformDepotToolsPATHExport
-        .replaceAll('{{path}}', depotToolsPath);
-    if (!contents.contains(depotToolsExport)) {
-      contents += depotToolsExport;
-      await configFile.writeAsString(contents);
-      l.info(
-          'Added depot_tools to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
-              .green);
-    }
+  var envContents = '';
+  if (await envFile.exists()) {
+    envContents = await envFile.readAsString();
+  }
+  final depotToolsExport = Constants.platformDepotToolsPATHExport
+      .replaceAll('{{path}}', depotToolsPath);
+  if (!envContents.contains(depotToolsExport.trim())) {
+    envContents += depotToolsExport;
+    await envFile.parent.create(recursive: true);
+    await envFile.writeAsString(envContents);
+    l.info('Added depot_tools to PATH in .${Constants.envFile}.'.green);
   }
 
   return depotToolsPath;

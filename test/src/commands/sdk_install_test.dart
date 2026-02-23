@@ -29,18 +29,17 @@ void main() {
       tempHome.tearDown();
     });
 
-    test('isSdkInstalled returns false for partial directory without .git/HEAD',
-        () {
+    test('isSdkInstalled returns false for directory without bin/flutter', () {
       final sdkPath = '${tempHome.path}${Constants.sdkVersionsPath}/3.19.0';
       Directory(sdkPath).createSync(recursive: true);
-      // Directory exists but no .git/HEAD — not valid
+      // Directory exists but no bin/flutter — not a valid Flutter SDK
       expect(F.isSdkInstalled('3.19.0'), isFalse);
     });
 
-    test('isSdkInstalled returns true for valid git repo', () {
+    test('isSdkInstalled returns true for directory with bin/flutter', () {
       final sdkPath = '${tempHome.path}${Constants.sdkVersionsPath}/3.19.0';
-      Directory('$sdkPath/.git').createSync(recursive: true);
-      File('$sdkPath/.git/HEAD').writeAsStringSync('ref: refs/heads/main\n');
+      Directory('$sdkPath/bin').createSync(recursive: true);
+      File('$sdkPath/bin/flutter').writeAsStringSync('#!/bin/sh\n');
       expect(F.isSdkInstalled('3.19.0'), isTrue);
     });
 

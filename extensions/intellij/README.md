@@ -58,7 +58,7 @@ A **"Mode:"** dropdown in the tool window toolbar lets you switch between **Nati
 
 ### Doctor
 
-![Doctor](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-doctor.png)
+![Doctor](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/intellij-doctor-engine.png)
 
 Grouped diagnostic checks (Required Tools, Engine Tools, Configuration, Environments) with pass/fail icons and summary counts. Click the wrench icon on failing checks to install or configure.
 

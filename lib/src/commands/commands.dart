@@ -5,6 +5,7 @@ export 'daemon_command.dart';
 export 'doctor_command.dart';
 export 'flutter_switch_command.dart';
 export 'install_commands/install_command.dart';
+export 'migrate_command.dart';
 export 'run_command.dart';
 export 'sdk_commands/sdk_command.dart';
 export 'sync_commands/sync_command.dart';

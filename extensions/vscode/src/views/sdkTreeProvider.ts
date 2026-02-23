@@ -18,7 +18,13 @@ export class SdkTreeItem extends vscode.TreeItem {
     if (sdk.contributor) {
       this.iconPath = new vscode.ThemeIcon("beaker");
       this.contextValue = "sdkContributor";
-    } else if (sdk.global || sdk.project) {
+    } else if (sdk.project) {
+      this.iconPath = new vscode.ThemeIcon(
+        "pinned",
+        new vscode.ThemeColor("charts.green")
+      );
+      this.contextValue = "sdk";
+    } else if (sdk.global) {
       this.iconPath = new vscode.ThemeIcon(
         "check",
         new vscode.ThemeColor("charts.green")

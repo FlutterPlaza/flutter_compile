@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/command_runner.dart';
+import 'package:flutter_compile/src/shared/constants.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
@@ -71,6 +73,19 @@ class UpdateCommand extends Command<int> {
     }
 
     updateProgress.complete('Updated to $latestVersion');
+
+    // Auto-migrate shell RC PATH blocks to the env file.
+    try {
+      final migrateResult = await F.migrateShellRcToEnvFile();
+      if (!migrateResult.alreadyMigrated) {
+        _logger.success(
+          'Migrated ${migrateResult.blocksMoved} PATH block(s) to '
+          '~/.${Constants.envFile}.',
+        );
+      }
+    } catch (_) {
+      // Migration is best-effort; don't fail the update.
+    }
 
     return ExitCode.success.code;
   }

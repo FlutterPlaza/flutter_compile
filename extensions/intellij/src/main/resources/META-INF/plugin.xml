@@ -53,6 +53,7 @@
     <depends>com.intellij.modules.platform</depends>
     <depends>Dart</depends>
     <depends>io.flutter</depends>
+    <depends>org.jetbrains.plugins.terminal</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <toolWindow id="Flutter Compile"
@@ -75,6 +76,11 @@
 
         <postStartupActivity
                 implementation="com.flutterplaza.fluttercompile.startup.CliAvailabilityChecker"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="org.jetbrains.plugins.terminal">
+        <localTerminalCustomizer
+                implementation="com.flutterplaza.fluttercompile.terminal.SdkTerminalCustomizer"/>
     </extensions>
 
     <projectListeners>

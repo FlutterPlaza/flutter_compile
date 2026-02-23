@@ -171,6 +171,28 @@ $env:PATH = "{{path}}\tool\bin;$env:PATH"
         'Reload the IDE.\n',
     'For complete guide, visit: https://github.com/flutter/devtools/blob/master/CONTRIBUTING.md#set-up-your-devtools-environment\n',
   ];
+  // Env file — single file that flutter_compile owns for PATH exports
+  static const envFile = 'flutter_compile_env';
+  static const sourceLine = '\n[ -f ~/.$envFile ] && source ~/.$envFile\n';
+  static const sourceLineWindows =
+      '\nif (Test-Path "\$HOME\\.$envFile") { . "\$HOME\\.$envFile" }\n';
+
+  /// Regex pattern that matches the source line in a shell RC file.
+  static final sourceLinePattern = RegExp(
+    r'\n?\[  *-f  *~/\.flutter_compile_env  *\]  *&&  *source  *~/\.flutter_compile_env\n?',
+  );
+
+  /// Regex pattern that matches the Windows source line in a PowerShell profile.
+  static final sourceLineWindowsPattern = RegExp(
+    r'''\n?if \(Test-Path "\$HOME\\\.flutter_compile_env"\) \{ \. "\$HOME\\\.flutter_compile_env" \}\n?''',
+  );
+
+  /// Matches the old double-dot source line (`~/..flutter_compile_env`)
+  /// produced by the pre-fix `envFile` constant.
+  static final legacyDoubleDotSourceLinePattern = RegExp(
+    r'\n?\[  *-f  *~/\.\.flutter_compile_env  *\]  *&&  *source  *~/\.\.flutter_compile_env\n?',
+  );
+
   // Shared Constants
   static const baseCliPath = '/flutter_compile';
 
@@ -182,9 +204,14 @@ $env:PATH = "{{path}}\tool\bin;$env:PATH"
   static const sdkPATHExport = r'''
 
 # >>> Added by flutter_compile SDK manager >>>
-export PATH={{path}}/bin:$PATH
-export PATH={{path}}/bin/cache/dart-sdk/bin:$PATH
-export PUB_CACHE={{pub_cache_path}}
+if [ -z "$FLUTTER_COMPILE_SDK" ]; then
+  export PATH={{path}}/bin:$PATH
+  export PATH={{path}}/bin/cache/dart-sdk/bin:$PATH
+  export PUB_CACHE={{pub_cache_path}}
+else
+  export PATH="$FLUTTER_COMPILE_SDK/bin:$FLUTTER_COMPILE_SDK/bin/cache/dart-sdk/bin:$PATH"
+  export PUB_CACHE="$FLUTTER_COMPILE_SDK/.pub-cache"
+fi
 # <<< Added by flutter_compile SDK manager <<<
 
 ''';
@@ -192,18 +219,23 @@ export PUB_CACHE={{pub_cache_path}}
   static const sdkPATHExportWindows = r'''
 
 # >>> Added by flutter_compile SDK manager >>>
-$env:PATH = "{{path}}\bin;$env:PATH"
-$env:PATH = "{{path}}\bin\cache\dart-sdk\bin;$env:PATH"
-$env:PUB_CACHE = "{{pub_cache_path}}"
+if (-not $env:FLUTTER_COMPILE_SDK) {
+  $env:PATH = "{{path}}\bin;$env:PATH"
+  $env:PATH = "{{path}}\bin\cache\dart-sdk\bin;$env:PATH"
+  $env:PUB_CACHE = "{{pub_cache_path}}"
+} else {
+  $env:PATH = "$env:FLUTTER_COMPILE_SDK\bin;$env:FLUTTER_COMPILE_SDK\bin\cache\dart-sdk\bin;$env:PATH"
+  $env:PUB_CACHE = "$env:FLUTTER_COMPILE_SDK\.pub-cache"
+}
 # <<< Added by flutter_compile SDK manager <<<
 
 ''';
 
   static const restartShell =
-      '\nPlease restart your terminal or source your shell configuration to apply changes. Run\n\nsource ~/{{shell}}\n';
+      '\nPlease restart your terminal or run:\n\nsource ~/.$envFile\n';
 
   static const restartShellWindows =
-      '\nPlease restart your terminal or reload your PowerShell profile to apply changes. Run\n\n. {{shell}}\n';
+      '\nPlease restart your terminal or run:\n\n. \$HOME\\.$envFile\n';
 
   static const gitHubUserNameRegex =
       r'^[a-zA-Z0-9](?:[a-zA-Z0-9\-]{2,}[a-zA-Z0-9])?$';
@@ -227,6 +259,14 @@ $env:PUB_CACHE = "{{pub_cache_path}}"
   /// Returns the platform-appropriate restart shell message.
   static String get platformRestartShell =>
       _isWindows ? restartShellWindows : restartShell;
+
+  /// Returns the platform-appropriate source line for inclusion in shell RC.
+  static String get platformSourceLine =>
+      _isWindows ? sourceLineWindows : sourceLine;
+
+  /// Returns the platform-appropriate source line regex.
+  static RegExp get platformSourceLinePattern =>
+      _isWindows ? sourceLineWindowsPattern : sourceLinePattern;
 
   static bool get _isWindows => Platform.isWindows;
 }

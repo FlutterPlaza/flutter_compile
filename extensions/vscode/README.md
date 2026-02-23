@@ -35,8 +35,6 @@ code --install-extension flutterPlaza-com.flutter-compile
 
 ### SDK Manager
 
-![SDK Manager](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-sdk-manager.png)
-
 Browse, install, switch, pin, and remove Flutter SDKs from the sidebar.
 
 | Icon | Meaning |
@@ -49,21 +47,15 @@ Browse, install, switch, pin, and remove Flutter SDKs from the sidebar.
 
 ### SDK Manager Toggle (Native / FVM)
 
-![SDK Manager Toggle](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-sdk-toggle.png)
-
 Switch between **Native** and **FVM** SDK backends with the swap-arrows button in the SDKs view title bar. The view title shows the active mode: "SDKs — Native" or "SDKs — FVM".
 
 ### Doctor
-
-![Doctor](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-doctor.png)
 
 Grouped diagnostic checks with pass/fail indicators. Click the wrench icon on failing checks to auto-install or configure missing tools.
 
 **Categories:** Required Tools, Engine Tools, Configuration, Environments
 
 ### Engine Builds
-
-![Engine Builds](https://raw.githubusercontent.com/FlutterPlaza/flutter_compile/main/assets/vscode-engine-builds.png)
 
 At-a-glance engine status: engine path, source status, host CPU, and build targets with disk sizes. Initialize, build, and delete engine builds from the sidebar.
 

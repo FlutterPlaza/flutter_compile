@@ -31,30 +31,29 @@ class SdkRemoveSubCommand extends Command<int> {
 }
 
 Future<int> removeSdk(Logger l, String version) async {
-  final home = F.homeDir();
-  final targetPath = '$home${Constants.sdkVersionsPath}/$version';
-  final targetDir = Directory(targetPath);
-
-  if (!targetDir.existsSync()) {
+  final targetPath = F.getSdkPath(version);
+  if (targetPath == null) {
     l.err('Flutter SDK "$version" is not installed.');
     return ExitCode.usage.code;
   }
+  final targetDir = Directory(targetPath);
 
+  final trimmed = version.trim();
   final globalVersion = await F.readGlobalSdkVersion();
   final projectVersion = await F.readProjectSdkVersion();
 
-  if (version == projectVersion) {
-    l.err('Cannot remove "$version": it is pinned by the current project.');
+  if (trimmed == projectVersion?.trim()) {
+    l.err('Cannot remove "$trimmed": it is pinned by the current project.');
     return ExitCode.usage.code;
   }
 
-  final progress = l.progress('Removing Flutter SDK "$version"');
+  final progress = l.progress('Removing Flutter SDK "$trimmed"');
   await targetDir.delete(recursive: true);
-  progress.complete('Flutter SDK "$version" removed.');
+  progress.complete('Flutter SDK "$trimmed" removed.');
 
-  if (version == globalVersion) {
-    await _removeGlobalSdkConfig(home);
-    l.info('Cleared global SDK setting (was "$version").');
+  if (trimmed == globalVersion?.trim()) {
+    await _removeGlobalSdkConfig(F.homeDir());
+    l.info('Cleared global SDK setting (was "$trimmed").');
   }
 
   return ExitCode.success.code;
@@ -72,16 +71,5 @@ Future<void> _removeGlobalSdkConfig(String home) async {
   }
 
   // Remove SDK manager PATH block from shell config
-  final configPath = F.getShellConfigPath();
-  final configFile = File(configPath);
-  if (await configFile.exists()) {
-    var contents = await configFile.readAsString();
-    final sdkManagerPattern = RegExp(
-      r'\n# >>> Added by flutter_compile SDK manager >>>'
-      r'[\s\S]*?'
-      r'# <<< Added by flutter_compile SDK manager <<<\n',
-    );
-    contents = contents.replaceAll(sdkManagerPattern, '');
-    await configFile.writeAsString(contents);
-  }
+  await F.removeShellSdkPath();
 }

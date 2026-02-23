@@ -47,11 +47,12 @@ class NativeSdkBackend : SdkBackend {
         }
 
         val sdks = entries.map { dir ->
+            val trimmedName = dir.name.trim()
             SdkEntry(
-                version = dir.name,
+                version = trimmedName,
                 path = dir.absolutePath,
-                global = dir.name == globalVersion,
-                project = dir.name == projectVersion,
+                global = trimmedName == globalVersion,
+                project = trimmedName == projectVersion,
                 contributor = false,
             )
         }.toMutableList()
@@ -79,12 +80,21 @@ class NativeSdkBackend : SdkBackend {
     }
 
     override fun setGlobalSdk(version: String): Boolean {
-        val sdkDir = resolveSdkDir(version)
-        if (!isValidGitRepo(sdkDir)) {
+        val sdkPath = getSdkPath(version) ?: run {
             LOG.warn("Cannot set global: SDK '$version' is not installed")
             return false
         }
-        RcConfig.writeValue(Constants.GLOBAL_SDK_KEY, version)
+        val sdkDir = File(sdkPath)
+        if (!isFlutterSdk(sdkDir)) {
+            LOG.warn("Cannot set global: SDK '$version' is not a valid Flutter SDK")
+            return false
+        }
+        RcConfig.writeValue(Constants.GLOBAL_SDK_KEY, version.trim())
+
+        // Update shell config so new terminal sessions use this SDK
+        val pubCachePath = File(sdkDir, ".pub-cache").absolutePath
+        ShellConfig.updatePath(sdkDir.absolutePath, pubCachePath)
+
         return true
     }
 
@@ -119,6 +129,7 @@ class NativeSdkBackend : SdkBackend {
             // Auto-set global if no global version exists
             if (getGlobalSdkVersion() == null) {
                 RcConfig.writeValue(Constants.GLOBAL_SDK_KEY, version)
+                ShellConfig.updatePath(target.absolutePath, pubCache)
             }
 
             true
@@ -142,10 +153,11 @@ class NativeSdkBackend : SdkBackend {
         return try {
             sdkDir.deleteRecursively()
 
-            // Clear global config if this was the global version
+            // Clear global config and shell PATH if this was the global version
             val globalVersion = RcConfig.readValue(Constants.GLOBAL_SDK_KEY)?.trim()
             if (globalVersion == version) {
                 RcConfig.removeKey(Constants.GLOBAL_SDK_KEY)
+                ShellConfig.removePath()
             }
 
             true
@@ -156,13 +168,16 @@ class NativeSdkBackend : SdkBackend {
     }
 
     override fun pinToProject(version: String, projectPath: String): Boolean {
-        val sdkDir = resolveSdkDir(version)
-        if (!isValidGitRepo(sdkDir)) {
+        val sdkPath = getSdkPath(version) ?: run {
             LOG.warn("Cannot pin: SDK '$version' is not installed")
             return false
         }
+        if (!isFlutterSdk(File(sdkPath))) {
+            LOG.warn("Cannot pin: SDK '$version' is not a valid Flutter SDK")
+            return false
+        }
         return try {
-            File(projectPath, Constants.FLUTTER_VERSION_FILE).writeText("$version\n")
+            File(projectPath, Constants.FLUTTER_VERSION_FILE).writeText("${version.trim()}\n")
             true
         } catch (e: Exception) {
             LOG.warn("Failed to pin SDK '$version' to project", e)
@@ -171,10 +186,22 @@ class NativeSdkBackend : SdkBackend {
     }
 
     override fun getSdkPath(version: String): String? {
-        val sdkDir = sdkVersionDir(version)
+        val trimmed = version.trim()
+        val sdkDir = sdkVersionDir(trimmed)
         if (sdkDir.exists()) return sdkDir.absolutePath
 
-        if (version == Constants.COMPILED_VERSION) {
+        // Fallback: scan versions dir for a directory whose trimmed name matches
+        // (handles directories created with trailing whitespace)
+        val vDir = versionsDir()
+        if (vDir.exists()) {
+            vDir.listFiles()?.forEach { dir ->
+                if (dir.isDirectory && dir.name.trim() == trimmed) {
+                    return dir.absolutePath
+                }
+            }
+        }
+
+        if (trimmed == Constants.COMPILED_VERSION) {
             val compiledDir = File(homeDir(), Constants.COMPILED_SDK_REL)
             if (compiledDir.exists()) return compiledDir.absolutePath
         }
@@ -183,11 +210,28 @@ class NativeSdkBackend : SdkBackend {
     }
 
     override fun isSdkInstalled(version: String): Boolean {
-        return isValidGitRepo(resolveSdkDir(version))
+        val sdkPath = getSdkPath(version) ?: return false
+        return isFlutterSdk(File(sdkPath))
     }
 
     private fun isValidGitRepo(dir: File): Boolean {
         return dir.exists() && File(dir, Constants.GIT_HEAD_FILE).exists()
+    }
+
+    /**
+     * Returns true if [dir] contains a usable Flutter SDK (`bin/flutter`).
+     *
+     * Less strict than [isValidGitRepo] — works for SDKs installed from
+     * release archives or where `.git` was cleaned up.
+     */
+    private fun isFlutterSdk(dir: File): Boolean {
+        val osName = System.getProperty(Constants.SYS_OS_NAME, "").lowercase()
+        val flutter = if (osName.contains(Constants.OS_WINDOWS_MARKER)) {
+            File(dir, "bin${File.separator}flutter.bat")
+        } else {
+            File(dir, "bin${File.separator}flutter")
+        }
+        return flutter.exists()
     }
 
     private fun runGit(vararg args: String) {

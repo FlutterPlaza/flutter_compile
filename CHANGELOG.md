@@ -1,5 +1,18 @@
 # CHANGE LOG
 
+## 0.12.0
+
+- feat: `FLUTTER_COMPILE_SDK` environment variable — IDE terminals now use the project-pinned SDK instead of always falling back to the global default
+- feat: shell env file (`~/.flutter_compile_env`) SDK block is now conditional: defers to IDE-provided SDK path when set, uses global default in regular terminals
+- feat: VS Code extension sets `FLUTTER_COMPILE_SDK` + `applyAtShellIntegration` so project-pinned SDKs survive shell init
+- feat: IntelliJ plugin sets `FLUTTER_COMPILE_SDK` via `LocalTerminalCustomizer` for the same behavior
+- feat: auto-migration on extension/plugin activation — rewrites old env file SDK blocks with the new guarded template
+- feat: `migrate` command rewrites SDK blocks with `FLUTTER_COMPILE_SDK` guard for existing CLI users
+- fix: SDK validation now checks for `bin/flutter` instead of `.git/HEAD`, so SDKs installed from release archives (no `.git`) work correctly
+- fix: whitespace-tolerant SDK path resolution — directories with trailing spaces are now matched via fallback scan
+- fix: `sdk global`, `sdk use`, and `sdk remove` all trim version names and use resolved paths
+- feat: VS Code & IntelliJ extensions v0.3.1
+
 ## 0.11.1
 
 - fix: switch CI to GitHub-hosted runners (ubuntu-latest, windows-latest, macos-latest)

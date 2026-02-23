@@ -131,7 +131,19 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
     l.warn('Flutter directory not found at $flutterPath.'.yellow);
   }
 
-  // Remove the Flutter PATH export from shell config (regex-based)
+  // Remove the Flutter PATH export from env file
+  final envPath = F.getEnvFilePath();
+  final envFile = File(envPath);
+  if (await envFile.exists()) {
+    var contents = await envFile.readAsString();
+    if (_flutterCompileBlockPattern.hasMatch(contents)) {
+      contents = contents.replaceAll(_flutterCompileBlockPattern, '');
+      await envFile.writeAsString(contents);
+      l.info('Removed Flutter PATH export from .${Constants.envFile}.'.green);
+    }
+  }
+
+  // Migration: also strip legacy block from shell RC
   final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
@@ -139,9 +151,6 @@ Future<void> uninstallFlutterEnvironment(Logger l) async {
     if (_flutterCompileBlockPattern.hasMatch(contents)) {
       contents = contents.replaceAll(_flutterCompileBlockPattern, '');
       await configFile.writeAsString(contents);
-      l.info(
-          'Removed Flutter PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
-              .green);
     }
   }
 
@@ -180,10 +189,21 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
     l.warn('DevTools directory not found at $devtoolsPath.'.yellow);
   }
 
-  // Remove the DevTools PATH export from shell config.
-  // DevTools exports contain "tool/bin" in the path content, so try exact
-  // match first, then fall back to cleaning any flutter_compile setup block
-  // that references this devtools path.
+  // Remove the DevTools PATH export from env file
+  final envPath = F.getEnvFilePath();
+  final envFile = File(envPath);
+  if (await envFile.exists()) {
+    var envContents = await envFile.readAsString();
+    final devtoolsExport = Constants.platformDevToolsPATHExport
+        .replaceAll('{{path}}', devtoolsPath);
+    if (envContents.contains(devtoolsExport)) {
+      envContents = envContents.replaceAll(devtoolsExport, '');
+      await envFile.writeAsString(envContents);
+      l.info('Removed DevTools PATH export from .${Constants.envFile}.'.green);
+    }
+  }
+
+  // Migration: also strip legacy block from shell RC
   final configPath = F.getShellConfigPath();
   final configFile = File(configPath);
   if (await configFile.exists()) {
@@ -193,9 +213,6 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
     if (contents.contains(devtoolsExport)) {
       contents = contents.replaceAll(devtoolsExport, '');
       await configFile.writeAsString(contents);
-      l.info(
-          'Removed DevTools PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
-              .green);
     }
   }
 
@@ -253,7 +270,20 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
       l.info('Deleted depot_tools directory at $depotToolsPath.'.green);
     }
 
-    // Remove depot_tools PATH export from shell config (regex-based)
+    // Remove depot_tools PATH export from env file
+    final envPath = F.getEnvFilePath();
+    final envFile = File(envPath);
+    if (await envFile.exists()) {
+      var envContents = await envFile.readAsString();
+      if (_depotToolsBlockPattern.hasMatch(envContents)) {
+        envContents = envContents.replaceAll(_depotToolsBlockPattern, '');
+        await envFile.writeAsString(envContents);
+        l.info('Removed depot_tools PATH export from .${Constants.envFile}.'
+            .green);
+      }
+    }
+
+    // Migration: also strip legacy block from shell RC
     final configPath = F.getShellConfigPath();
     final configFile = File(configPath);
     if (await configFile.exists()) {
@@ -261,9 +291,6 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
       if (_depotToolsBlockPattern.hasMatch(contents)) {
         contents = contents.replaceAll(_depotToolsBlockPattern, '');
         await configFile.writeAsString(contents);
-        l.info(
-            'Removed depot_tools PATH export from ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
-                .green);
       }
     }
 

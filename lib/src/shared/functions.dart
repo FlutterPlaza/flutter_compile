@@ -6,6 +6,18 @@ import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/extension.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+class MigrateResult {
+  final int blocksMoved;
+  final bool sourceLineAdded;
+  final bool alreadyMigrated;
+
+  MigrateResult({
+    required this.blocksMoved,
+    required this.sourceLineAdded,
+    required this.alreadyMigrated,
+  });
+}
+
 class F {
   const F();
 
@@ -80,6 +92,152 @@ class F {
       logger.info(message);
       throw FlutterCompileException(message, exitCode: exitCode);
     }
+  }
+
+  /// Returns the path to the dedicated env file (`~/.flutter_compile_env`).
+  static String getEnvFilePath() {
+    return '${homeDir()}/.${Constants.envFile}';
+  }
+
+  /// Idempotently ensures the shell RC has a `source` line for the env file.
+  ///
+  /// Also strips any legacy PATH blocks from the shell RC as migration.
+  static Future<void> ensureSourceLineInShellRc() async {
+    final configPath = getShellConfigPath();
+    final configFile = File(configPath);
+
+    var contents = '';
+    if (await configFile.exists()) {
+      contents = await configFile.readAsString();
+    }
+
+    var changed = false;
+
+    // Migration: remove old PATH blocks from shell RC
+    if (_flutterCompileBlockPattern.hasMatch(contents)) {
+      contents = contents.replaceAll(_flutterCompileBlockPattern, '');
+      changed = true;
+    }
+    if (_sdkManagerBlockPattern.hasMatch(contents)) {
+      contents = contents.replaceAll(_sdkManagerBlockPattern, '');
+      changed = true;
+    }
+    if (_depotToolsBlockPattern.hasMatch(contents)) {
+      contents = contents.replaceAll(_depotToolsBlockPattern, '');
+      changed = true;
+    }
+
+    // Migration: remove old double-dot source lines (~/..flutter_compile_env)
+    if (Constants.legacyDoubleDotSourceLinePattern.hasMatch(contents)) {
+      contents = contents.replaceAll(
+        Constants.legacyDoubleDotSourceLinePattern,
+        '',
+      );
+      changed = true;
+    }
+
+    // Add source line if not already present
+    if (!Constants.platformSourceLinePattern.hasMatch(contents)) {
+      contents += Constants.platformSourceLine;
+      changed = true;
+    }
+
+    if (changed) {
+      await configFile.parent.create(recursive: true);
+      await configFile.writeAsString(contents);
+    }
+  }
+
+  /// Migrates all flutter_compile PATH blocks from the shell RC to the
+  /// dedicated env file (`~/.flutter_compile_env`).
+  ///
+  /// 1. Extracts all PATH blocks from the shell RC.
+  /// 2. Appends them to the env file (skipping duplicates).
+  /// 3. Strips them from the shell RC via [ensureSourceLineInShellRc].
+  static Future<MigrateResult> migrateShellRcToEnvFile() async {
+    final configPath = getShellConfigPath();
+    final configFile = File(configPath);
+
+    // If no shell RC exists, there is nothing to migrate.
+    if (!await configFile.exists()) {
+      // Still ensure the source line is present.
+      await ensureSourceLineInShellRc();
+      return MigrateResult(
+        blocksMoved: 0,
+        sourceLineAdded: true,
+        alreadyMigrated: true,
+      );
+    }
+
+    final rcContents = await configFile.readAsString();
+
+    // Collect all matched blocks from the shell RC.
+    final patterns = [
+      _flutterCompileBlockPattern,
+      _sdkManagerBlockPattern,
+      _depotToolsBlockPattern,
+    ];
+
+    final extractedBlocks = <String>[];
+    for (final pattern in patterns) {
+      for (final match in pattern.allMatches(rcContents)) {
+        extractedBlocks.add(match.group(0)!);
+      }
+    }
+
+    if (extractedBlocks.isEmpty) {
+      // No legacy blocks found — just ensure source line.
+      await ensureSourceLineInShellRc();
+      final hadSourceLine =
+          Constants.platformSourceLinePattern.hasMatch(rcContents);
+      return MigrateResult(
+        blocksMoved: 0,
+        sourceLineAdded: !hadSourceLine,
+        alreadyMigrated: true,
+      );
+    }
+
+    // Read (or start) the env file.
+    final envPath = getEnvFilePath();
+    final envFile = File(envPath);
+    var envContents = '';
+    if (await envFile.exists()) {
+      envContents = await envFile.readAsString();
+    }
+
+    // Append only blocks not already present in the env file.
+    var blocksMoved = 0;
+    for (final block in extractedBlocks) {
+      if (!envContents.contains(block.trim())) {
+        envContents += block;
+        blocksMoved++;
+      }
+    }
+
+    // Write the env file.
+    await envFile.parent.create(recursive: true);
+    await envFile.writeAsString(envContents);
+
+    // Strip blocks from the shell RC and add source line.
+    final hadSourceLine =
+        Constants.platformSourceLinePattern.hasMatch(rcContents);
+    await ensureSourceLineInShellRc();
+
+    // Rewrite the SDK manager block with the new guarded template so
+    // existing users get the FLUTTER_COMPILE_SDK support via `fcp migrate`.
+    final globalVersion = await readGlobalSdkVersion();
+    if (globalVersion != null) {
+      final sdkPath = getSdkPath(globalVersion);
+      if (sdkPath != null && isFlutterSdk(sdkPath)) {
+        await updateShellSdkPath(sdkPath);
+      }
+    }
+
+    return MigrateResult(
+      blocksMoved: blocksMoved,
+      sourceLineAdded: !hadSourceLine,
+      alreadyMigrated: false,
+    );
   }
 
   /// Returns the path to the user's shell config file.
@@ -263,15 +421,34 @@ class F {
     r'# <<< Added by flutter_compile setup CLI <<<\n?',
   );
 
+  /// Regex that matches the SDK manager PATH block.
+  static final _sdkManagerBlockPattern = RegExp(
+    r'\n?# >>> Added by flutter_compile SDK manager >>>'
+    r'[\s\S]*?'
+    r'# <<< Added by flutter_compile SDK manager <<<\n?',
+  );
+
+  /// Regex that matches the depot_tools PATH block.
+  static final _depotToolsBlockPattern = RegExp(
+    r'\n?# >>> Added by flutter_compile setup CLI \(depot_tools\) >>>'
+    r'[\s\S]*?'
+    r'# <<< Added by flutter_compile setup CLI \(depot_tools\) <<<\n?',
+  );
+
   static Future<void> switchFlutterEnvironment({FlutterMode? mode}) async {
     try {
+      await ensureSourceLineInShellRc();
+
       final flutterCompilePath = await F.getPersistedPathFromRC(
         key: RunCommandKey.flutterCompile,
       );
 
-      final configPath = F.getShellConfigPath();
-      final configFile = File(configPath);
-      var contents = await configFile.readAsString();
+      final envPath = getEnvFilePath();
+      final envFile = File(envPath);
+      var contents = '';
+      if (await envFile.exists()) {
+        contents = await envFile.readAsString();
+      }
 
       final flutterCompilePATHExport = Constants
           .platformFlutterCompilePATHExport
@@ -282,17 +459,19 @@ class F {
 
       if (mode == FlutterMode.compiled && !isUsingCompiledVersion) {
         contents += flutterCompilePATHExport;
-        await configFile.writeAsString(contents);
+        await envFile.parent.create(recursive: true);
+        await envFile.writeAsString(contents);
         logger.success(Constants.flutterCompileSwitchedToCompiled);
       } else if (mode == FlutterMode.normal && isUsingCompiledVersion) {
         contents = contents.replaceAll(_flutterCompileBlockPattern, '');
-        await configFile.writeAsString(contents);
+        await envFile.writeAsString(contents);
         logger.success(Constants.flutterCompileSwitchedToNormal);
       } else if (mode == null) {
         contents = isUsingCompiledVersion
             ? contents.replaceAll(_flutterCompileBlockPattern, '')
             : contents + flutterCompilePATHExport;
-        await configFile.writeAsString(contents);
+        await envFile.parent.create(recursive: true);
+        await envFile.writeAsString(contents);
         logger.success(
           isUsingCompiledVersion
               ? Constants.flutterCompileSwitchedToNormal
@@ -306,10 +485,7 @@ class F {
         return;
       }
 
-      logger.info(Constants.platformRestartShell.replaceAll(
-        '{{shell}}',
-        configPath.split(Platform.isWindows ? r'\' : '/').last,
-      ));
+      logger.info(Constants.platformRestartShell);
     } catch (e) {
       final message = 'Error: $e';
       logger.err(message);
@@ -416,8 +592,49 @@ class F {
     return '$home${Constants.sdkVersionsPath}/$version';
   }
 
-  static bool isSdkInstalled(String version) =>
-      isValidGitRepo(sdkVersionPath(version));
+  /// Resolves the actual filesystem path for an SDK [version].
+  ///
+  /// First tries the canonical path (`sdkVersionPath(version)`), then falls
+  /// back to scanning the versions directory for a directory whose trimmed
+  /// name matches. This handles directories created with trailing whitespace.
+  static String? getSdkPath(String version) {
+    final trimmed = version.trim();
+    final canonical = sdkVersionPath(trimmed);
+    if (Directory(canonical).existsSync()) return canonical;
+
+    // Fallback: scan versions dir for a directory whose trimmed name matches
+    final vDir = Directory('${homeDir()}${Constants.sdkVersionsPath}');
+    if (vDir.existsSync()) {
+      for (final entry in vDir.listSync()) {
+        if (entry is Directory) {
+          final dirName = entry.path.split(Platform.pathSeparator).last;
+          if (dirName.trim() == trimmed) {
+            return entry.path;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+
+  /// Returns true if [version] is installed as a usable Flutter SDK.
+  ///
+  /// Checks for the `bin/flutter` executable rather than `.git/HEAD`
+  /// so that SDKs installed from release archives (no `.git`) still work.
+  /// Uses [getSdkPath] to handle directories with trailing whitespace.
+  static bool isSdkInstalled(String version) {
+    final sdkPath = getSdkPath(version);
+    return sdkPath != null && isFlutterSdk(sdkPath);
+  }
+
+  /// Returns true if [path] contains a Flutter SDK (has `bin/flutter`).
+  static bool isFlutterSdk(String path) {
+    final flutter = Platform.isWindows
+        ? File('$path/bin/flutter.bat')
+        : File('$path/bin/flutter');
+    return flutter.existsSync();
+  }
 
   static Future<String?> readProjectSdkVersion([String? directory]) async {
     final dir = directory ?? Directory.current.path;
@@ -440,5 +657,60 @@ class F {
 
   static Future<String?> resolveActiveSdkVersion() async {
     return await readProjectSdkVersion() ?? await readGlobalSdkVersion();
+  }
+
+  /// Update the env file with the SDK manager PATH block.
+  ///
+  /// Replaces any existing `flutter_compile SDK manager` block and appends
+  /// a new one pointing to [sdkPath]. Also ensures the shell RC has the
+  /// source line.
+  static Future<void> updateShellSdkPath(String sdkPath) async {
+    await ensureSourceLineInShellRc();
+
+    final pubCachePath = sdkPubCachePath(sdkPath);
+    final envPath = getEnvFilePath();
+    final envFile = File(envPath);
+
+    var contents = '';
+    if (await envFile.exists()) {
+      contents = await envFile.readAsString();
+    }
+
+    // Remove any existing SDK manager block
+    contents = contents.replaceAll(_sdkManagerBlockPattern, '');
+
+    // Append new SDK manager block
+    final pathExport = Constants.platformSdkPATHExport
+        .replaceAll('{{path}}', sdkPath)
+        .replaceAll('{{pub_cache_path}}', pubCachePath);
+    contents += pathExport;
+
+    await envFile.parent.create(recursive: true);
+    await envFile.writeAsString(contents);
+  }
+
+  /// Remove the SDK manager PATH block from the env file.
+  ///
+  /// Also strips any legacy blocks from the shell RC as migration.
+  static Future<void> removeShellSdkPath() async {
+    // Clean env file
+    final envPath = getEnvFilePath();
+    final envFile = File(envPath);
+    if (await envFile.exists()) {
+      var contents = await envFile.readAsString();
+      contents = contents.replaceAll(_sdkManagerBlockPattern, '');
+      await envFile.writeAsString(contents);
+    }
+
+    // Migration: also strip legacy block from shell RC
+    final configPath = getShellConfigPath();
+    final configFile = File(configPath);
+    if (await configFile.exists()) {
+      var contents = await configFile.readAsString();
+      if (_sdkManagerBlockPattern.hasMatch(contents)) {
+        contents = contents.replaceAll(_sdkManagerBlockPattern, '');
+        await configFile.writeAsString(contents);
+      }
+    }
   }
 }

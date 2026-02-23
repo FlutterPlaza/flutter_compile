@@ -100,22 +100,23 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
     cloneDir,
   );
 
-  // Add the DevTools tool bin to the PATH
-  final configPath = F.getShellConfigPath();
-  final configFile = File(configPath);
-  if (!await configFile.exists()) {
-    await configFile.create(recursive: true);
+  // Add the DevTools tool bin to the env file (and ensure source line in shell RC)
+  await F.ensureSourceLineInShellRc();
+  final envPath = F.getEnvFilePath();
+  final envFile = File(envPath);
+
+  var envContents = '';
+  if (await envFile.exists()) {
+    envContents = await envFile.readAsString();
   }
-  var shellFileContents = await configFile.readAsString();
 
   final devtoolsToolBinPath =
       Constants.platformDevToolsPATHExport.replaceAll('{{path}}', cloneDir);
-  if (!shellFileContents.contains(devtoolsToolBinPath.trim())) {
-    shellFileContents += devtoolsToolBinPath;
-    await configFile.writeAsString(shellFileContents);
-    l.info(
-        'Added DevTools tool/bin to PATH in ${configPath.split(Platform.isWindows ? r'\' : '/').last}.'
-            .green);
+  if (!envContents.contains(devtoolsToolBinPath.trim())) {
+    envContents += devtoolsToolBinPath;
+    await envFile.parent.create(recursive: true);
+    await envFile.writeAsString(envContents);
+    l.info('Added DevTools tool/bin to PATH in .${Constants.envFile}.'.green);
   }
 
   // Optional step: Check and update the DevTools Flutter SDK

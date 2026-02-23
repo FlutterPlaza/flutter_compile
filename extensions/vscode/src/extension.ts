@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import * as statusBar from "./statusBar";
 import * as commands from "./commands";
 import * as versionWatcher from "./versionWatcher";
 import * as cli from "./cli";
-import { reloadBackend, getMode } from "./sdkProvider";
+import { reloadBackend, getMode, getBackend } from "./sdkProvider";
+import { migrateEnvFile } from "./nativeSdkBackend";
 import { SdkTreeProvider } from "./views/sdkTreeProvider";
 import { DoctorTreeProvider } from "./views/doctorTreeProvider";
 import { BuildsTreeProvider } from "./views/buildsTreeProvider";
@@ -50,6 +52,7 @@ export async function activate(
     sdkProvider.refresh();
     doctorProvider.refresh();
     buildsProvider.refresh();
+    updateTerminalEnv(context);
   });
 
   // Register existing commands
@@ -110,6 +113,7 @@ export async function activate(
       doctorProvider.refresh();
       buildsProvider.refresh();
       statusBar.refresh();
+      updateTerminalEnv(context);
     }),
     vscode.commands.registerCommand(
       "flutterCompile.initEngine",
@@ -137,9 +141,16 @@ export async function activate(
     )
   );
 
+  // Migrate old env file SDK blocks to the new guarded template
+  migrateEnvFile();
+
+  // Configure terminal environment with resolved SDK PATH
+  await updateTerminalEnv(context);
+
   // Watch .flutter-version for external changes
   const watcherDisposables = versionWatcher.start(() => {
     sdkProvider.refresh();
+    updateTerminalEnv(context);
   });
   context.subscriptions.push(...watcherDisposables);
 
@@ -148,6 +159,7 @@ export async function activate(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       statusBar.refresh();
       sdkProvider.refresh();
+      updateTerminalEnv(context);
     })
   );
 
@@ -166,9 +178,77 @@ export async function activate(
         sdkTreeView.description = getMode() === "fvm" ? "FVM" : "Native";
         sdkProvider.refresh();
         statusBar.refresh();
+        updateTerminalEnv(context);
       }
     })
   );
+}
+
+/**
+ * Update the terminal environment with the resolved SDK PATH.
+ *
+ * Resolution order: project `.flutter-version` → global default.
+ * New terminals opened in VS Code will have the correct `flutter` and
+ * `dart` on PATH without relying on the static shell config block.
+ */
+async function updateTerminalEnv(
+  context: vscode.ExtensionContext,
+): Promise<void> {
+  const env = context.environmentVariableCollection;
+  env.persistent = true;
+
+  const backend = getBackend();
+  const sep = process.platform === "win32" ? ";" : ":";
+
+  // Resolve: project .flutter-version first, then global
+  let sdkVersion: string | undefined;
+
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    const fvUri = vscode.Uri.joinPath(folders[0].uri, ".flutter-version");
+    try {
+      const bytes = await vscode.workspace.fs.readFile(fvUri);
+      const content = Buffer.from(bytes).toString("utf-8").trim();
+      if (content) {
+        sdkVersion = content;
+      }
+    } catch {
+      // No .flutter-version — fall through to global
+    }
+  }
+
+  if (!sdkVersion) {
+    sdkVersion = await backend.getGlobalSdkVersion();
+  }
+
+  if (!sdkVersion) {
+    env.delete("PATH");
+    env.delete("PUB_CACHE");
+    env.delete("FLUTTER_COMPILE_SDK");
+    return;
+  }
+
+  const sdkPath = await backend.getSdkPath(sdkVersion);
+  if (!sdkPath) {
+    env.delete("PATH");
+    env.delete("PUB_CACHE");
+    env.delete("FLUTTER_COMPILE_SDK");
+    return;
+  }
+
+  const flutterBin = path.join(sdkPath, "bin");
+  const dartBin = path.join(sdkPath, "bin", "cache", "dart-sdk", "bin");
+  const pubCache = path.join(sdkPath, ".pub-cache");
+
+  // Set the override env var so the env file's SDK block defers to it
+  env.replace("FLUTTER_COMPILE_SDK", sdkPath);
+
+  // Prepend SDK paths; applyAtShellIntegration ensures they survive shell init
+  const shellOpts: vscode.EnvironmentVariableMutatorOptions = {
+    applyAtShellIntegration: true,
+  };
+  env.prepend("PATH", `${flutterBin}${sep}${dartBin}${sep}`, shellOpts);
+  env.replace("PUB_CACHE", pubCache, shellOpts);
 }
 
 export function deactivate(): void {

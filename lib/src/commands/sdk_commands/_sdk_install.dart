@@ -86,6 +86,7 @@ Future<int> installSdk(Logger l, String version, {bool force = false}) async {
       Constants.globalSdkVersionKey,
       version,
     );
+    await F.updateShellSdkPath(targetPath);
     l.info('Set "$version" as global default (first SDK installed).');
   }
 

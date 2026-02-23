@@ -75,9 +75,9 @@ void main() {
       expect(export, contains('{{pub_cache_path}}'));
     });
 
-    test('platformRestartShell contains shell placeholder', () {
+    test('platformRestartShell references env file', () {
       final msg = Constants.platformRestartShell;
-      expect(msg, contains('{{shell}}'));
+      expect(msg, contains(Constants.envFile));
     });
 
     test('platform exports match OS', () {
