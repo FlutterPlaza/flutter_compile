@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SDK Management — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>SDK Management</h1>
+  <p>flutter_compile lets you install, switch, and pin multiple Flutter SDK versions with isolated pub caches.</p>
+
+  <h2 id="install-sdk">Installing SDKs</h2>
+  <p>Install from a channel to get the latest version on that channel:</p>
+  <pre><code>flutter_compile sdk install stable
+flutter_compile sdk install beta
+flutter_compile sdk install dev
+flutter_compile sdk install master</code></pre>
+
+  <p>Or install a specific version:</p>
+  <pre><code>flutter_compile sdk install 3.24.0
+flutter_compile sdk install 3.22.3</code></pre>
+
+  <p>The first SDK installed is automatically set as the global default.</p>
+
+  <h3>Force re-install</h3>
+  <p>To remove and re-install an existing SDK:</p>
+  <pre><code>flutter_compile sdk install stable --force</code></pre>
+
+  <h2 id="list-sdks">Listing SDKs</h2>
+  <pre><code>flutter_compile sdk list</code></pre>
+  <p>Output shows all installed versions with markers:</p>
+  <pre><code>Flutter SDKs:
+  3.24.0  (global)
+  3.22.3  (project)
+  3.19.0
+  stable
+  contributor</code></pre>
+
+  <p>Use <code>--json</code> for machine-readable output:</p>
+  <pre><code>flutter_compile sdk list --json</code></pre>
+
+  <h2 id="global-default">Setting the Global Default</h2>
+  <p>The global default SDK is used in all terminals unless overridden by a project pin.</p>
+  <pre><code># Show current global
+flutter_compile sdk global
+
+# Set global
+flutter_compile sdk global 3.24.0</code></pre>
+
+  <p>This updates <code>~/.flutter_compilerc</code> with the <code>global_sdk_version</code> key and modifies the shell PATH via <code>~/.flutter_compile_env</code>.</p>
+
+  <h2 id="pin-to-project">Pinning to a Project</h2>
+  <p>Pin an SDK version to a specific project by creating a <code>.flutter-version</code> file:</p>
+  <pre><code>cd my_flutter_app
+flutter_compile sdk use 3.22.3</code></pre>
+
+  <p>Show the current pinned version:</p>
+  <pre><code>flutter_compile sdk use</code></pre>
+
+  <p>When a project has a <code>.flutter-version</code> file, the <code>sdk exec</code> command and IDE extensions will use that version instead of the global default.</p>
+
+  <h2 id="sdk-exec">Executing Through the Resolved SDK</h2>
+  <p>Run any command using the resolved SDK (project pin &rarr; global default):</p>
+  <pre><code>flutter_compile sdk exec flutter doctor
+flutter_compile sdk exec flutter run
+flutter_compile sdk exec dart analyze
+flutter_compile sdk exec dart format .</code></pre>
+
+  <p>The resolution order is:</p>
+  <ol>
+    <li>Project <code>.flutter-version</code> in the current directory or parents</li>
+    <li>Global default from <code>~/.flutter_compilerc</code></li>
+  </ol>
+
+  <h2 id="remove-sdk">Removing SDKs</h2>
+  <pre><code>flutter_compile sdk remove 3.19.0</code></pre>
+
+  <div class="note">
+    <strong>Note:</strong> You cannot remove an SDK that is set as the global default or pinned to a project. Change the global/pin first, then remove.
+  </div>
+
+  <h2 id="pub-cache">Per-SDK PUB_CACHE Isolation</h2>
+  <p>Each installed SDK uses its own <code>.pub-cache</code> directory:</p>
+  <pre><code>~/flutter_compile/versions/3.24.0/.pub-cache
+~/flutter_compile/versions/3.22.3/.pub-cache</code></pre>
+  <p>This prevents dependency conflicts between SDK versions. When running <code>sdk exec</code>, the <code>PUB_CACHE</code> environment variable is automatically set to the resolved SDK's cache.</p>
+
+  <h2 id="env-variable">FLUTTER_COMPILE_SDK Environment Variable</h2>
+  <p>Since v0.12.0, IDE extensions set the <code>FLUTTER_COMPILE_SDK</code> environment variable in terminal sessions. This ensures IDE terminals use the project-pinned SDK instead of the global default.</p>
+
+  <p>The shell env file (<code>~/.flutter_compile_env</code>) uses a conditional guard:</p>
+  <ul>
+    <li>If <code>FLUTTER_COMPILE_SDK</code> is set (by an IDE extension), the terminal uses that path</li>
+    <li>Otherwise, the global default SDK is used</li>
+  </ul>
+
+  <p>Run <code>flutter_compile migrate</code> to update existing env files to the new guarded format.</p>
+
+  <h2 id="storage">Storage Layout</h2>
+  <table>
+    <thead><tr><th>Path</th><th>Contents</th></tr></thead>
+    <tbody>
+      <tr><td><code>~/flutter_compile/versions/</code></td><td>All installed SDK versions</td></tr>
+      <tr><td><code>~/flutter_compile/versions/&lt;ver&gt;/</code></td><td>SDK root (contains bin/flutter)</td></tr>
+      <tr><td><code>~/flutter_compile/versions/&lt;ver&gt;/.pub-cache/</code></td><td>SDK-specific pub cache</td></tr>
+      <tr><td><code>~/.flutter_compilerc</code></td><td>Global SDK version (global_sdk_version key)</td></tr>
+      <tr><td><code>.flutter-version</code></td><td>Project-pinned version (in project root)</td></tr>
+    </tbody>
+  </table>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

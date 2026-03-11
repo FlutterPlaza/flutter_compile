@@ -228,6 +228,59 @@ object FlutterCompileCli {
         return null
     }
 
+    // ── Code Push ───────────────────────────────────────────────
+
+    /** Get Code Push account info via `codepush account --json`. */
+    fun codePushAccount(): CodePushAccount {
+        val raw = run("codepush", "account", "--json") ?: return CodePushAccount()
+        val json = extractJson(raw)
+        if (json == null) {
+            LOG.warn("No JSON found in codepush account output")
+            return CodePushAccount()
+        }
+        return try {
+            gson.fromJson(json, CodePushAccount::class.java)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse codepush account JSON", e)
+            CodePushAccount()
+        }
+    }
+
+    /** Get Code Push app status via `codepush status --json`. */
+    fun codePushStatus(appId: String? = null): CodePushAppStatus {
+        val args = mutableListOf("codepush", "status", "--json")
+        if (appId != null) args.addAll(listOf("--app-id", appId))
+        val raw = run(*args.toTypedArray()) ?: return CodePushAppStatus()
+        val json = extractJson(raw)
+        if (json == null) {
+            LOG.warn("No JSON found in codepush status output")
+            return CodePushAppStatus()
+        }
+        return try {
+            gson.fromJson(json, CodePushAppStatus::class.java)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse codepush status JSON", e)
+            CodePushAppStatus()
+        }
+    }
+
+    /** Get patches for a Code Push release via `codepush status --json --release-id <id>`. */
+    fun codePushPatches(releaseId: String): CodePushPatchesResponse {
+        val raw = run("codepush", "status", "--json", "--release-id", releaseId)
+            ?: return CodePushPatchesResponse()
+        val json = extractJson(raw)
+        if (json == null) {
+            LOG.warn("No JSON found in codepush patches output")
+            return CodePushPatchesResponse()
+        }
+        return try {
+            gson.fromJson(json, CodePushPatchesResponse::class.java)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse codepush patches JSON", e)
+            CodePushPatchesResponse()
+        }
+    }
+
     /** Path where depot_tools should be installed. */
     fun depotToolsPath(): String {
         val home = System.getProperty(Constants.SYS_USER_HOME)

@@ -32,6 +32,7 @@ object Constants {
     // ── Native SDK backend ───────────────────────────────────────────────
     const val FLUTTER_GIT_URL = "https://github.com/flutter/flutter.git"
     const val SDK_VERSIONS_REL = "flutter_compile/versions"
+    const val DEFAULT_SDK_LINK = "default"
     const val COMPILED_VERSION = "compiled"
     const val COMPILED_SDK_REL = "flutter_compile/flutter"
 
@@ -133,6 +134,7 @@ object Constants {
     const val DIALOG_REMOVE_SDK = "Remove SDK"
     const val DIALOG_CONFIRM_REMOVE = "Confirm Remove"
     const val DIALOG_PIN_SDK = "Pin SDK to Project"
+    const val DIALOG_UNPIN_SDK = "Unpin SDK from Project"
     const val DIALOG_OPEN_SDK_FOLDER = "Open SDK Folder"
     const val DIALOG_DELETE_BUILD = "Delete Build"
     const val DIALOG_BUILD_ENGINE = "Build Engine"
@@ -144,6 +146,8 @@ object Constants {
     const val MSG_SELECT_SDK_OPEN = "Select SDK folder to open:"
     const val MSG_NO_REMOVABLE_SDKS = "No removable SDKs installed."
     const val MSG_NO_SDKS_INSTALLED = "No SDKs installed."
+    const val MSG_NO_SDK_PINNED = "No Flutter SDK is pinned to this project."
+    const val MSG_CONFIRM_UNPIN = "Remove Flutter SDK pin from this project?"
     const val MSG_CANNOT_DETERMINE_PATH = "Cannot determine project path."
 
     // ── Progress titles ──────────────────────────────────────────────────
@@ -270,6 +274,16 @@ object Constants {
     const val ENV_NAME_FLUTTER = "flutter"
     const val ENV_NAME_DEVTOOLS = "devtools"
     const val ENV_NAME_ENGINE = "engine"
+
+    // ── Code Push ─────────────────────────────────────────────────────────
+    const val CODE_PUSH_NOT_LOGGED_IN = "Not logged in \u2014 run 'fcp codepush login'"
+    const val CODE_PUSH_NO_APP = "No app configured \u2014 run 'fcp codepush init'"
+    const val CODE_PUSH_TAB_TITLE = "Code Push"
+    const val ROOT_CODE_PUSH = "Code Push"
+    const val POPUP_CODE_PUSH_TREE = "FlutterCompile.CodePushTree"
+    const val EMPTY_CODE_PUSH_HINT = "Click refresh to load Code Push status."
+    const val PROGRESS_LOADING_CODE_PUSH = "Loading Code Push status..."
+    const val TERMINAL_CODE_PUSH = "Code Push"
 
     // ── Miscellaneous ────────────────────────────────────────────────────
     const val GIT_HEAD_FILE = ".git/HEAD"

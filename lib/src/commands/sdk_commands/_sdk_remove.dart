@@ -53,6 +53,7 @@ Future<int> removeSdk(Logger l, String version) async {
 
   if (trimmed == globalVersion?.trim()) {
     await _removeGlobalSdkConfig(F.homeDir());
+    await F.removeDefaultSdkLink();
     l.info('Cleared global SDK setting (was "$trimmed").');
   }
 

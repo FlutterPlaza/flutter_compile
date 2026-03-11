@@ -1,5 +1,6 @@
 export 'build_commands/build_command.dart';
 export 'clean_command.dart';
+export 'codepush_commands/codepush_command.dart';
 export 'config_command.dart';
 export 'daemon_command.dart';
 export 'doctor_command.dart';

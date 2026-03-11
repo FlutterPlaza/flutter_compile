@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CLI Reference — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>CLI Reference</h1>
+  <p>Complete reference for all <code>flutter_compile</code> commands. The <code>fcp</code> alias works everywhere <code>flutter_compile</code> does.</p>
+
+  <h2 id="global-flags">Global Flags</h2>
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--version</code>, <code>-v</code></td><td>Print the current version</td></tr>
+      <tr><td><code>--verbose</code></td><td>Noisy logging, including all shell commands executed</td></tr>
+      <tr><td><code>--help</code>, <code>-h</code></td><td>Print usage information</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="command-overview">Command Overview</h2>
+  <table>
+    <thead><tr><th>Command</th><th>Alias</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>build</code></td><td><code>b</code></td><td>Build engine development artifacts</td></tr>
+      <tr><td><code>clean</code></td><td><code>c</code></td><td>Remove engine build output directories</td></tr>
+      <tr><td><code>config</code></td><td><code>cf</code></td><td>View and modify configuration</td></tr>
+      <tr><td><code>daemon</code></td><td>&mdash;</td><td>Start JSON-RPC 2.0 daemon for IDE communication</td></tr>
+      <tr><td><code>doctor</code></td><td><code>dr</code></td><td>Check environment health</td></tr>
+      <tr><td><code>install</code></td><td><code>i</code></td><td>Set up development environments</td></tr>
+      <tr><td><code>migrate</code></td><td>&mdash;</td><td>Migrate shell PATH to dedicated env file</td></tr>
+      <tr><td><code>run</code></td><td><code>r</code></td><td>Run Flutter app with local engine build</td></tr>
+      <tr><td><code>sdk</code></td><td>&mdash;</td><td>Manage Flutter SDK versions</td></tr>
+      <tr><td><code>status</code></td><td><code>st</code></td><td>Show engine configuration and builds</td></tr>
+      <tr><td><code>switch</code></td><td><code>s</code></td><td>Switch between normal and compiled Flutter</td></tr>
+      <tr><td><code>sync</code></td><td><code>sy</code></td><td>Sync contributor environments with upstream</td></tr>
+      <tr><td><code>test</code></td><td><code>t</code></td><td>Run Flutter tests with local engine build</td></tr>
+      <tr><td><code>ui</code></td><td>&mdash;</td><td>Open interactive terminal UI dashboard</td></tr>
+      <tr><td><code>uninstall</code></td><td><code>delete</code>, <code>remove</code></td><td>Uninstall development environments</td></tr>
+      <tr><td><code>update</code></td><td><code>up</code></td><td>Update the CLI</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===== SDK Commands ===== -->
+  <h2 id="sdk">sdk</h2>
+  <p>Manage Flutter SDK versions. See the <a href="sdk-management.html">SDK Management guide</a> for detailed workflows.</p>
+
+  <h3 id="sdk-install">sdk install</h3>
+  <pre><code>flutter_compile sdk install &lt;version|channel&gt; [--force]</code></pre>
+  <p>Install a specific Flutter SDK version or the latest from a channel (<code>stable</code>, <code>beta</code>, <code>dev</code>, <code>master</code>). The first SDK installed is automatically set as the global default.</p>
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--force</code></td><td>Remove existing SDK and re-install from scratch</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="sdk-list">sdk list</h3>
+  <pre><code>flutter_compile sdk list [--json]</code></pre>
+  <p>List all installed Flutter SDK versions. Entries are annotated with <code>(global)</code> and <code>(project)</code> markers.</p>
+
+  <h3 id="sdk-global">sdk global</h3>
+  <pre><code>flutter_compile sdk global [&lt;version&gt;]</code></pre>
+  <p>Show or set the global default Flutter SDK version.</p>
+
+  <h3 id="sdk-use">sdk use</h3>
+  <pre><code>flutter_compile sdk use [&lt;version&gt;]</code></pre>
+  <p>Show or pin a Flutter SDK version for the current project. Creates a <code>.flutter-version</code> file in the project root.</p>
+
+  <h3 id="sdk-exec">sdk exec</h3>
+  <pre><code>flutter_compile sdk exec &lt;command&gt; [args...]</code></pre>
+  <p>Run a command through the resolved SDK. Resolution order: project <code>.flutter-version</code> &rarr; global default.</p>
+  <pre><code># Examples
+flutter_compile sdk exec flutter doctor
+flutter_compile sdk exec dart analyze
+flutter_compile sdk exec flutter pub get</code></pre>
+
+  <h3 id="sdk-remove">sdk remove</h3>
+  <pre><code>flutter_compile sdk remove &lt;version&gt;</code></pre>
+  <p>Remove an installed Flutter SDK. Guards against removing the global default or project-pinned SDK.</p>
+
+  <!-- ===== Build ===== -->
+  <h2 id="build">build</h2>
+
+  <h3 id="build-engine">build engine</h3>
+  <pre><code>flutter_compile build engine [flags]</code></pre>
+  <p>Build the Flutter engine from source. Automatically prepends depot_tools to PATH.</p>
+  <table>
+    <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--platform</code></td><td><code>-p</code></td><td><code>host</code></td><td>Target platform: android, ios, macos, linux, web, host</td></tr>
+      <tr><td><code>--cpu</code></td><td><code>-c</code></td><td>&mdash;</td><td>Target CPU: arm, arm64, x64</td></tr>
+      <tr><td><code>--mode</code></td><td><code>-m</code></td><td><code>debug</code></td><td>Build mode: debug, profile, release</td></tr>
+      <tr><td><code>--unoptimized</code></td><td>&mdash;</td><td><code>true</code></td><td>Build with --unoptimized (faster dev builds)</td></tr>
+      <tr><td><code>--simulator</code></td><td>&mdash;</td><td><code>false</code></td><td>Build for iOS simulator</td></tr>
+      <tr><td><code>--clean</code></td><td>&mdash;</td><td><code>false</code></td><td>Clean output before building</td></tr>
+      <tr><td><code>--gn</code></td><td>&mdash;</td><td>&mdash;</td><td>Force re-running GN</td></tr>
+      <tr><td><code>--no-gn</code></td><td>&mdash;</td><td>&mdash;</td><td>Skip GN step entirely</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===== Run ===== -->
+  <h2 id="run">run</h2>
+  <pre><code>flutter_compile run [flags] [-- extra_args]</code></pre>
+  <p>Run a Flutter app with a local engine build. Extra args after <code>--</code> are forwarded to <code>flutter run</code>.</p>
+  <table>
+    <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--platform</code></td><td><code>-p</code></td><td><code>host</code></td><td>Target platform</td></tr>
+      <tr><td><code>--cpu</code></td><td><code>-c</code></td><td>&mdash;</td><td>Target CPU architecture</td></tr>
+      <tr><td><code>--mode</code></td><td><code>-m</code></td><td><code>debug</code></td><td>Build mode</td></tr>
+      <tr><td><code>--unoptimized</code></td><td>&mdash;</td><td><code>true</code></td><td>Use unoptimized engine build</td></tr>
+      <tr><td><code>--simulator</code></td><td>&mdash;</td><td><code>false</code></td><td>Use iOS simulator engine build</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===== Test ===== -->
+  <h2 id="test">test</h2>
+  <pre><code>flutter_compile test [flags] [-- extra_args]</code></pre>
+  <p>Run Flutter tests with a local engine build. Same flags as <a href="#run">run</a>. Extra args after <code>--</code> are forwarded to <code>flutter test</code>.</p>
+
+  <!-- ===== Install ===== -->
+  <h2 id="install">install</h2>
+  <p>Set up contributor development environments. See the <a href="contributor-guide.html">Contributor Setup guide</a> for walkthroughs.</p>
+
+  <h3 id="install-flutter">install flutter</h3>
+  <pre><code>flutter_compile install flutter [--ide vscode|intellij]</code></pre>
+  <p>Clone the Flutter framework repository and set up git remotes. Prompts for SSH vs HTTPS and GitHub username.</p>
+
+  <h3 id="install-engine">install engine</h3>
+  <pre><code>flutter_compile install engine [--platform &lt;platform&gt;] [--force]</code></pre>
+  <p>Set up the engine build environment (depot_tools + gclient). Requires <code>install flutter</code> first.</p>
+
+  <h3 id="install-devtools">install devtools</h3>
+  <pre><code>flutter_compile install devtools</code></pre>
+  <p>Clone the DevTools repository and set up git remotes.</p>
+
+  <!-- ===== Uninstall ===== -->
+  <h2 id="uninstall">uninstall</h2>
+  <pre><code>flutter_compile uninstall &lt;flutter|devtools|engine&gt;</code></pre>
+  <p>Remove a contributor environment. Cleans up directories, PATH exports, and config entries.</p>
+
+  <!-- ===== Sync ===== -->
+  <h2 id="sync">sync</h2>
+  <pre><code>flutter_compile sync [flutter|engine|devtools]</code></pre>
+  <p>Sync contributor environments with upstream. Running <code>sync</code> without a subcommand syncs all three sequentially.</p>
+  <table>
+    <thead><tr><th>Subcommand</th><th>Actions</th></tr></thead>
+    <tbody>
+      <tr><td><code>sync flutter</code></td><td>Fetch upstream, rebase master, update-packages</td></tr>
+      <tr><td><code>sync engine</code></td><td>gclient sync, ninja build (add <code>--force</code> for reset)</td></tr>
+      <tr><td><code>sync devtools</code></td><td>Fetch upstream, rebase master, pub get</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ===== Clean ===== -->
+  <h2 id="clean">clean</h2>
+  <pre><code>flutter_compile clean [&lt;build_name&gt;] [--all]</code></pre>
+  <p>Remove engine build output directories.</p>
+  <ul>
+    <li>No args: list available builds</li>
+    <li><code>clean &lt;build_name&gt;</code>: delete a specific build</li>
+    <li><code>clean --all</code>: delete all builds</li>
+  </ul>
+
+  <!-- ===== Status ===== -->
+  <h2 id="status">status</h2>
+  <pre><code>flutter_compile status [--json]</code></pre>
+  <p>Show engine configuration and available builds with disk sizes.</p>
+
+  <!-- ===== Config ===== -->
+  <h2 id="config">config</h2>
+  <pre><code>flutter_compile config [list|get|set] [--json]</code></pre>
+  <p>View and modify <code>~/.flutter_compilerc</code> settings. See <a href="configuration.html">Configuration</a> for details.</p>
+
+  <!-- ===== Doctor ===== -->
+  <h2 id="doctor">doctor</h2>
+  <pre><code>flutter_compile doctor [--json]</code></pre>
+  <p>Check the health of your Flutter contributor environment. Reports on required tools, engine tools, config validity, and contributor environments.</p>
+
+  <!-- ===== Switch ===== -->
+  <h2 id="switch">switch</h2>
+  <pre><code>flutter_compile switch [normal|compiled]</code></pre>
+  <p>Switch between normal and compiled Flutter installations. Shortcuts: <code>n</code> for normal, <code>c</code> for compiled.</p>
+
+  <!-- ===== Daemon ===== -->
+  <h2 id="daemon">daemon</h2>
+  <pre><code>flutter_compile daemon</code></pre>
+  <p>Start a JSON-RPC 2.0 daemon for real-time IDE communication over stdin/stdout. See <a href="daemon-api.html">Daemon API Reference</a>.</p>
+
+  <!-- ===== UI ===== -->
+  <h2 id="ui">ui</h2>
+  <pre><code>flutter_compile ui</code></pre>
+  <p>Open an interactive terminal UI dashboard with tabs for SDKs, Environments, Builds, and Doctor.</p>
+
+  <!-- ===== Migrate ===== -->
+  <h2 id="migrate">migrate</h2>
+  <pre><code>flutter_compile migrate</code></pre>
+  <p>Migrate shell PATH exports from shell RC files to the dedicated <code>~/.flutter_compile_env</code> file. Rewrites SDK blocks with the <code>FLUTTER_COMPILE_SDK</code> guard.</p>
+
+  <!-- ===== Update ===== -->
+  <h2 id="update">update</h2>
+  <pre><code>flutter_compile update</code></pre>
+  <p>Check for and install the latest version from pub.dev. Also runs auto-migration on shell config.</p>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

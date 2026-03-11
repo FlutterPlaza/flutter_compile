@@ -65,6 +65,9 @@ class SdkGlobalSubCommand extends Command<int> {
     // Update shell config with SDK manager PATH block
     await F.updateShellSdkPath(sdkPath);
 
+    // Update the `default` symlink
+    await F.updateDefaultSdkLink(sdkPath);
+
     _logger.success('Global SDK version set to "$trimmed".');
     _logger.info(Constants.platformRestartShell);
 

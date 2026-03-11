@@ -7,6 +7,7 @@ import 'package:flutter_compile/src/commands/doctor_command.dart';
 import 'package:flutter_compile/src/commands/sdk_commands/_sdk_list.dart';
 import 'package:flutter_compile/src/commands/status_command.dart';
 import 'package:flutter_compile/src/daemon/file_watcher.dart';
+import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:flutter_compile/src/version.dart';
@@ -156,6 +157,88 @@ class DaemonPeer {
         await _peer.close();
       });
       return {'ok': true};
+    });
+
+    // --- Code Push RPC methods ---
+
+    _peer.registerMethod('codepush.status', (rpc.Parameters params) async {
+      final token = await CodePushClient.getStoredToken();
+      if (token == null || token.isEmpty) {
+        throw rpc.RpcException(-32600, 'Not logged in to code push.');
+      }
+
+      String? appId;
+      try {
+        appId = params['app_id'].asString;
+      } catch (_) {
+        appId = await CodePushClient.getAppId();
+      }
+      if (appId == null || appId.isEmpty) {
+        throw rpc.RpcException(-32602, 'app_id is required.');
+      }
+
+      final serverUrl = await CodePushClient.getServerUrl();
+      final client = CodePushClient(serverUrl: serverUrl);
+      try {
+        final result = await client.listReleases(token: token, appId: appId);
+        if (result['status_code'] != 200) {
+          throw rpc.RpcException(
+            -32603,
+            result['error'] as String? ?? 'Server error',
+          );
+        }
+        return result;
+      } finally {
+        client.close();
+      }
+    });
+
+    _peer.registerMethod('codepush.account', () async {
+      final token = await CodePushClient.getStoredToken();
+      if (token == null || token.isEmpty) {
+        throw rpc.RpcException(-32600, 'Not logged in to code push.');
+      }
+
+      final serverUrl = await CodePushClient.getServerUrl();
+      final client = CodePushClient(serverUrl: serverUrl);
+      try {
+        final result = await client.getAccount(token);
+        if (result['status_code'] != 200) {
+          throw rpc.RpcException(
+            -32603,
+            result['error'] as String? ?? 'Server error',
+          );
+        }
+        return result;
+      } finally {
+        client.close();
+      }
+    });
+
+    _peer.registerMethod('codepush.patches', (rpc.Parameters params) async {
+      final token = await CodePushClient.getStoredToken();
+      if (token == null || token.isEmpty) {
+        throw rpc.RpcException(-32600, 'Not logged in to code push.');
+      }
+
+      final releaseId = params['release_id'].asString;
+      final serverUrl = await CodePushClient.getServerUrl();
+      final client = CodePushClient(serverUrl: serverUrl);
+      try {
+        final result = await client.listPatches(
+          token: token,
+          releaseId: releaseId,
+        );
+        if (result['status_code'] != 200) {
+          throw rpc.RpcException(
+            -32603,
+            result['error'] as String? ?? 'Server error',
+          );
+        }
+        return result;
+      } finally {
+        client.close();
+      }
     });
   }
 

@@ -17,6 +17,7 @@ export interface SdkBackend {
   installSdkInTerminal(version: string): void;
   removeSdk(version: string): Promise<void>;
   pinToProject(version: string, projectRoot: string): Promise<void>;
+  unpinFromProject(projectRoot: string): Promise<void>;
   getSdkPath(version: string): Promise<string | undefined>;
   isSdkInstalled(version: string): Promise<boolean>;
 }

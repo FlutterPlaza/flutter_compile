@@ -18,6 +18,7 @@ class FlutterCompileToolWindowPanel(private val project: Project) {
     private val sdkTreePanel = SdkTreePanel(project)
     private val doctorTreePanel = DoctorTreePanel(project)
     private val buildsTreePanel = BuildsTreePanel(project)
+    private val codePushTreePanel = CodePushTreePanel(project)
 
     private val modeCombo = JComboBox(arrayOf(Constants.MODE_NATIVE, Constants.MODE_FVM))
 
@@ -44,6 +45,7 @@ class FlutterCompileToolWindowPanel(private val project: Project) {
         tabbedPane.addTab(Constants.TAB_SDKS, sdkTreePanel.component)
         tabbedPane.addTab(Constants.TAB_DOCTOR, doctorTreePanel.component)
         tabbedPane.addTab(Constants.TAB_ENGINE_BUILDS, buildsTreePanel.component)
+        tabbedPane.addTab(Constants.CODE_PUSH_TAB_TITLE, codePushTreePanel.component)
 
         component = JPanel(BorderLayout()).apply {
             add(modeBar, BorderLayout.NORTH)
@@ -54,11 +56,12 @@ class FlutterCompileToolWindowPanel(private val project: Project) {
         refreshAll()
     }
 
-    /** Refresh all three tabs. */
+    /** Refresh all tabs. */
     fun refreshAll() {
         sdkTreePanel.refresh()
         doctorTreePanel.refresh()
         buildsTreePanel.refresh()
+        codePushTreePanel.refresh()
     }
 
     /** Refresh only the SDK tree (e.g. from version file changes). */

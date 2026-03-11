@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Getting Started — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Getting Started</h1>
+
+  <h2 id="prerequisites">Prerequisites</h2>
+  <ul>
+    <li><strong>Dart SDK 3.4+</strong> &mdash; included with Flutter, or install standalone from <a href="https://dart.dev/get-dart" target="_blank">dart.dev</a></li>
+    <li><strong>Git</strong> &mdash; required for SDK installation and contributor workflows</li>
+  </ul>
+
+  <h2 id="install">Installation</h2>
+  <p>Install flutter_compile globally with Dart's package manager:</p>
+  <pre><code>dart pub global activate flutter_compile</code></pre>
+
+  <p>Verify the installation:</p>
+  <pre><code>flutter_compile --version</code></pre>
+
+  <div class="tip">
+    <strong>Tip:</strong> You can also use the short alias <code>fcp</code> anywhere you'd type <code>flutter_compile</code>.
+  </div>
+
+  <h2 id="shell-completion">Shell Completion</h2>
+  <p>Enable tab completion for your shell:</p>
+
+  <h3>Bash</h3>
+  <pre><code>flutter_compile completion bash >> ~/.bashrc
+source ~/.bashrc</code></pre>
+
+  <h3>Zsh</h3>
+  <pre><code>flutter_compile completion zsh >> ~/.zshrc
+source ~/.zshrc</code></pre>
+
+  <h2 id="first-sdk">Install Your First SDK</h2>
+  <p>Install the latest stable Flutter SDK:</p>
+  <pre><code>flutter_compile sdk install stable</code></pre>
+
+  <p>The first SDK you install is automatically set as the global default. Set it explicitly with:</p>
+  <pre><code>flutter_compile sdk global stable</code></pre>
+
+  <p>Verify with:</p>
+  <pre><code>flutter_compile sdk exec flutter doctor</code></pre>
+
+  <h2 id="health-check">Health Check</h2>
+  <p>Run the doctor command to verify your environment:</p>
+  <pre><code>flutter_compile doctor</code></pre>
+
+  <p>This checks for required tools (git, python3, dart, flutter), engine tools (gclient, ninja, Xcode/Visual Studio), configuration, and contributor environments.</p>
+
+  <h2 id="quick-reference">Quick Reference</h2>
+  <table>
+    <thead>
+      <tr><th>Task</th><th>Command</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Install an SDK</td><td><code>fcp sdk install stable</code></td></tr>
+      <tr><td>List installed SDKs</td><td><code>fcp sdk ls</code></td></tr>
+      <tr><td>Set global SDK</td><td><code>fcp sdk global 3.24.0</code></td></tr>
+      <tr><td>Pin SDK to project</td><td><code>fcp sdk use 3.24.0</code></td></tr>
+      <tr><td>Run through SDK</td><td><code>fcp sdk exec flutter run</code></td></tr>
+      <tr><td>Remove an SDK</td><td><code>fcp sdk remove 3.22.0</code></td></tr>
+      <tr><td>Check environment</td><td><code>fcp doctor</code></td></tr>
+      <tr><td>Show config</td><td><code>fcp config</code></td></tr>
+      <tr><td>Update CLI</td><td><code>fcp update</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="next-steps">Next Steps</h2>
+  <ul>
+    <li><a href="sdk-management.html">SDK Management</a> &mdash; Deep dive into managing multiple SDKs</li>
+    <li><a href="contributor-guide.html">Contributor Setup</a> &mdash; Set up Flutter/engine/DevTools contributor environments</li>
+    <li><a href="cli-reference.html">CLI Reference</a> &mdash; Full command reference with all flags and options</li>
+    <li><a href="vscode-extension.html">VS Code Extension</a> &mdash; Manage SDKs from your editor</li>
+  </ul>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

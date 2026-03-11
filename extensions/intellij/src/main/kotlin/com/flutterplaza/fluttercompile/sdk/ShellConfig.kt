@@ -110,9 +110,9 @@ object ShellConfig {
         } else {
             "\n${Constants.SDK_PATH_BLOCK_START}\n" +
                 "if [ -z \"\$FLUTTER_COMPILE_SDK\" ]; then\n" +
-                "  export PATH=${sdkPath}/bin:\$PATH\n" +
-                "  export PATH=${sdkPath}/bin/cache/dart-sdk/bin:\$PATH\n" +
-                "  export PUB_CACHE=${pubCachePath}\n" +
+                "  export PATH=\"${sdkPath}/bin:\$PATH\"\n" +
+                "  export PATH=\"${sdkPath}/bin/cache/dart-sdk/bin:\$PATH\"\n" +
+                "  export PUB_CACHE=\"${pubCachePath}\"\n" +
                 "else\n" +
                 "  export PATH=\"\$FLUTTER_COMPILE_SDK/bin:\$FLUTTER_COMPILE_SDK/bin/cache/dart-sdk/bin:\$PATH\"\n" +
                 "  export PUB_CACHE=\"\$FLUTTER_COMPILE_SDK/.pub-cache\"\n" +
@@ -127,6 +127,17 @@ object ShellConfig {
      * Also ensures the shell RC has the source line.
      */
     fun updatePath(sdkPath: String, pubCachePath: String) {
+        val osName = System.getProperty(Constants.SYS_OS_NAME, "").lowercase()
+        val flutter = if (osName.contains(Constants.OS_WINDOWS_MARKER)) {
+            File(sdkPath, "bin${File.separator}flutter.bat")
+        } else {
+            File(sdkPath, "bin${File.separator}flutter")
+        }
+        if (!flutter.exists()) {
+            LOG.warn("Refusing to update shell config: '$sdkPath' is not a valid Flutter SDK")
+            return
+        }
+
         try {
             ensureSourceLine()
 

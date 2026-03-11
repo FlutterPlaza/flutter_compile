@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Configuration — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Configuration</h1>
+  <p>flutter_compile uses a simple key-value configuration file and a dedicated shell environment file to manage paths and settings.</p>
+
+  <h2 id="rc-config">Configuration File</h2>
+  <p>The main configuration file is <code>~/.flutter_compilerc</code>. It uses a <code>key:value</code> format with one entry per line.</p>
+
+  <h3>Configuration keys</h3>
+  <table>
+    <thead><tr><th>Key</th><th>Friendly Alias</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>flutter_path</code></td><td><code>flutter</code></td><td>Path to Flutter contributor checkout (e.g. ~/flutter_compile/flutter/bin)</td></tr>
+      <tr><td><code>engine_path</code></td><td><code>engine</code></td><td>Path to Flutter engine checkout</td></tr>
+      <tr><td><code>devtools_path</code></td><td><code>devtools</code></td><td>Path to DevTools checkout</td></tr>
+      <tr><td><code>depot_tools_path</code></td><td><code>depot_tools</code></td><td>Path to depot_tools installation</td></tr>
+      <tr><td><code>global_sdk_version</code></td><td><code>global_sdk</code></td><td>Currently set global Flutter SDK version</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Example file</h3>
+  <pre><code>flutter_path:~/flutter_compile/flutter/bin
+engine_path:~/flutter_compile/engine
+devtools_path:~/flutter_compile/devtools
+depot_tools_path:~/flutter_compile/depot_tools
+global_sdk_version:stable</code></pre>
+
+  <div class="note">
+    <strong>Note:</strong> Key-value splitting uses the first colon only, so Windows drive-letter paths (e.g. <code>C:\Users\...</code>) work correctly.
+  </div>
+
+  <h2 id="config-command">Config Command</h2>
+
+  <h3>List all settings</h3>
+  <pre><code>flutter_compile config
+flutter_compile config list
+flutter_compile config list --json</code></pre>
+
+  <h3>Get a specific setting</h3>
+  <pre><code># Using friendly alias
+flutter_compile config get flutter
+flutter_compile config get engine
+
+# Using raw key
+flutter_compile config get flutter_path
+flutter_compile config get global_sdk_version</code></pre>
+
+  <h3>Set a value</h3>
+  <pre><code>flutter_compile config set flutter_path ~/my/custom/flutter/bin
+flutter_compile config set global_sdk_version 3.24.0</code></pre>
+
+  <h2 id="doctor">Doctor</h2>
+  <p>The <code>doctor</code> command checks the health of your entire environment:</p>
+  <pre><code>flutter_compile doctor
+flutter_compile doctor --json</code></pre>
+
+  <h3>Check categories</h3>
+  <table>
+    <thead><tr><th>Category</th><th>Checks</th></tr></thead>
+    <tbody>
+      <tr><td>Required Tools</td><td>git, python3, dart, flutter</td></tr>
+      <tr><td>Engine Tools</td><td>gclient, ninja, Xcode (macOS), Visual Studio (Windows)</td></tr>
+      <tr><td>Config</td><td><code>~/.flutter_compilerc</code> file validity</td></tr>
+      <tr><td>Environments</td><td>Flutter contributor, DevTools contributor, Engine contributor</td></tr>
+    </tbody>
+  </table>
+
+  <p>Doctor also probes known depot_tools locations beyond PATH for gclient detection.</p>
+
+  <h2 id="shell-env">Shell Environment File</h2>
+  <p>Since v0.10.0, flutter_compile uses a dedicated env file at <code>~/.flutter_compile_env</code> to manage PATH exports. This file is sourced from your shell RC file (<code>~/.zshrc</code> or <code>~/.bashrc</code>).</p>
+
+  <h3>How it works</h3>
+  <p>The env file contains PATH export blocks for:</p>
+  <ul>
+    <li>Flutter contributor binary (<code>flutter/bin</code>)</li>
+    <li>Dart SDK from contributor Flutter</li>
+    <li>Depot tools</li>
+    <li>Global SDK version (with conditional guard)</li>
+  </ul>
+
+  <h3>FLUTTER_COMPILE_SDK guard (v0.12.0+)</h3>
+  <p>The SDK block in <code>~/.flutter_compile_env</code> uses a conditional guard:</p>
+  <pre><code># When FLUTTER_COMPILE_SDK is set (by an IDE extension):
+#   → Use the IDE-provided SDK path
+# When FLUTTER_COMPILE_SDK is not set (regular terminal):
+#   → Use the global default SDK path</code></pre>
+  <p>This means IDE terminals automatically use the project-pinned SDK while regular terminals use the global default.</p>
+
+  <h2 id="migrate">Migration</h2>
+  <p>If you upgraded from an older version that wrote PATH exports directly to your shell RC file:</p>
+  <pre><code>flutter_compile migrate</code></pre>
+
+  <p>This command:</p>
+  <ol>
+    <li>Moves PATH exports from <code>~/.zshrc</code> / <code>~/.bashrc</code> to <code>~/.flutter_compile_env</code></li>
+    <li>Rewrites SDK blocks with the <code>FLUTTER_COMPILE_SDK</code> conditional guard</li>
+    <li>Adds a <code>source</code> line to your shell RC file</li>
+  </ol>
+
+  <p>The <code>update</code> command also runs auto-migration.</p>
+
+  <h2 id="env-vars">Environment Variables Reference</h2>
+  <table>
+    <thead><tr><th>Variable</th><th>Set By</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>FLUTTER_COMPILE_SDK</code></td><td>IDE extensions</td><td>Override SDK path in IDE terminals</td></tr>
+      <tr><td><code>PUB_CACHE</code></td><td><code>sdk exec</code></td><td>Per-SDK pub cache directory</td></tr>
+      <tr><td><code>PATH</code></td><td><code>~/.flutter_compile_env</code></td><td>SDK and tool paths</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="special-files">Special Files</h2>
+  <table>
+    <thead><tr><th>File</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>~/.flutter_compilerc</code></td><td>Main configuration file</td></tr>
+      <tr><td><code>~/.flutter_compile_env</code></td><td>Shell PATH exports (sourced by shell RC)</td></tr>
+      <tr><td><code>.flutter-version</code></td><td>Project-pinned SDK version (in project root)</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="windows">Windows Notes</h2>
+  <ul>
+    <li>PATH exports use PowerShell profile instead of shell RC files</li>
+    <li><code>USERPROFILE</code> is used instead of <code>HOME</code></li>
+    <li><code>where</code> is used instead of <code>which</code> for command detection</li>
+    <li><code>PROCESSOR_ARCHITECTURE</code> env var resolves host CPU</li>
+    <li>Doctor checks for Visual Studio (<code>cl.exe</code>) instead of Xcode</li>
+  </ul>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

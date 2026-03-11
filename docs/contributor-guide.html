@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contributor Setup — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Contributor Setup</h1>
+  <p>flutter_compile automates the setup of Flutter framework, engine, and DevTools contributor environments. This replaces the manual steps in the official <a href="https://github.com/flutter/flutter/wiki/Setting-up-the-Engine-development-environment" target="_blank">Flutter wiki</a>.</p>
+
+  <h2 id="overview">Overview</h2>
+  <p>There are three contributor environments you can install:</p>
+  <table>
+    <thead><tr><th>Environment</th><th>Command</th><th>What It Sets Up</th></tr></thead>
+    <tbody>
+      <tr><td>Flutter Framework</td><td><code>install flutter</code></td><td>Clones flutter/flutter, sets up remotes</td></tr>
+      <tr><td>Engine</td><td><code>install engine</code></td><td>depot_tools, gclient sync, engine repo</td></tr>
+      <tr><td>DevTools</td><td><code>install devtools</code></td><td>Clones flutter/devtools, sets up remotes</td></tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>Note:</strong> The engine now builds from within the Flutter contributor checkout (monorepo alignment). You must run <code>install flutter</code> before <code>install engine</code>.
+  </div>
+
+  <h2 id="install-flutter">Install Flutter Framework</h2>
+  <pre><code>flutter_compile install flutter</code></pre>
+
+  <p>This command will:</p>
+  <ol>
+    <li>Prompt you to choose SSH or HTTPS for git cloning</li>
+    <li>Prompt for your GitHub username (for fork remote)</li>
+    <li>Clone the Flutter framework repository</li>
+    <li>Set up <code>upstream</code> (flutter/flutter) and <code>origin</code> (your fork) remotes</li>
+    <li>Add the Flutter binary to your PATH via <code>~/.flutter_compile_env</code></li>
+    <li>Save the path to <code>~/.flutter_compilerc</code></li>
+  </ol>
+
+  <h3>IDE flag</h3>
+  <p>When called from an IDE extension, the <code>--ide</code> flag skips or auto-accepts IDE-specific prompts:</p>
+  <pre><code>flutter_compile install flutter --ide vscode
+flutter_compile install flutter --ide intellij</code></pre>
+
+  <h2 id="install-engine">Install Engine</h2>
+  <pre><code>flutter_compile install engine</code></pre>
+
+  <p>This command will:</p>
+  <ol>
+    <li>Verify Flutter is installed (required dependency)</li>
+    <li>Install depot_tools if not already present</li>
+    <li>Configure gclient with the engine repository</li>
+    <li>Run <code>gclient sync</code> to fetch engine source</li>
+    <li>Set up git remotes (upstream/origin)</li>
+    <li>Save paths to <code>~/.flutter_compilerc</code></li>
+  </ol>
+
+  <h3>Platform flag</h3>
+  <pre><code>flutter_compile install engine --platform android
+flutter_compile install engine --platform ios</code></pre>
+
+  <h3>Force sync</h3>
+  <p>If gclient sync fails or you need a clean state:</p>
+  <pre><code>flutter_compile install engine --force</code></pre>
+  <p>This runs <code>gclient sync --reset --force</code> with automatic retry.</p>
+
+  <h2 id="install-devtools">Install DevTools</h2>
+  <pre><code>flutter_compile install devtools</code></pre>
+
+  <p>Clones the DevTools repository, sets up git remotes, and configures tracking branches.</p>
+
+  <h2 id="syncing">Syncing With Upstream</h2>
+  <p>Keep your contributor environments up to date:</p>
+
+  <pre><code># Sync all environments
+flutter_compile sync
+
+# Sync individually
+flutter_compile sync flutter   # fetch upstream, rebase, update-packages
+flutter_compile sync engine    # gclient sync, ninja build
+flutter_compile sync devtools  # fetch upstream, rebase, pub get</code></pre>
+
+  <p>For a forced engine sync (resets local changes):</p>
+  <pre><code>flutter_compile sync engine --force</code></pre>
+
+  <h2 id="verify">Verify Your Setup</h2>
+  <p>Run <code>doctor</code> to check everything is configured correctly:</p>
+  <pre><code>flutter_compile doctor</code></pre>
+
+  <p>Doctor checks:</p>
+  <ul>
+    <li><strong>Required Tools:</strong> git, python3, dart, flutter</li>
+    <li><strong>Engine Tools:</strong> gclient, ninja, Xcode (macOS) or Visual Studio (Windows)</li>
+    <li><strong>Config:</strong> <code>~/.flutter_compilerc</code> validity</li>
+    <li><strong>Environments:</strong> Flutter contributor, DevTools contributor, Engine contributor</li>
+  </ul>
+
+  <h2 id="uninstall">Uninstalling Environments</h2>
+  <pre><code>flutter_compile uninstall flutter
+flutter_compile uninstall engine
+flutter_compile uninstall devtools</code></pre>
+
+  <p>Each uninstall command:</p>
+  <ul>
+    <li>Removes the installation directory</li>
+    <li>Removes PATH exports from <code>~/.flutter_compile_env</code></li>
+    <li>Cleans the corresponding entry in <code>~/.flutter_compilerc</code></li>
+  </ul>
+
+  <p>When uninstalling the engine, you'll be prompted whether to also remove depot_tools.</p>
+
+  <h2 id="default-paths">Default Installation Paths</h2>
+  <table>
+    <thead><tr><th>Component</th><th>Default Path</th></tr></thead>
+    <tbody>
+      <tr><td>Flutter Framework</td><td><code>~/flutter_compile/flutter</code></td></tr>
+      <tr><td>Flutter Binary</td><td><code>~/flutter_compile/flutter/bin/flutter</code></td></tr>
+      <tr><td>Engine Workspace</td><td><code>~/flutter_compile/engine</code></td></tr>
+      <tr><td>DevTools</td><td><code>~/flutter_compile/devtools</code></td></tr>
+      <tr><td>Depot Tools</td><td><code>~/flutter_compile/depot_tools</code></td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="workflow">Typical Contributor Workflow</h2>
+  <pre><code># Initial setup (one-time)
+flutter_compile install flutter
+flutter_compile install engine
+flutter_compile doctor
+
+# Daily workflow
+flutter_compile sync flutter
+flutter_compile build engine
+flutter_compile run -- -d macos
+
+# Clean up builds
+flutter_compile clean host_debug_unopt</code></pre>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

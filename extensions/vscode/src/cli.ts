@@ -201,6 +201,11 @@ export function uninstallEnvironment(type: "flutter" | "devtools" | "engine"): v
   runInTerminal(["uninstall", type]);
 }
 
+/** Run `flutter_compile` with the given args and return stdout (public wrapper). */
+export async function runCommand(args: string[]): Promise<string> {
+  return run(args);
+}
+
 /** Check if the CLI is available. */
 export async function isCliAvailable(): Promise<boolean> {
   try {

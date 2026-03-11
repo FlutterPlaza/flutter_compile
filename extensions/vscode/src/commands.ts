@@ -256,6 +256,50 @@ export async function pinSdkToProject(
   );
 }
 
+/** Unpin the Flutter SDK from the current project. */
+export async function unpinSdkFromProject(): Promise<void> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage("No workspace folder open.");
+    return;
+  }
+  const projectRoot = folders[0].uri.fsPath;
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Unpinning Flutter SDK from project...",
+    },
+    async () => {
+      try {
+        await getBackend().unpinFromProject(projectRoot);
+
+        // Reset dart.flutterSdkPath to the global default, or remove it
+        const globalVersion = await getBackend().getGlobalSdkVersion();
+        if (globalVersion) {
+          await updateFlutterSdkPath(globalVersion);
+        } else {
+          const config = vscode.workspace.getConfiguration("dart");
+          await config.update(
+            "flutterSdkPath",
+            undefined,
+            vscode.ConfigurationTarget.Workspace
+          );
+        }
+
+        await refreshAll();
+        vscode.window.showInformationMessage(
+          "Flutter SDK unpinned from project."
+        );
+      } catch (e) {
+        vscode.window.showErrorMessage(
+          `Failed to unpin SDK: ${e}`
+        );
+      }
+    }
+  );
+}
+
 /** Open the SDK folder in the OS file explorer. */
 export async function openSdkFolder(item?: SdkTreeItem): Promise<void> {
   const version = await pickSdkVersion(item);
@@ -490,6 +534,91 @@ export async function toggleSdkManager(): Promise<void> {
   await vscode.workspace
     .getConfiguration("flutterCompile")
     .update("sdkManager", picked.value, vscode.ConfigurationTarget.Global);
+}
+
+// ─── Code Push commands ──────────────────────────────────────────────
+
+/** `Flutter Compile: Code Push Login` */
+export async function codePushLogin(): Promise<void> {
+  const apiKey = await vscode.window.showInputBox({
+    prompt: "Enter your Code Push API key",
+    placeHolder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    password: true,
+  });
+  if (!apiKey) return;
+
+  const server = await vscode.window.showInputBox({
+    prompt: "Code Push server URL (leave empty for default)",
+    placeHolder: "http://localhost:8090",
+  });
+
+  const args = ["codepush", "login", "--api-key", apiKey];
+  if (server) {
+    args.push("--server", server);
+  }
+  cli.runInTerminal(args);
+}
+
+/** `Flutter Compile: Code Push Init` */
+export async function codePushInit(): Promise<void> {
+  const name = await vscode.window.showInputBox({
+    prompt: "App name (leave empty to use pubspec.yaml name)",
+    placeHolder: "my_app",
+  });
+
+  const args = ["codepush", "init"];
+  if (name) {
+    args.push("--name", name);
+  }
+  cli.runInTerminal(args);
+}
+
+/** `Flutter Compile: Code Push Release` */
+export async function codePushRelease(): Promise<void> {
+  const platform = await vscode.window.showQuickPick(
+    ["apk", "ios", "linux", "macos", "windows"],
+    { placeHolder: "Select target platform" }
+  );
+  if (!platform) return;
+
+  const flags = await vscode.window.showQuickPick(
+    [
+      { label: "Build first", description: "Run flutter build before uploading", picked: true },
+      { label: "Deterministic", description: "Use --stable_object_pool_indices", picked: false },
+    ],
+    { placeHolder: "Options", canPickMany: true }
+  );
+
+  const args = ["codepush", "release", "--platform", platform];
+  const flagLabels = new Set(flags?.map((f) => f.label) ?? []);
+  if (flagLabels.has("Build first")) args.push("--build");
+  if (flagLabels.has("Deterministic")) args.push("--deterministic");
+
+  cli.runInTerminal(args);
+}
+
+/** `Flutter Compile: Code Push Patch` */
+export async function codePushPatch(): Promise<void> {
+  const rollout = await vscode.window.showInputBox({
+    prompt: "Rollout percentage (1-100)",
+    placeHolder: "100",
+    value: "100",
+  });
+  if (!rollout) return;
+
+  const args = ["codepush", "patch", "--build", "--rollout", rollout];
+  cli.runInTerminal(args);
+}
+
+/** `Flutter Compile: Code Push Rollback` */
+export async function codePushRollback(): Promise<void> {
+  const patchId = await vscode.window.showInputBox({
+    prompt: "Patch ID to rollback",
+    placeHolder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  });
+  if (!patchId) return;
+
+  cli.runInTerminal(["codepush", "rollback", "--patch-id", patchId]);
 }
 
 function runInstallInTerminal(command: string, title: string): void {

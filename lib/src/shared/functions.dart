@@ -602,14 +602,22 @@ class F {
     final canonical = sdkVersionPath(trimmed);
     if (Directory(canonical).existsSync()) return canonical;
 
-    // Fallback: scan versions dir for a directory whose trimmed name matches
+    // Fallback: scan versions dir for a directory whose trimmed name matches.
+    // When found, rename the directory to the canonical (trimmed) name so
+    // subsequent lookups hit the fast path and no trailing whitespace leaks
+    // into shell config files.
     final vDir = Directory('${homeDir()}${Constants.sdkVersionsPath}');
     if (vDir.existsSync()) {
       for (final entry in vDir.listSync()) {
         if (entry is Directory) {
           final dirName = entry.path.split(Platform.pathSeparator).last;
-          if (dirName.trim() == trimmed) {
-            return entry.path;
+          if (dirName.trim() == trimmed && dirName != trimmed) {
+            try {
+              entry.renameSync(canonical);
+            } catch (_) {
+              return entry.path; // rename failed — return raw path
+            }
+            return canonical;
           }
         }
       }
@@ -665,6 +673,13 @@ class F {
   /// a new one pointing to [sdkPath]. Also ensures the shell RC has the
   /// source line.
   static Future<void> updateShellSdkPath(String sdkPath) async {
+    if (!isFlutterSdk(sdkPath)) {
+      logger.err(
+        'Refusing to update shell config: "$sdkPath" is not a valid Flutter SDK.',
+      );
+      return;
+    }
+
     await ensureSourceLineInShellRc();
 
     final pubCachePath = sdkPubCachePath(sdkPath);
@@ -687,6 +702,27 @@ class F {
 
     await envFile.parent.create(recursive: true);
     await envFile.writeAsString(contents);
+  }
+
+  /// Create or update the `default` symlink to point to [sdkPath].
+  ///
+  /// If a real directory (not a symlink) named `default` already exists in
+  /// the versions folder, this is a no-op to avoid deleting a user's SDK.
+  static Future<void> updateDefaultSdkLink(String sdkPath) async {
+    final linkPath =
+        '${homeDir()}${Constants.sdkVersionsPath}/${Constants.defaultSdkLink}';
+    final type = FileSystemEntity.typeSync(linkPath, followLinks: false);
+    if (type == FileSystemEntityType.directory) return; // real dir — don't touch
+    if (type == FileSystemEntityType.link) Link(linkPath).deleteSync();
+    await Link(linkPath).create(sdkPath);
+  }
+
+  /// Remove the `default` symlink if it exists.
+  static Future<void> removeDefaultSdkLink() async {
+    final linkPath =
+        '${homeDir()}${Constants.sdkVersionsPath}/${Constants.defaultSdkLink}';
+    final type = FileSystemEntity.typeSync(linkPath, followLinks: false);
+    if (type == FileSystemEntityType.link) Link(linkPath).deleteSync();
   }
 
   /// Remove the SDK manager PATH block from the env file.

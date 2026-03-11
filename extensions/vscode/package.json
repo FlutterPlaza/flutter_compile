@@ -56,6 +56,10 @@
         {
           "id": "flutterCompile.builds",
           "name": "Engine Builds"
+        },
+        {
+          "id": "flutterCompile.codePush",
+          "name": "Code Push"
         }
       ]
     },
@@ -103,6 +107,11 @@
         "command": "flutterCompile.pinSdkToProject",
         "title": "Flutter Compile: Pin SDK to Project",
         "icon": "$(pin)"
+      },
+      {
+        "command": "flutterCompile.unpinSdkFromProject",
+        "title": "Flutter Compile: Unpin Flutter SDK from Project",
+        "icon": "$(pinned-dirty)"
       },
       {
         "command": "flutterCompile.openSdkFolder",
@@ -158,6 +167,37 @@
         "command": "flutterCompile.toggleSdkManager",
         "title": "Flutter Compile: Switch SDK Manager",
         "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "flutterCompile.codePushLogin",
+        "title": "Code Push: Login",
+        "category": "Flutter Compile"
+      },
+      {
+        "command": "flutterCompile.codePushInit",
+        "title": "Code Push: Init App",
+        "category": "Flutter Compile"
+      },
+      {
+        "command": "flutterCompile.codePushRelease",
+        "title": "Code Push: Create Release",
+        "category": "Flutter Compile"
+      },
+      {
+        "command": "flutterCompile.codePushPatch",
+        "title": "Code Push: Create Patch",
+        "category": "Flutter Compile"
+      },
+      {
+        "command": "flutterCompile.codePushRollback",
+        "title": "Code Push: Rollback",
+        "category": "Flutter Compile"
+      },
+      {
+        "command": "flutterCompile.refreshCodePush",
+        "title": "Code Push: Refresh",
+        "category": "Flutter Compile",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -196,6 +236,11 @@
           "command": "flutterCompile.refreshBuilds",
           "when": "view == flutterCompile.builds",
           "group": "navigation@3"
+        },
+        {
+          "command": "flutterCompile.refreshCodePush",
+          "when": "view == flutterCompile.codePush",
+          "group": "navigation"
         }
       ],
       "view/item/context": [
@@ -206,7 +251,7 @@
         },
         {
           "command": "flutterCompile.removeSdk",
-          "when": "view == flutterCompile.sdks && viewItem == sdk",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk(Pinned)?$/",
           "group": "inline@2"
         },
         {
@@ -215,13 +260,18 @@
           "group": "1_actions@1"
         },
         {
-          "command": "flutterCompile.openSdkFolder",
-          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk/",
+          "command": "flutterCompile.unpinSdkFromProject",
+          "when": "view == flutterCompile.sdks && viewItem == sdkPinned",
           "group": "1_actions@2"
         },
         {
+          "command": "flutterCompile.openSdkFolder",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk/",
+          "group": "1_actions@3"
+        },
+        {
           "command": "flutterCompile.removeSdk",
-          "when": "view == flutterCompile.sdks && viewItem == sdk",
+          "when": "view == flutterCompile.sdks && viewItem =~ /^sdk(Pinned)?$/",
           "group": "2_destructive@1"
         },
         {

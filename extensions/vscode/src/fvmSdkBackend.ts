@@ -90,6 +90,24 @@ export class FvmSdkBackend implements SdkBackend {
     await runFvm(["use", version, "--project", projectRoot]);
   }
 
+  async unpinFromProject(projectRoot: string): Promise<void> {
+    try {
+      await runFvm(["destroy", "--force", "--project", projectRoot]);
+    } catch {
+      // Fallback: remove .fvmrc if fvm destroy is not available
+      const fs = await import("fs");
+      const path = await import("path");
+      for (const file of [".fvmrc", ".fvm"]) {
+        const filePath = path.join(projectRoot, file);
+        try {
+          fs.rmSync(filePath, { recursive: true, force: true });
+        } catch {
+          // File doesn't exist — nothing to do
+        }
+      }
+    }
+  }
+
   async getSdkPath(version: string): Promise<string | undefined> {
     try {
       const raw = await runFvm(["api", "list"]);

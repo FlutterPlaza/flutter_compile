@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Changelog — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Changelog</h1>
+  <p>All notable changes to flutter_compile. See the full <a href="https://github.com/FlutterPlaza/flutter_compile/blob/main/CHANGELOG.md" target="_blank">CHANGELOG.md</a> on GitHub.</p>
+
+  <div class="version-entry">
+    <h2 id="v0.12.0">0.12.0</h2>
+    <ul>
+      <li><code>FLUTTER_COMPILE_SDK</code> environment variable — IDE terminals now use the project-pinned SDK instead of always falling back to the global default</li>
+      <li>Shell env file (<code>~/.flutter_compile_env</code>) SDK block is now conditional: defers to IDE-provided SDK path when set, uses global default in regular terminals</li>
+      <li>VS Code extension sets <code>FLUTTER_COMPILE_SDK</code> + <code>applyAtShellIntegration</code> so project-pinned SDKs survive shell init</li>
+      <li>IntelliJ plugin sets <code>FLUTTER_COMPILE_SDK</code> via <code>LocalTerminalCustomizer</code> for the same behavior</li>
+      <li>Auto-migration on extension/plugin activation — rewrites old env file SDK blocks with the new guarded template</li>
+      <li><code>migrate</code> command rewrites SDK blocks with <code>FLUTTER_COMPILE_SDK</code> guard for existing CLI users</li>
+      <li>SDK validation now checks for <code>bin/flutter</code> instead of <code>.git/HEAD</code>, so SDKs installed from release archives (no <code>.git</code>) work correctly</li>
+      <li>Whitespace-tolerant SDK path resolution — directories with trailing spaces are now matched via fallback scan</li>
+      <li><code>sdk global</code>, <code>sdk use</code>, and <code>sdk remove</code> all trim version names and use resolved paths</li>
+      <li>VS Code &amp; IntelliJ extensions v0.3.1</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.11.1">0.11.1</h2>
+    <ul>
+      <li>Switch CI to GitHub-hosted runners (ubuntu-latest, windows-latest, macos-latest)</li>
+      <li>Correct build matrix — replace duplicate macOS entry with Ubuntu for coverage uploads</li>
+      <li>Upgrade <code>json_rpc_2</code> to ^4.1.0 and <code>lints</code> to ^6.1.0</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.11.0">0.11.0</h2>
+    <ul>
+      <li>Engine now builds from within the Flutter contributor checkout (monorepo alignment with flutter/flutter)</li>
+      <li><code>install engine</code> requires <code>install flutter</code> first — engine lives inside the Flutter checkout</li>
+      <li>Add <code>--force</code> flag to <code>install engine</code> and <code>sync engine</code> for forced <code>gclient sync</code> with automatic retry</li>
+      <li><code>build engine</code> now prepends depot_tools to PATH automatically (no manual PATH setup needed)</li>
+      <li><code>install flutter --ide vscode|intellij</code> flag — skip or auto-accept IDE-specific prompts when called from extensions</li>
+      <li><code>doctor</code> now probes known depot_tools locations for gclient beyond PATH</li>
+      <li>Idempotent git remote setup in <code>install flutter</code>, <code>install devtools</code>, and <code>install engine</code> (safe to re-run)</li>
+      <li>gclient template updated for monorepo (<code>name: "."</code>, <code>{{flutter_url}}</code>)</li>
+      <li>Engine upstream URLs changed from flutter/engine to flutter/flutter</li>
+      <li>Better error messages and manual recovery instructions for gclient sync failures</li>
+      <li>VS Code extension v0.3.0 — dual SDK backend (Native + FVM), SDK Manager toggle button, doctor install actions</li>
+      <li>IntelliJ plugin v0.3.0 — mode dropdown for Native vs FVM backend, enhanced CLI integration</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.10.1">0.10.1</h2>
+    <ul>
+      <li>RC config read/write now splits on first colon only, fixing Windows drive-letter paths</li>
+      <li>File watcher path matching handles Windows backslash separators</li>
+      <li>Add <code>TempHome</code> isolation to <code>sdk exec</code> and <code>sdk global</code> tests</li>
+      <li>Increase file watcher test timeouts for Windows CI reliability</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.10.0">0.10.0</h2>
+    <ul>
+      <li>Add <code>daemon</code> command — JSON-RPC 2.0 daemon for real-time IDE communication over stdin/stdout</li>
+      <li>Daemon supports <code>sdk.list</code>, <code>sdk.global.get/set</code>, <code>sdk.use.get/set</code>, <code>doctor</code>, <code>config.list/get/set</code>, <code>status</code>, <code>version</code>, <code>shutdown</code> methods</li>
+      <li>Daemon sends <code>sdk.changed</code> and <code>config.changed</code> notifications on file system changes</li>
+      <li>Add <code>ui</code> command — interactive terminal UI dashboard for SDK management</li>
+      <li>TUI provides four tabs: SDKs, Environments, Builds, Doctor</li>
+      <li>Extract reusable helpers: <code>gatherSdkList()</code>, <code>gatherDoctorChecks()</code>, <code>gatherStatus()</code>, <code>gatherConfig()</code></li>
+      <li>Add file watcher with 500ms debounce for <code>.flutter_compilerc</code> and <code>.flutter-version</code> changes</li>
+      <li>Add <code>--force</code> flag to <code>sdk install</code></li>
+      <li>Add <code>isValidGitRepo()</code> validation for partial/corrupted clones</li>
+      <li>Idempotent PATH management — <code>switch</code>, <code>uninstall</code>, and <code>sdk global</code> use regex-based block detection</li>
+      <li>VS Code extension MVP — status bar SDK version, quick pick switcher, sidebar panels</li>
+      <li>IntelliJ plugin MVP — toolbar combo box, tool window with SDK list and doctor output</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.9.0">0.9.0</h2>
+    <ul>
+      <li>Add <code>sync</code> command to sync contributor environments with upstream</li>
+      <li>Add <code>fcp</code> executable alias</li>
+      <li>Add <code>--json</code> flag to <code>sdk list</code>, <code>doctor</code>, <code>config list</code>, and <code>status</code></li>
+      <li>Add Windows support — cross-platform PATH management, shell config detection, host architecture resolution</li>
+      <li>Platform-aware PATH export templates for PowerShell</li>
+      <li><code>doctor</code> checks for Visual Studio on Windows</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.8.0">0.8.0</h2>
+    <ul>
+      <li>Add <code>sdk exec</code> command to run commands through the resolved SDK</li>
+      <li><code>sdk install</code> auto-sets global default when installing the first SDK</li>
+      <li><code>sdk remove</code> allows removing the global SDK and cleans up config</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.7.0">0.7.0</h2>
+    <ul>
+      <li>Add <code>sdk global</code> command to set or show the global default</li>
+      <li>Add <code>sdk use</code> command to pin SDK version per project (<code>.flutter-version</code>)</li>
+      <li>PUB_CACHE isolation — each installed SDK uses its own <code>.pub-cache</code> directory</li>
+      <li><code>sdk list</code> now annotates entries with <code>(global)</code> and <code>(project)</code> markers</li>
+      <li><code>sdk remove</code> guards against removing global default or project-pinned SDK</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.6.0">0.6.0</h2>
+    <ul>
+      <li>Add <code>sdk</code> command to install and manage multiple Flutter SDK versions</li>
+      <li>Add <code>dr</code> alias for <code>doctor</code> and <code>up</code> alias for <code>update</code></li>
+      <li>Replace all <code>exit()</code> calls with <code>FlutterCompileException</code></li>
+      <li>Centralized exception handling in command runner</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.5.1">0.5.1</h2>
+    <ul>
+      <li>Upgrade mason_logger to ^0.3.3 and pub_updater to ^0.5.0</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.5.0">0.5.0</h2>
+    <ul>
+      <li>Add <code>clean</code> command to remove engine build output directories</li>
+      <li>Add <code>config</code> command to view and modify <code>.flutter_compilerc</code> from CLI</li>
+      <li><code>uninstall flutter</code> now removes PATH exports and cleans config</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.4.0">0.4.0</h2>
+    <ul>
+      <li>Add <code>test</code> command to run Flutter tests with a local engine build</li>
+      <li>Add <code>status</code> command to show engine configuration and available builds</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.3.1">0.3.1</h2>
+    <ul>
+      <li>Add code coverage reporting and Codecov integration</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.3.0">0.3.0</h2>
+    <ul>
+      <li>Add <code>run</code> command to launch Flutter apps with a local engine build</li>
+      <li>Add <code>--gn</code> and <code>--no-gn</code> flags to <code>build engine</code> for incremental rebuilds</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.2.0">0.2.0</h2>
+    <ul>
+      <li>Automate Flutter engine setup (<code>install engine</code>) — depot_tools, gclient sync, git remotes</li>
+      <li>Add <code>build engine</code> command with GN flag resolution and ninja builds</li>
+      <li>Support all platforms — android, ios, macos, linux, web, host</li>
+      <li>Extend <code>doctor</code> with depot_tools, ninja, Xcode, and engine environment checks</li>
+      <li>Implement <code>uninstall engine</code> with optional depot_tools cleanup</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.1.0">0.1.0</h2>
+    <ul>
+      <li>Add <code>doctor</code> command for environment health checks</li>
+      <li>Implement <code>uninstall devtools</code> with PATH and config cleanup</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.0.3">0.0.3</h2>
+    <ul>
+      <li>Add support for compiling DevTools</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.0.2">0.0.2</h2>
+    <ul>
+      <li>Fix broken links and tests</li>
+    </ul>
+  </div>
+
+  <div class="version-entry">
+    <h2 id="v0.0.1">0.0.1</h2>
+    <ul>
+      <li>Initial release</li>
+    </ul>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

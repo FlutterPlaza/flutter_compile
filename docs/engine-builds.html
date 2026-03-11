@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engine Builds — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Engine Builds</h1>
+  <p>Build the Flutter engine from source, run apps with your local engine, and manage build outputs.</p>
+
+  <div class="note">
+    <strong>Prerequisite:</strong> You must first set up the contributor environment with <code>flutter_compile install flutter</code> and <code>flutter_compile install engine</code>. See <a href="contributor-guide.html">Contributor Setup</a>.
+  </div>
+
+  <h2 id="building">Building the Engine</h2>
+  <pre><code>flutter_compile build engine</code></pre>
+
+  <p>By default this builds a <strong>debug, unoptimized</strong> build for the <strong>host</strong> platform. The build process has two steps:</p>
+  <ol>
+    <li><strong>GN</strong> &mdash; generates ninja build files (auto-skipped if <code>build.ninja</code> already exists)</li>
+    <li><strong>Ninja</strong> &mdash; compiles the engine</li>
+  </ol>
+
+  <p>Depot_tools is automatically prepended to PATH during the build.</p>
+
+  <h3>Platform and architecture</h3>
+  <pre><code># Build for Android ARM64
+flutter_compile build engine --platform android --cpu arm64
+
+# Build for iOS simulator
+flutter_compile build engine --platform ios --simulator
+
+# Build for macOS
+flutter_compile build engine --platform macos
+
+# Build for Linux
+flutter_compile build engine --platform linux
+
+# Build for web
+flutter_compile build engine --platform web</code></pre>
+
+  <h3>Build modes</h3>
+  <pre><code># Debug (default)
+flutter_compile build engine --mode debug
+
+# Profile
+flutter_compile build engine --mode profile
+
+# Release
+flutter_compile build engine --mode release</code></pre>
+
+  <h3>Optimized builds</h3>
+  <p>By default, builds use <code>--unoptimized</code> for faster compilation during development. For optimized builds:</p>
+  <pre><code>flutter_compile build engine --no-unoptimized</code></pre>
+
+  <h3>All flags</h3>
+  <table>
+    <thead><tr><th>Flag</th><th>Short</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>--platform</code></td><td><code>-p</code></td><td><code>host</code></td><td>Target platform: android, ios, macos, linux, web, host</td></tr>
+      <tr><td><code>--cpu</code></td><td><code>-c</code></td><td>&mdash;</td><td>Target CPU: arm, arm64, x64</td></tr>
+      <tr><td><code>--mode</code></td><td><code>-m</code></td><td><code>debug</code></td><td>Build mode: debug, profile, release</td></tr>
+      <tr><td><code>--unoptimized</code></td><td>&mdash;</td><td><code>true</code></td><td>Build with --unoptimized (faster dev builds)</td></tr>
+      <tr><td><code>--simulator</code></td><td>&mdash;</td><td><code>false</code></td><td>Build for iOS simulator</td></tr>
+      <tr><td><code>--clean</code></td><td>&mdash;</td><td><code>false</code></td><td>Clean output before building</td></tr>
+      <tr><td><code>--gn</code></td><td>&mdash;</td><td>&mdash;</td><td>Force re-running GN even if build.ninja exists</td></tr>
+      <tr><td><code>--no-gn</code></td><td>&mdash;</td><td>&mdash;</td><td>Skip GN step entirely</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="gn-detection">GN Auto-Detection</h2>
+  <p>GN generates the ninja build files based on your platform/mode/cpu configuration. flutter_compile automatically detects whether GN needs to run:</p>
+  <ul>
+    <li><strong>Auto-skip:</strong> If <code>build.ninja</code> already exists in the output directory, GN is skipped</li>
+    <li><strong>Force GN:</strong> Use <code>--gn</code> to re-run GN (needed after changing build flags)</li>
+    <li><strong>Skip GN:</strong> Use <code>--no-gn</code> to skip entirely (pure ninja rebuild)</li>
+  </ul>
+
+  <h2 id="running">Running With Local Engine</h2>
+  <pre><code>flutter_compile run</code></pre>
+
+  <p>This launches your Flutter app using <code>flutter run --local-engine</code> with the matching build configuration. Pass extra arguments to <code>flutter run</code> after <code>--</code>:</p>
+  <pre><code># Run on a specific device
+flutter_compile run -- -d macos
+
+# Run with a profile build
+flutter_compile run --mode profile -- -d chrome
+
+# Run on Android with ARM64
+flutter_compile run --platform android --cpu arm64</code></pre>
+
+  <h2 id="testing">Testing With Local Engine</h2>
+  <pre><code>flutter_compile test</code></pre>
+
+  <p>Same flags as <code>run</code>. Extra arguments are forwarded to <code>flutter test</code>:</p>
+  <pre><code># Test specific file
+flutter_compile test -- test/widget_test.dart
+
+# Test with profile engine
+flutter_compile test --mode profile</code></pre>
+
+  <h2 id="status">Checking Build Status</h2>
+  <pre><code>flutter_compile status</code></pre>
+
+  <p>Shows engine configuration and lists all available builds with disk sizes:</p>
+  <pre><code>Engine Configuration:
+  Path: ~/flutter_compile/engine
+  Source: exists
+  Host CPU: arm64
+
+Available Builds:
+  host_debug_unopt     4.2 GB
+  android_debug_unopt  1.8 GB</code></pre>
+
+  <p>Use <code>--json</code> for machine-readable output.</p>
+
+  <h2 id="cleaning">Cleaning Builds</h2>
+  <pre><code># List available builds
+flutter_compile clean
+
+# Remove a specific build
+flutter_compile clean host_debug_unopt
+
+# Remove all builds
+flutter_compile clean --all</code></pre>
+
+  <h2 id="build-names">Build Output Names</h2>
+  <p>Build outputs are named using the pattern: <code>{platform}_{mode}[_unopt]</code></p>
+  <table>
+    <thead><tr><th>Configuration</th><th>Output Directory Name</th></tr></thead>
+    <tbody>
+      <tr><td>Host debug unoptimized</td><td><code>host_debug_unopt</code></td></tr>
+      <tr><td>Host release</td><td><code>host_release</code></td></tr>
+      <tr><td>Android debug unopt ARM64</td><td><code>android_debug_unopt_arm64</code></td></tr>
+      <tr><td>iOS profile</td><td><code>ios_profile</code></td></tr>
+      <tr><td>iOS simulator debug unopt</td><td><code>ios_debug_sim_unopt</code></td></tr>
+    </tbody>
+  </table>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

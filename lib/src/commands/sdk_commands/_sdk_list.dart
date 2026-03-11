@@ -40,7 +40,11 @@ Future<List<Map<String, dynamic>>> gatherSdkList() async {
     return <Map<String, dynamic>>[];
   }
 
-  final entries = versionsDir.listSync().whereType<Directory>().toList()
+  final entries = versionsDir
+      .listSync()
+      .whereType<Directory>()
+      .where((d) => d.path.split('/').last != Constants.defaultSdkLink)
+      .toList()
     ..sort((a, b) => a.path.compareTo(b.path));
 
   final globalVersion = await F.readGlobalSdkVersion();

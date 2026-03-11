@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IntelliJ / Android Studio — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>IntelliJ / Android Studio</h1>
+  <p>The Flutter Compile plugin (v0.3.1) for IntelliJ IDEA and Android Studio provides SDK management, diagnostics, and engine build controls within the IDE.</p>
+
+  <h2 id="install">Installation</h2>
+  <ol>
+    <li>Open IntelliJ IDEA or Android Studio</li>
+    <li>Go to <strong>Settings &rarr; Plugins &rarr; Marketplace</strong></li>
+    <li>Search for <strong>"Flutter Compile"</strong></li>
+    <li>Click Install and restart the IDE</li>
+  </ol>
+
+  <p>Requires IntelliJ IDEA / Android Studio 2025.1 or later, JDK 17+, and the <code>flutter_compile</code> CLI installed globally.</p>
+
+  <h3>Plugin dependencies</h3>
+  <ul>
+    <li>Dart plugin</li>
+    <li>Flutter plugin</li>
+    <li>Terminal plugin</li>
+  </ul>
+
+  <h2 id="features">Features</h2>
+
+  <h3 id="tool-window">Tool Window Panels</h3>
+  <p>The plugin adds a "Flutter Compile" tool window with three tabs:</p>
+
+  <h4>SDKs Tab</h4>
+  <ul>
+    <li>Tree view of all installed SDKs with status icons:
+      <ul>
+        <li>Green check = active/global SDK</li>
+        <li>Package icon = installed SDK</li>
+        <li>Plugin icon = contributor build</li>
+      </ul>
+    </li>
+    <li>Double-click to set as global default</li>
+    <li>Right-click context menu: Set as Global, Remove, Pin to Project, Open Folder</li>
+  </ul>
+
+  <h4>Doctor Tab</h4>
+  <ul>
+    <li>Grouped diagnostics: Required Tools, Engine Tools, Config, Environments</li>
+    <li>Right-click to install/configure failing checks (wrench icon)</li>
+    <li>Right-click to uninstall passing environments (trash icon)</li>
+  </ul>
+
+  <h4>Engine Builds Tab</h4>
+  <ul>
+    <li>Engine path and source directory status</li>
+    <li>Host CPU architecture</li>
+    <li>Build targets with disk sizes</li>
+    <li>Right-click to delete builds</li>
+  </ul>
+
+  <h3 id="toolbar">Toolbar</h3>
+  <ul>
+    <li><strong>Combo box:</strong> Flutter SDK version switcher in the main toolbar</li>
+    <li><strong>Mode dropdown:</strong> Toggle between Native and FVM backends</li>
+    <li><strong>Buttons:</strong> Install (+), Refresh, Build Engine, Delete Build</li>
+  </ul>
+
+  <h3 id="context-menus">Context Menus</h3>
+
+  <h4>SDK items (right-click)</h4>
+  <table>
+    <thead><tr><th>Action</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Set as Global</td><td>Set the SDK as the global default</td></tr>
+      <tr><td>Remove SDK</td><td>Delete the installed SDK</td></tr>
+      <tr><td>Pin to Project</td><td>Create .flutter-version for the current project</td></tr>
+      <tr><td>Open SDK Folder</td><td>Open the SDK directory in the system file manager</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Doctor items (right-click)</h4>
+  <table>
+    <thead><tr><th>Action</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Install/Configure</td><td>Install or configure a missing/failing tool</td></tr>
+      <tr><td>Uninstall Environment</td><td>Uninstall a passing contributor environment</td></tr>
+    </tbody>
+  </table>
+
+  <h3 id="menu-bar">Tools Menu</h3>
+  <p>The plugin adds entries to the <strong>Tools</strong> menu:</p>
+  <ul>
+    <li>Install Flutter SDK...</li>
+    <li>Flutter Compile Doctor</li>
+    <li>Remove Flutter SDK...</li>
+    <li>Pin Flutter SDK to Project...</li>
+    <li>Open Flutter SDK Folder...</li>
+    <li>Refresh Flutter Compile</li>
+  </ul>
+
+  <h2 id="settings">Settings</h2>
+  <p>Go to <strong>Settings &rarr; Tools &rarr; Flutter Compile</strong>:</p>
+  <table>
+    <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>CLI Path</td><td><code>flutter_compile</code></td><td>Path to the flutter_compile CLI binary</td></tr>
+      <tr><td>SDK Manager Mode</td><td>Native</td><td>Backend: Native or FVM</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="backend-toggle">Backend Toggle (Native vs FVM)</h2>
+  <p>Switch between SDK backends using the mode dropdown in the tool window toolbar:</p>
+  <ul>
+    <li><strong>Native</strong> (default) &mdash; flutter_compile's built-in SDK management</li>
+    <li><strong>FVM</strong> &mdash; delegates to <a href="https://fvm.app" target="_blank">FVM</a></li>
+  </ul>
+
+  <h2 id="terminal">Terminal Integration</h2>
+  <p>The plugin sets the <code>FLUTTER_COMPILE_SDK</code> environment variable via <code>LocalTerminalCustomizer</code>. This ensures IDE terminal sessions use the project-pinned SDK instead of the global default.</p>
+
+  <h2 id="file-watcher">File Watcher</h2>
+  <p>The plugin watches <code>.flutter-version</code> for changes. When the file is modified externally (e.g. from the CLI), the plugin automatically:</p>
+  <ul>
+    <li>Refreshes the SDK tree view</li>
+    <li>Updates the Flutter SDK path in project settings</li>
+    <li>Updates the toolbar combo box</li>
+  </ul>
+
+  <h2 id="startup">Startup Behavior</h2>
+  <p>On IDE startup, the plugin runs a post-startup activity that:</p>
+  <ol>
+    <li>Checks if the <code>flutter_compile</code> CLI is available</li>
+    <li>Shows install instructions if the CLI is missing</li>
+    <li>Runs auto-migration for the shell env file format</li>
+  </ol>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

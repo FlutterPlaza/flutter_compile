@@ -198,6 +198,7 @@ $env:PATH = "{{path}}\tool\bin;$env:PATH"
 
   // SDK Management Constants
   static const sdkVersionsPath = '$baseCliPath/versions';
+  static const defaultSdkLink = 'default';
   static const flutterGitUrl = 'https://github.com/flutter/flutter.git';
   static const globalSdkVersionKey = 'global_sdk_version';
   static const flutterVersionFile = '.flutter-version';
@@ -205,9 +206,9 @@ $env:PATH = "{{path}}\tool\bin;$env:PATH"
 
 # >>> Added by flutter_compile SDK manager >>>
 if [ -z "$FLUTTER_COMPILE_SDK" ]; then
-  export PATH={{path}}/bin:$PATH
-  export PATH={{path}}/bin/cache/dart-sdk/bin:$PATH
-  export PUB_CACHE={{pub_cache_path}}
+  export PATH="{{path}}/bin:$PATH"
+  export PATH="{{path}}/bin/cache/dart-sdk/bin:$PATH"
+  export PUB_CACHE="{{pub_cache_path}}"
 else
   export PATH="$FLUTTER_COMPILE_SDK/bin:$FLUTTER_COMPILE_SDK/bin/cache/dart-sdk/bin:$PATH"
   export PUB_CACHE="$FLUTTER_COMPILE_SDK/.pub-cache"
@@ -239,6 +240,21 @@ if (-not $env:FLUTTER_COMPILE_SDK) {
 
   static const gitHubUserNameRegex =
       r'^[a-zA-Z0-9](?:[a-zA-Z0-9\-]{2,}[a-zA-Z0-9])?$';
+
+  // Code Push Constants
+  static const codePushTokenKey = 'codepush_token';
+  static const codePushServerKey = 'codepush_server';
+  static const codePushAppIdKey = 'codepush_app_id';
+  static const codePushDefaultServer = 'http://localhost:8090';
+  static const codePushSigningKeyKey = 'codepush_signing_key';
+  static const codePushPinnedCertKey = 'codepush_pinned_cert';
+
+  // Code Push Engine Artifacts
+  static const codePushArtifactBaseUrl =
+      'https://storage.googleapis.com/flutterplaza-codepush-artifacts';
+  static const codePushCacheDir = 'codepush-engine';
+  static const codePushRevisionKey = 'codepush_engine_revision'; // legacy
+  static const codePushEngineVersionKey = 'codepush_engine_flutter_version';
 
   /// Returns the platform-appropriate PATH export template for flutter_compile.
   static String get platformFlutterCompilePATHExport =>

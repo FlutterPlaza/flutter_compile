@@ -117,6 +117,13 @@
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
 
+        <action id="FlutterCompile.UnpinSdkFromProject"
+                class="com.flutterplaza.fluttercompile.actions.UnpinSdkFromProjectAction"
+                text="Unpin Flutter SDK from Project"
+                description="Remove the Flutter SDK pin from the current project">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
         <action id="FlutterCompile.OpenSdkFolder"
                 class="com.flutterplaza.fluttercompile.actions.OpenSdkFolderAction"
                 text="Open Flutter SDK Folder..."
@@ -137,6 +144,34 @@
                 description="Switch the active Flutter SDK version">
             <add-to-group group-id="MainToolBar" anchor="last"/>
             <add-to-group group-id="NavBarToolBar" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.CodePushLogin"
+                class="com.flutterplaza.fluttercompile.actions.CodePushLoginAction"
+                text="Code Push Login"
+                description="Login to Code Push server">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.CodePushRelease"
+                class="com.flutterplaza.fluttercompile.actions.CodePushReleaseAction"
+                text="Code Push: Create Release"
+                description="Upload a baseline release">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.CodePushPatch"
+                class="com.flutterplaza.fluttercompile.actions.CodePushPatchAction"
+                text="Code Push: Create Patch"
+                description="Upload a code push patch">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+
+        <action id="FlutterCompile.CodePushRollback"
+                class="com.flutterplaza.fluttercompile.actions.CodePushRollbackAction"
+                text="Code Push: Rollback"
+                description="Deactivate a patch">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>

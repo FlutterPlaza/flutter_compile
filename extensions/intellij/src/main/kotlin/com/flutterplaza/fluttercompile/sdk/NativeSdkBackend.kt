@@ -7,6 +7,8 @@ import com.intellij.execution.process.CapturingProcessHandler
 import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.progress.ProgressIndicator
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Paths
 
 /** Native SDK backend that manages Flutter SDKs directly via filesystem + git. */
 class NativeSdkBackend : SdkBackend {
@@ -23,6 +25,31 @@ class NativeSdkBackend : SdkBackend {
             if (version == Constants.COMPILED_VERSION) return File(homeDir(), Constants.COMPILED_SDK_REL)
             return sdkVersionDir(version)
         }
+
+        /** Create or update the `default` symlink to point to [sdkDir]. */
+        private fun updateDefaultSdkLink(sdkDir: File) {
+            val linkPath = Paths.get(versionsDir().absolutePath, Constants.DEFAULT_SDK_LINK)
+            if (Files.exists(linkPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                if (Files.isSymbolicLink(linkPath)) {
+                    Files.delete(linkPath)
+                } else if (Files.isDirectory(linkPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    return // real directory — don't touch
+                }
+            }
+            try { Files.createSymbolicLink(linkPath, sdkDir.toPath()) } catch (e: Exception) {
+                LOG.warn("Failed to create default SDK symlink", e)
+            }
+        }
+
+        /** Remove the `default` symlink if it exists. */
+        private fun removeDefaultSdkLink() {
+            val linkPath = Paths.get(versionsDir().absolutePath, Constants.DEFAULT_SDK_LINK)
+            if (Files.isSymbolicLink(linkPath)) {
+                try { Files.delete(linkPath) } catch (e: Exception) {
+                    LOG.warn("Failed to remove default SDK symlink", e)
+                }
+            }
+        }
     }
 
     override fun listSdks(projectPath: String?): List<SdkEntry> {
@@ -30,7 +57,7 @@ class NativeSdkBackend : SdkBackend {
         if (!vDir.exists()) return emptyList()
 
         val entries = vDir.listFiles()
-            ?.filter { it.isDirectory }
+            ?.filter { it.isDirectory && it.name != Constants.DEFAULT_SDK_LINK }
             ?.sortedBy { it.name }
             ?: return emptyList()
 
@@ -95,6 +122,9 @@ class NativeSdkBackend : SdkBackend {
         val pubCachePath = File(sdkDir, ".pub-cache").absolutePath
         ShellConfig.updatePath(sdkDir.absolutePath, pubCachePath)
 
+        // Update the `default` symlink
+        updateDefaultSdkLink(sdkDir)
+
         return true
     }
 
@@ -130,6 +160,7 @@ class NativeSdkBackend : SdkBackend {
             if (getGlobalSdkVersion() == null) {
                 RcConfig.writeValue(Constants.GLOBAL_SDK_KEY, version)
                 ShellConfig.updatePath(target.absolutePath, pubCache)
+                updateDefaultSdkLink(target)
             }
 
             true
@@ -158,6 +189,7 @@ class NativeSdkBackend : SdkBackend {
             if (globalVersion == version) {
                 RcConfig.removeKey(Constants.GLOBAL_SDK_KEY)
                 ShellConfig.removePath()
+                removeDefaultSdkLink()
             }
 
             true
@@ -185,18 +217,35 @@ class NativeSdkBackend : SdkBackend {
         }
     }
 
+    override fun unpinFromProject(projectPath: String): Boolean {
+        val fvFile = File(projectPath, Constants.FLUTTER_VERSION_FILE)
+        if (!fvFile.exists()) return true // already unpinned
+        return try {
+            fvFile.delete()
+        } catch (e: Exception) {
+            LOG.warn("Failed to unpin SDK from project", e)
+            false
+        }
+    }
+
     override fun getSdkPath(version: String): String? {
         val trimmed = version.trim()
         val sdkDir = sdkVersionDir(trimmed)
         if (sdkDir.exists()) return sdkDir.absolutePath
 
-        // Fallback: scan versions dir for a directory whose trimmed name matches
-        // (handles directories created with trailing whitespace)
+        // Fallback: scan versions dir for a directory whose trimmed name matches.
+        // When found, rename to the canonical name so trailing whitespace doesn't
+        // leak into shell config files.
         val vDir = versionsDir()
         if (vDir.exists()) {
             vDir.listFiles()?.forEach { dir ->
-                if (dir.isDirectory && dir.name.trim() == trimmed) {
-                    return dir.absolutePath
+                if (dir.isDirectory && dir.name.trim() == trimmed && dir.name != trimmed) {
+                    return try {
+                        dir.renameTo(sdkDir)
+                        sdkDir.absolutePath
+                    } catch (_: Exception) {
+                        dir.absolutePath // rename failed — return raw path
+                    }
                 }
             }
         }

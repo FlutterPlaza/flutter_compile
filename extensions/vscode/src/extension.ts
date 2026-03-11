@@ -9,6 +9,7 @@ import { migrateEnvFile } from "./nativeSdkBackend";
 import { SdkTreeProvider } from "./views/sdkTreeProvider";
 import { DoctorTreeProvider } from "./views/doctorTreeProvider";
 import { BuildsTreeProvider } from "./views/buildsTreeProvider";
+import { CodePushTreeProvider } from "./views/codePushTreeProvider";
 
 export async function activate(
   context: vscode.ExtensionContext
@@ -31,6 +32,7 @@ export async function activate(
   const sdkProvider = new SdkTreeProvider();
   const doctorProvider = new DoctorTreeProvider();
   const buildsProvider = new BuildsTreeProvider();
+  const codePushProvider = new CodePushTreeProvider();
 
   const sdkTreeView = vscode.window.createTreeView("flutterCompile.sdks", {
     treeDataProvider: sdkProvider,
@@ -47,11 +49,18 @@ export async function activate(
     })
   );
 
+  context.subscriptions.push(
+    vscode.window.createTreeView("flutterCompile.codePush", {
+      treeDataProvider: codePushProvider,
+    })
+  );
+
   // Wire refresh callback so mutating commands refresh tree views
   commands.setRefreshCallback(() => {
     sdkProvider.refresh();
     doctorProvider.refresh();
     buildsProvider.refresh();
+    codePushProvider.refresh();
     updateTerminalEnv(context);
   });
 
@@ -90,6 +99,10 @@ export async function activate(
       commands.pinSdkToProject
     ),
     vscode.commands.registerCommand(
+      "flutterCompile.unpinSdkFromProject",
+      commands.unpinSdkFromProject
+    ),
+    vscode.commands.registerCommand(
       "flutterCompile.openSdkFolder",
       commands.openSdkFolder
     ),
@@ -112,6 +125,7 @@ export async function activate(
       sdkProvider.refresh();
       doctorProvider.refresh();
       buildsProvider.refresh();
+      codePushProvider.refresh();
       statusBar.refresh();
       updateTerminalEnv(context);
     }),
@@ -139,6 +153,33 @@ export async function activate(
       "flutterCompile.toggleSdkManager",
       commands.toggleSdkManager
     )
+  );
+
+  // Register code push commands
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushLogin",
+      commands.codePushLogin
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushInit",
+      commands.codePushInit
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushRelease",
+      commands.codePushRelease
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushPatch",
+      commands.codePushPatch
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushRollback",
+      commands.codePushRollback
+    ),
+    vscode.commands.registerCommand("flutterCompile.refreshCodePush", () => {
+      codePushProvider.refresh();
+    })
   );
 
   // Migrate old env file SDK blocks to the new guarded template

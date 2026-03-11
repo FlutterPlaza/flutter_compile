@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daemon API Reference — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Daemon API Reference</h1>
+  <p>The daemon provides a JSON-RPC 2.0 interface over stdin/stdout for real-time IDE communication. IDE extensions use this to manage SDKs, run diagnostics, and react to file system changes.</p>
+
+  <h2 id="starting">Starting the Daemon</h2>
+  <pre><code>flutter_compile daemon</code></pre>
+  <p>The daemon communicates via newline-delimited JSON-RPC 2.0 messages on stdin (requests) and stdout (responses/notifications).</p>
+
+  <h2 id="protocol">Protocol</h2>
+  <p>All messages follow the <a href="https://www.jsonrpc.org/specification" target="_blank">JSON-RPC 2.0</a> specification:</p>
+
+  <h3>Request format</h3>
+  <pre><code>{"jsonrpc": "2.0", "id": 1, "method": "sdk.list"}</code></pre>
+
+  <h3>Response format</h3>
+  <pre><code>{"jsonrpc": "2.0", "id": 1, "result": [...]}</code></pre>
+
+  <h3>Notification format (no id)</h3>
+  <pre><code>{"jsonrpc": "2.0", "method": "sdk.changed", "params": {}}</code></pre>
+
+  <!-- ===== SDK Methods ===== -->
+  <h2 id="sdk-methods">SDK Methods</h2>
+
+  <h3 id="sdk-list">sdk.list</h3>
+  <p>List all installed Flutter SDK versions.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 1, "method": "sdk.list"}
+
+// Response
+{"jsonrpc": "2.0", "id": 1, "result": [
+  {"version": "3.24.0", "path": "/home/user/flutter_compile/versions/3.24.0", "global": true, "project": false},
+  {"version": "3.22.3", "path": "/home/user/flutter_compile/versions/3.22.3", "global": false, "project": true},
+  {"version": "stable", "path": "/home/user/flutter_compile/versions/stable", "global": false, "project": false}
+]}</code></pre>
+
+  <h3 id="sdk-global-get">sdk.global.get</h3>
+  <p>Get the current global default SDK version.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 2, "method": "sdk.global.get"}
+
+// Response
+{"jsonrpc": "2.0", "id": 2, "result": {"version": "3.24.0"}}</code></pre>
+
+  <h3 id="sdk-global-set">sdk.global.set</h3>
+  <p>Set the global default SDK version.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 3, "method": "sdk.global.set", "params": {"version": "3.22.3"}}
+
+// Response
+{"jsonrpc": "2.0", "id": 3, "result": {"version": "3.22.3"}}</code></pre>
+
+  <h3 id="sdk-use-get">sdk.use.get</h3>
+  <p>Get the project-pinned SDK version.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 4, "method": "sdk.use.get", "params": {"directory": "/path/to/project"}}
+
+// Response
+{"jsonrpc": "2.0", "id": 4, "result": {"version": "3.22.3"}}
+
+// Response (no pin)
+{"jsonrpc": "2.0", "id": 4, "result": {"version": null}}</code></pre>
+
+  <p>The <code>directory</code> parameter is optional. Defaults to the current working directory.</p>
+
+  <h3 id="sdk-use-set">sdk.use.set</h3>
+  <p>Pin an SDK version to a project.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 5, "method": "sdk.use.set", "params": {"version": "3.24.0", "directory": "/path/to/project"}}
+
+// Response
+{"jsonrpc": "2.0", "id": 5, "result": {"version": "3.24.0"}}</code></pre>
+
+  <!-- ===== Config Methods ===== -->
+  <h2 id="config-methods">Configuration Methods</h2>
+
+  <h3 id="config-list">config.list</h3>
+  <p>Get all configuration key-value pairs.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 6, "method": "config.list"}
+
+// Response
+{"jsonrpc": "2.0", "id": 6, "result": {
+  "flutter_path": "~/flutter_compile/flutter/bin",
+  "engine_path": "~/flutter_compile/engine",
+  "global_sdk_version": "3.24.0"
+}}</code></pre>
+
+  <h3 id="config-get">config.get</h3>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 7, "method": "config.get", "params": {"key": "flutter_path"}}
+
+// Response
+{"jsonrpc": "2.0", "id": 7, "result": {"key": "flutter_path", "value": "~/flutter_compile/flutter/bin"}}</code></pre>
+
+  <h3 id="config-set">config.set</h3>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 8, "method": "config.set", "params": {"key": "flutter_path", "value": "~/my/flutter/bin"}}
+
+// Response
+{"jsonrpc": "2.0", "id": 8, "result": {"key": "flutter_path", "value": "~/my/flutter/bin"}}</code></pre>
+
+  <!-- ===== Diagnostic Methods ===== -->
+  <h2 id="diagnostic-methods">Diagnostic Methods</h2>
+
+  <h3 id="doctor-method">doctor</h3>
+  <p>Run environment diagnostics.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 9, "method": "doctor"}
+
+// Response
+{"jsonrpc": "2.0", "id": 9, "result": [
+  {"name": "git", "category": "tools", "status": "ok", "path": "/usr/bin/git"},
+  {"name": "python3", "category": "tools", "status": "ok", "path": "/usr/bin/python3"},
+  {"name": "gclient", "category": "engine_tools", "status": "missing", "error": "not found in PATH"},
+  {"name": "Flutter contributor", "category": "environments", "status": "ok"}
+]}</code></pre>
+
+  <h3 id="status-method">status</h3>
+  <p>Get engine configuration and available builds.</p>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 10, "method": "status"}
+
+// Response
+{"jsonrpc": "2.0", "id": 10, "result": {
+  "configured": true,
+  "engine_path": "~/flutter_compile/engine",
+  "source_dir": "~/flutter_compile/engine/src",
+  "source_exists": true,
+  "host_cpu": "arm64",
+  "builds": [
+    {"name": "host_debug_unopt", "size": "4.2 GB"}
+  ],
+  "flutter_project": false
+}}</code></pre>
+
+  <h3 id="version-method">version</h3>
+  <pre><code>// Request
+{"jsonrpc": "2.0", "id": 11, "method": "version"}
+
+// Response
+{"jsonrpc": "2.0", "id": 11, "result": {"version": "0.12.0"}}</code></pre>
+
+  <!-- ===== Lifecycle ===== -->
+  <h2 id="lifecycle">Lifecycle</h2>
+
+  <h3 id="shutdown">shutdown</h3>
+  <p>Gracefully shut down the daemon.</p>
+  <pre><code>{"jsonrpc": "2.0", "id": 99, "method": "shutdown"}</code></pre>
+
+  <!-- ===== Notifications ===== -->
+  <h2 id="notifications">Notifications</h2>
+  <p>The daemon sends notifications (no <code>id</code> field) when file system changes are detected. A file watcher with 500ms debounce monitors <code>~/.flutter_compilerc</code> and <code>.flutter-version</code>.</p>
+
+  <h3 id="daemon-connected">daemon.connected</h3>
+  <p>Sent automatically when the daemon starts:</p>
+  <pre><code>{"jsonrpc": "2.0", "method": "daemon.connected", "params": {"version": "0.12.0", "pid": 12345}}</code></pre>
+
+  <h3 id="sdk-changed">sdk.changed</h3>
+  <p>Sent when <code>.flutter_compilerc</code> or <code>.flutter-version</code> changes:</p>
+  <pre><code>{"jsonrpc": "2.0", "method": "sdk.changed", "params": {}}</code></pre>
+
+  <h3 id="config-changed">config.changed</h3>
+  <p>Sent when <code>.flutter_compilerc</code> changes:</p>
+  <pre><code>{"jsonrpc": "2.0", "method": "config.changed", "params": {}}</code></pre>
+
+  <h2 id="integration-tips">Integration Tips</h2>
+  <ul>
+    <li>Start the daemon as a child process and communicate via stdin/stdout pipes</li>
+    <li>Parse each line of stdout as a separate JSON-RPC message</li>
+    <li>Wait for <code>daemon.connected</code> before sending requests</li>
+    <li>Listen for <code>sdk.changed</code> and <code>config.changed</code> to refresh UI state</li>
+    <li>Always send <code>shutdown</code> before killing the process for clean cleanup</li>
+  </ul>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

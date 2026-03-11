@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VS Code Extension — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>VS Code Extension</h1>
+  <p>The Flutter Compile extension for VS Code (v0.3.1) brings SDK management, diagnostics, and engine build controls directly into your editor.</p>
+
+  <h2 id="install">Installation</h2>
+  <ol>
+    <li>Open VS Code</li>
+    <li>Go to Extensions (<code>Ctrl+Shift+X</code> / <code>Cmd+Shift+X</code>)</li>
+    <li>Search for <strong>"Flutter Compile"</strong></li>
+    <li>Click Install</li>
+  </ol>
+
+  <p>Requires VS Code 1.85.0 or later and the <code>flutter_compile</code> CLI installed globally.</p>
+
+  <h2 id="features">Features</h2>
+
+  <h3 id="sidebar">Sidebar Panels</h3>
+  <p>The extension adds an activity bar icon with three panels:</p>
+
+  <h4>SDKs Panel</h4>
+  <ul>
+    <li>View all installed Flutter SDK versions</li>
+    <li>Install new SDKs with version picker</li>
+    <li>Set global default (globe icon)</li>
+    <li>Pin SDK to current project (pin icon)</li>
+    <li>Remove SDKs (trash icon)</li>
+    <li>Open SDK folder in file manager</li>
+    <li>Contributor builds shown separately</li>
+  </ul>
+
+  <h4>Doctor Panel</h4>
+  <ul>
+    <li>Grouped diagnostic checks (Required Tools, Engine Tools, Config, Environments)</li>
+    <li>Install/fix actions for failing checks (wrench icon)</li>
+    <li>Uninstall action for passing environments</li>
+  </ul>
+
+  <h4>Engine Builds Panel</h4>
+  <ul>
+    <li>View available engine build targets with disk sizes</li>
+    <li>Initialize engine environment</li>
+    <li>Build engine from the panel</li>
+    <li>Delete individual builds</li>
+  </ul>
+
+  <h3 id="status-bar">Status Bar</h3>
+  <p>The status bar displays the current global Flutter SDK version. Click it to open a quick-pick switcher for changing SDKs.</p>
+
+  <h3 id="file-watcher">File Watcher</h3>
+  <p>The extension watches <code>.flutter-version</code> for external changes (e.g. from the CLI or another tool). When the file changes, the extension automatically:</p>
+  <ul>
+    <li>Updates the status bar</li>
+    <li>Updates <code>dart.flutterSdkPath</code> workspace setting</li>
+    <li>Refreshes the SDK panel</li>
+  </ul>
+
+  <h3 id="terminal-env">Terminal Environment</h3>
+  <p>The extension sets <code>FLUTTER_COMPILE_SDK</code> in VS Code terminal sessions with <code>applyAtShellIntegration</code>. This ensures the project-pinned SDK is used in terminal sessions, surviving shell initialization.</p>
+
+  <h2 id="commands">Commands</h2>
+  <table>
+    <thead><tr><th>Command</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Flutter Compile: Install SDK</code></td><td>Install a new Flutter SDK version</td></tr>
+      <tr><td><code>Flutter Compile: Doctor</code></td><td>Run environment diagnostics</td></tr>
+      <tr><td><code>Flutter Compile: Remove SDK</code></td><td>Remove an installed SDK</td></tr>
+      <tr><td><code>Flutter Compile: Set Global SDK</code></td><td>Set the global default SDK</td></tr>
+      <tr><td><code>Flutter Compile: Pin SDK to Project</code></td><td>Pin a version to the current project</td></tr>
+      <tr><td><code>Flutter Compile: Open SDK Folder</code></td><td>Open SDK directory in file manager</td></tr>
+      <tr><td><code>Flutter Compile: Refresh All</code></td><td>Refresh all sidebar panels</td></tr>
+      <tr><td><code>Flutter Compile: Toggle SDK Manager</code></td><td>Switch between Native and FVM backends</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="settings">Settings</h2>
+  <table>
+    <thead><tr><th>Setting</th><th>Default</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>flutterCompile.sdkManager</code></td><td><code>native</code></td><td>SDK manager backend: <code>native</code> or <code>fvm</code></td></tr>
+      <tr><td><code>flutterCompile.cliPath</code></td><td><code>flutter_compile</code></td><td>Path to the flutter_compile CLI binary</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="backend-toggle">Backend Toggle (Native vs FVM)</h2>
+  <p>The extension supports two SDK management backends:</p>
+  <ul>
+    <li><strong>Native</strong> (default) &mdash; uses flutter_compile's built-in SDK management</li>
+    <li><strong>FVM</strong> &mdash; uses <a href="https://fvm.app" target="_blank">FVM</a> as the SDK backend</li>
+  </ul>
+  <p>Toggle between them using the <code>Flutter Compile: Toggle SDK Manager</code> command or the mode button in the sidebar toolbar.</p>
+
+  <h2 id="auto-migration">Auto-Migration</h2>
+  <p>On activation, the extension automatically migrates the shell env file to the latest format with the <code>FLUTTER_COMPILE_SDK</code> guard. This is a one-time operation that ensures IDE terminals use the correct SDK.</p>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

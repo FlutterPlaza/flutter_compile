@@ -23,7 +23,7 @@ export class SdkTreeItem extends vscode.TreeItem {
         "pinned",
         new vscode.ThemeColor("charts.green")
       );
-      this.contextValue = "sdk";
+      this.contextValue = "sdkPinned";
     } else if (sdk.global) {
       this.iconPath = new vscode.ThemeIcon(
         "check",

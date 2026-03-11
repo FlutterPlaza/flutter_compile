@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>flutter_compile — Flutter SDK &amp; Engine Build Manager</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <section class="hero">
+    <h1>flutter_compile</h1>
+    <p class="tagline">Manage Flutter SDKs, build the engine from source, and streamline contributor workflows &mdash; all from one CLI.</p>
+    <div class="badges">
+      <span class="badge badge-blue">v0.12.0</span>
+      <span class="badge badge-blue">Dart 3.4+</span>
+      <span class="badge badge-blue">Cross-platform</span>
+    </div>
+    <div class="install-cmd">dart pub global activate flutter_compile</div>
+    <div class="cta-links">
+      <a href="getting-started.html" class="btn btn-primary">Get Started</a>
+      <a href="cli-reference.html" class="btn btn-outline">CLI Reference</a>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="feature-card">
+      <h3>SDK Management</h3>
+      <p>Install, switch, and pin Flutter SDK versions per project. Isolated pub caches keep your dependencies clean.</p>
+      <a href="sdk-management.html">Learn more &rarr;</a>
+    </div>
+    <div class="feature-card">
+      <h3>Contributor Tools</h3>
+      <p>Set up Flutter framework, engine, and DevTools contributor environments with a single command. Sync with upstream effortlessly.</p>
+      <a href="contributor-guide.html">Learn more &rarr;</a>
+    </div>
+    <div class="feature-card">
+      <h3>IDE Extensions</h3>
+      <p>Manage SDKs and engine builds directly from VS Code, IntelliJ IDEA, or Android Studio with built-in extension support.</p>
+      <a href="vscode-extension.html">Learn more &rarr;</a>
+    </div>
+  </section>
+
+  <h2>Quick Overview</h2>
+
+  <h3>Install an SDK</h3>
+  <pre><code>flutter_compile sdk install stable
+flutter_compile sdk global stable</code></pre>
+
+  <h3>Pin to a project</h3>
+  <pre><code>cd my_app
+flutter_compile sdk use 3.24.0</code></pre>
+
+  <h3>Run through the resolved SDK</h3>
+  <pre><code>flutter_compile sdk exec flutter doctor
+flutter_compile sdk exec dart analyze</code></pre>
+
+  <h3>Set up a contributor environment</h3>
+  <pre><code>flutter_compile install flutter
+flutter_compile install engine
+flutter_compile build engine</code></pre>
+
+  <h3>Use the short alias</h3>
+  <pre><code>fcp sdk ls
+fcp dr</code></pre>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

@@ -99,6 +99,17 @@ class FvmSdkBackend : SdkBackend {
         return runFvm("use", version, "--project", projectPath) != null
     }
 
+    override fun unpinFromProject(projectPath: String): Boolean {
+        val fvmRc = java.io.File(projectPath, Constants.FVM_RC_FILE)
+        if (!fvmRc.exists()) return true // already unpinned
+        return try {
+            fvmRc.delete()
+        } catch (e: Exception) {
+            LOG.warn("Failed to unpin SDK from project", e)
+            false
+        }
+    }
+
     override fun getSdkPath(version: String): String? {
         val raw = runFvm("api", "list") ?: return null
         return try {

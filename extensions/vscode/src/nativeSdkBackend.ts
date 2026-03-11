@@ -16,6 +16,7 @@ const SDK_PATH_BLOCK_END =
   "# <<< Added by flutter_compile SDK manager <<<";
 
 const ENV_FILE = ".flutter_compile_env";
+const DEFAULT_SDK_LINK = "default";
 
 /** Returns the user's home directory. */
 function homeDir(): string {
@@ -203,9 +204,9 @@ function buildSdkPathBlock(sdkDir: string, pubCachePath: string): string {
     "",
     SDK_PATH_BLOCK_START,
     `if [ -z "$FLUTTER_COMPILE_SDK" ]; then`,
-    `  export PATH=${sdkDir}/bin:$PATH`,
-    `  export PATH=${sdkDir}/bin/cache/dart-sdk/bin:$PATH`,
-    `  export PUB_CACHE=${pubCachePath}`,
+    `  export PATH="${sdkDir}/bin:$PATH"`,
+    `  export PATH="${sdkDir}/bin/cache/dart-sdk/bin:$PATH"`,
+    `  export PUB_CACHE="${pubCachePath}"`,
     `else`,
     `  export PATH="$FLUTTER_COMPILE_SDK/bin:$FLUTTER_COMPILE_SDK/bin/cache/dart-sdk/bin:$PATH"`,
     `  export PUB_CACHE="$FLUTTER_COMPILE_SDK/.pub-cache"`,
@@ -217,6 +218,13 @@ function buildSdkPathBlock(sdkDir: string, pubCachePath: string): string {
 
 /** Write the SDK PATH block into the env file, replacing any existing block. */
 function updateShellConfigPath(sdkDir: string, pubCachePath: string): void {
+  if (!isFlutterSdk(sdkDir)) {
+    console.warn(
+      `Refusing to update shell config: "${sdkDir}" is not a valid Flutter SDK.`,
+    );
+    return;
+  }
+
   ensureSourceLine();
 
   const envFile = envFilePath();
@@ -299,14 +307,18 @@ export function migrateEnvFile(): void {
   const trimmed = globalVersion.trim();
   let sdkDir = sdkVersionPath(trimmed);
   if (!fs.existsSync(sdkDir)) {
-    // Fallback: scan versions dir for trimmed name match
+    // Fallback: scan versions dir for trimmed name match, renaming if needed
     const vDir = versionsDir();
     let found = false;
     if (fs.existsSync(vDir)) {
       try {
         for (const d of fs.readdirSync(vDir, { withFileTypes: true })) {
-          if (d.isDirectory() && d.name.trim() === trimmed) {
-            sdkDir = path.join(vDir, d.name);
+          if (d.isDirectory() && d.name.trim() === trimmed && d.name !== trimmed) {
+            try {
+              fs.renameSync(path.join(vDir, d.name), sdkDir);
+            } catch {
+              sdkDir = path.join(vDir, d.name);
+            }
             found = true;
             break;
           }
@@ -347,6 +359,39 @@ function isFlutterSdk(sdkPath: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Default symlink helpers
+// ---------------------------------------------------------------------------
+
+/** Create or update the `default` symlink to point to `sdkDir`. */
+function updateDefaultSdkLink(sdkDir: string): void {
+  const linkPath = path.join(versionsDir(), DEFAULT_SDK_LINK);
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink()) {
+      fs.unlinkSync(linkPath);
+    } else if (stat.isDirectory()) {
+      return; // real directory — don't touch
+    }
+  } catch {
+    // does not exist — fine
+  }
+  fs.symlinkSync(sdkDir, linkPath, "dir");
+}
+
+/** Remove the `default` symlink if it exists. */
+function removeDefaultSdkLink(): void {
+  const linkPath = path.join(versionsDir(), DEFAULT_SDK_LINK);
+  try {
+    const stat = fs.lstatSync(linkPath);
+    if (stat.isSymbolicLink()) {
+      fs.unlinkSync(linkPath);
+    }
+  } catch {
+    // does not exist — fine
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Native SDK Backend
 // ---------------------------------------------------------------------------
 
@@ -361,7 +406,7 @@ export class NativeSdkBackend implements SdkBackend {
     try {
       entries = fs
         .readdirSync(vDir, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
+        .filter((d) => d.isDirectory() && d.name !== DEFAULT_SDK_LINK)
         .map((d) => ({ name: d.name.trim(), dirName: d.name }))
         .sort((a, b) => a.name.localeCompare(b.name));
     } catch {
@@ -421,6 +466,9 @@ export class NativeSdkBackend implements SdkBackend {
     // Update shell config so new terminal sessions use this SDK
     const pubCachePath = path.join(sdkDir, ".pub-cache");
     updateShellConfigPath(sdkDir, pubCachePath);
+
+    // Update the `default` symlink
+    updateDefaultSdkLink(sdkDir);
   }
 
   installSdkInTerminal(version: string): void {
@@ -455,6 +503,7 @@ export class NativeSdkBackend implements SdkBackend {
     if (globalVersion === version) {
       removeRcConfigKey(GLOBAL_SDK_KEY);
       removeShellConfigPath();
+      removeDefaultSdkLink();
     }
   }
 
@@ -467,6 +516,15 @@ export class NativeSdkBackend implements SdkBackend {
     fs.writeFileSync(filePath, `${version}\n`, "utf-8");
   }
 
+  async unpinFromProject(projectRoot: string): Promise<void> {
+    const filePath = path.join(projectRoot, FLUTTER_VERSION_FILE);
+    try {
+      fs.rmSync(filePath);
+    } catch {
+      // File doesn't exist — nothing to do
+    }
+  }
+
   async getSdkPath(version: string): Promise<string | undefined> {
     const trimmed = version.trim();
     const sdkPath = sdkVersionPath(trimmed);
@@ -474,14 +532,20 @@ export class NativeSdkBackend implements SdkBackend {
       return sdkPath;
     }
 
-    // Fallback: scan versions dir for a directory whose trimmed name matches
-    // (handles directories created with trailing whitespace)
+    // Fallback: scan versions dir for a directory whose trimmed name matches.
+    // When found, rename to the canonical name so trailing whitespace doesn't
+    // leak into shell config files.
     const vDir = versionsDir();
     if (fs.existsSync(vDir)) {
       try {
         for (const d of fs.readdirSync(vDir, { withFileTypes: true })) {
-          if (d.isDirectory() && d.name.trim() === trimmed) {
-            return path.join(vDir, d.name);
+          if (d.isDirectory() && d.name.trim() === trimmed && d.name !== trimmed) {
+            try {
+              fs.renameSync(path.join(vDir, d.name), sdkPath);
+            } catch {
+              return path.join(vDir, d.name); // rename failed — return raw path
+            }
+            return sdkPath;
           }
         }
       } catch {
