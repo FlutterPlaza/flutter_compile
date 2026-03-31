@@ -6,6 +6,7 @@ import 'package:flutter_compile/src/commands/codepush_commands/_codepush_account
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_release.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_rollback.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_seed_secrets.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_setup.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_status.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -37,6 +38,7 @@ class CodePushCommand extends Command<int> {
     addSubcommand(CodePushPatchSubCommand(_logger));
     addSubcommand(CodePushRollbackSubCommand(_logger));
     addSubcommand(CodePushStatusSubCommand(_logger));
+    addSubcommand(CodePushSeedSecretsSubCommand(_logger));
   }
 
   @override
@@ -62,7 +64,8 @@ class CodePushCommand extends Command<int> {
     _logger.info('  release    Upload a baseline release (paid)');
     _logger.info('  patch      Upload a patch (paid)');
     _logger.info('  rollback   Deactivate a patch');
-    _logger.info('  status     Show releases and patches');
+    _logger.info('  status       Show releases and patches');
+    _logger.info('  seed-secrets Push .env secrets to GCP Secret Manager');
     return ExitCode.success.code;
   }
 }

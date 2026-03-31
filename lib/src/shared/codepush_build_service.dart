@@ -19,14 +19,8 @@ class CodePushBuildService {
 
   final Logger _logger;
 
-  /// .vmcode magic bytes: "VMCODE\0\0".
-  /// Matches the engine's vmcode_builder.dart format.
   static const vmcodeMagic = [0x56, 0x4D, 0x43, 0x4F, 0x44, 0x45, 0x00, 0x00];
-
-  /// .vmcode format version.
   static const vmcodeVersion = 1;
-
-  /// Size of the fixed .vmcode header (before signature).
   static const vmcodeHeaderSize = 52;
 
   /// Find the `flutter` executable.
@@ -214,18 +208,6 @@ class CodePushBuildService {
   }
 
   /// Package payload into .vmcode format.
-  ///
-  /// Compatible with the engine's `vmcode_builder.dart` format:
-  /// ```
-  /// Offset  Size    Content
-  /// 0       8       Magic: "VMCODE\0\0"
-  /// 8       4       Format version (uint32, little-endian)
-  /// 12      4       Payload offset (uint32, little-endian)
-  /// 16      32      SHA-256 hash of payload
-  /// 48      4       Signature length (uint32, little-endian)
-  /// 52      N       RSA signature (empty for unsigned)
-  /// 52+N    ...     Payload (kernel .dill or binary diff)
-  /// ```
   Uint8List packageVmcode(Uint8List payload, {Uint8List? signature}) {
     signature ??= Uint8List(0);
 
@@ -233,19 +215,14 @@ class CodePushBuildService {
     final payloadOffset = vmcodeHeaderSize + signature.length;
 
     final header = ByteData(vmcodeHeaderSize);
-    // Magic: "VMCODE\0\0"
     for (var i = 0; i < 8; i++) {
       header.setUint8(i, vmcodeMagic[i]);
     }
-    // Version (little-endian uint32).
     header.setUint32(8, vmcodeVersion, Endian.little);
-    // Payload offset (little-endian uint32).
     header.setUint32(12, payloadOffset, Endian.little);
-    // SHA-256 hash (32 bytes).
     for (var i = 0; i < 32; i++) {
       header.setUint8(16 + i, hashBytes[i]);
     }
-    // Signature length (little-endian uint32).
     header.setUint32(48, signature.length, Endian.little);
 
     final buffer = BytesBuilder();
@@ -263,7 +240,6 @@ class CodePushBuildService {
       return null;
     }
 
-    // Check magic.
     for (var i = 0; i < 8; i++) {
       if (vmcodeData[i] != vmcodeMagic[i]) {
         _logger.err('Invalid .vmcode magic bytes');
@@ -272,15 +248,12 @@ class CodePushBuildService {
     }
 
     final bd = vmcodeData.buffer.asByteData(vmcodeData.offsetInBytes);
-
-    // Check version.
     final version = bd.getUint32(8, Endian.little);
     if (version != vmcodeVersion) {
       _logger.err('Unsupported .vmcode version: $version');
       return null;
     }
 
-    // Read payload offset and hash.
     final payloadOffset = bd.getUint32(12, Endian.little);
     final storedHash = vmcodeData.sublist(16, 48);
 
@@ -291,11 +264,10 @@ class CodePushBuildService {
 
     final payload = vmcodeData.sublist(payloadOffset);
 
-    // Verify hash.
     final computedHash = sha256.convert(payload).bytes;
     for (var i = 0; i < 32; i++) {
       if (storedHash[i] != computedHash[i]) {
-        _logger.err('.vmcode integrity check failed — hash mismatch');
+        _logger.err('.vmcode integrity check failed');
         return null;
       }
     }
@@ -477,5 +449,271 @@ class CodePushBuildService {
     if (Directory('macos').existsSync()) return 'macos';
     if (Directory('windows').existsSync()) return 'windows';
     return null;
+  }
+
+  // ── Engine swap logic ───────────────────────────────────────────
+
+  /// Swap the engine library in an Android APK build output.
+  ///
+  /// Replaces `libflutter.so` in the native libs directory with the
+  /// code-push-enabled version from the artifact cache.
+  ///
+  /// Returns true on success.
+  bool swapAndroidEngine(String cachedLibFlutter) {
+    // Android native libs location (arm64-v8a for arm64).
+    final candidates = [
+      'build/app/intermediates/stripped_native_libs/release/out/lib/arm64-v8a/libflutter.so',
+      'build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libflutter.so',
+    ];
+
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (file.existsSync()) {
+        final backup = File('$candidate.original');
+        if (!backup.existsSync()) {
+          file.copySync(backup.path);
+        }
+        File(cachedLibFlutter).copySync(candidate);
+        _logger.detail('Swapped Android engine: $candidate');
+        return true;
+      }
+    }
+
+    // Also check the unstripped location used by some build configs.
+    final jniDir = Directory(
+      'build/app/intermediates/flutter/release/jniLibs/arm64-v8a',
+    );
+    if (jniDir.existsSync()) {
+      final target = '${jniDir.path}/libflutter.so';
+      final backup = File('$target.original');
+      final existing = File(target);
+      if (existing.existsSync() && !backup.existsSync()) {
+        existing.copySync(backup.path);
+      }
+      File(cachedLibFlutter).copySync(target);
+      _logger.detail('Swapped Android engine: $target');
+      return true;
+    }
+
+    _logger.err('Could not find libflutter.so in Android build output.');
+    return false;
+  }
+
+  /// Swap the engine framework in an iOS build output.
+  ///
+  /// Replaces `Flutter.framework` (or `Flutter.xcframework`) in the
+  /// iOS build output with the code-push-enabled version.
+  ///
+  /// [cachedFrameworkArchive] is the path to `Flutter.xcframework.tar.gz`.
+  ///
+  /// Returns true on success.
+  Future<bool> swapIosEngine(String cachedFrameworkArchive) async {
+    // iOS framework locations.
+    final candidates = [
+      'build/ios/Release-iphoneos/Runner.app/Frameworks/Flutter.framework',
+      'build/ios/iphoneos/Runner.app/Frameworks/Flutter.framework',
+    ];
+
+    String? targetDir;
+    for (final candidate in candidates) {
+      if (Directory(candidate).existsSync()) {
+        targetDir = candidate;
+        break;
+      }
+    }
+
+    if (targetDir == null) {
+      _logger.err(
+        'Could not find Flutter.framework in iOS build output.',
+      );
+      return false;
+    }
+
+    // Extract xcframework to a temp location.
+    final tempDir = Directory.systemTemp.createTempSync('fcp_ios_swap_');
+    try {
+      final extractResult = await Process.run(
+        'tar',
+        ['xzf', cachedFrameworkArchive, '-C', tempDir.path],
+      );
+      if (extractResult.exitCode != 0) {
+        _logger.err('Failed to extract Flutter.xcframework');
+        return false;
+      }
+
+      // Find the ios-arm64 framework inside the xcframework.
+      final xcfwDir = Directory('${tempDir.path}/Flutter.xcframework');
+      if (!xcfwDir.existsSync()) {
+        _logger.err('Flutter.xcframework not found in archive');
+        return false;
+      }
+
+      // Look for the arm64 slice.
+      String? slicePath;
+      for (final entry in xcfwDir.listSync()) {
+        if (entry is Directory && entry.path.contains('ios-arm64')) {
+          final fw = Directory('${entry.path}/Flutter.framework');
+          if (fw.existsSync()) {
+            slicePath = fw.path;
+            break;
+          }
+        }
+      }
+
+      if (slicePath == null) {
+        _logger.err(
+          'No ios-arm64 slice found in Flutter.xcframework',
+        );
+        return false;
+      }
+
+      // Backup original and replace.
+      final backupDir = Directory('$targetDir.original');
+      if (!backupDir.existsSync()) {
+        Directory(targetDir).renameSync(backupDir.path);
+      } else {
+        Directory(targetDir).deleteSync(recursive: true);
+      }
+
+      // Copy the new framework.
+      await _copyDirectory(Directory(slicePath), Directory(targetDir));
+      _logger.detail('Swapped iOS engine: $targetDir');
+      return true;
+    } finally {
+      tempDir.deleteSync(recursive: true);
+    }
+  }
+
+  /// Swap the engine library on macOS.
+  bool swapMacosEngine(String cachedLibFlutterEngine) {
+    final candidate =
+        'build/macos/Build/Products/Release/Runner.app/Contents/Frameworks/FlutterMacOS.framework/Versions/A/FlutterMacOS';
+    final file = File(candidate);
+    if (file.existsSync()) {
+      final backup = File('$candidate.original');
+      if (!backup.existsSync()) {
+        file.copySync(backup.path);
+      }
+      File(cachedLibFlutterEngine).copySync(candidate);
+      _logger.detail('Swapped macOS engine: $candidate');
+      return true;
+    }
+
+    _logger.err('Could not find FlutterMacOS in macOS build output.');
+    return false;
+  }
+
+  /// Swap the engine library on Linux.
+  bool swapLinuxEngine(String cachedLibFlutter) {
+    final candidates = [
+      'build/linux/x64/release/bundle/lib/libflutter_linux_gtk.so',
+      'build/linux/arm64/release/bundle/lib/libflutter_linux_gtk.so',
+    ];
+
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (file.existsSync()) {
+        final backup = File('$candidate.original');
+        if (!backup.existsSync()) {
+          file.copySync(backup.path);
+        }
+        File(cachedLibFlutter).copySync(candidate);
+        _logger.detail('Swapped Linux engine: $candidate');
+        return true;
+      }
+    }
+
+    _logger.err('Could not find libflutter_linux_gtk.so in Linux build output.');
+    return false;
+  }
+
+  /// Swap the engine library on Windows.
+  bool swapWindowsEngine(String cachedFlutterEngineDll) {
+    final candidate =
+        'build/windows/x64/runner/Release/flutter_windows.dll';
+    final file = File(candidate);
+    if (file.existsSync()) {
+      final backup = File('$candidate.original');
+      if (!backup.existsSync()) {
+        file.copySync(backup.path);
+      }
+      File(cachedFlutterEngineDll).copySync(candidate);
+      _logger.detail('Swapped Windows engine: $candidate');
+      return true;
+    }
+
+    _logger.err(
+      'Could not find flutter_windows.dll in Windows build output.',
+    );
+    return false;
+  }
+
+  /// Swap engine for a given build platform using cached artifacts.
+  ///
+  /// Looks up the cached engine library for [flutterVersion] and
+  /// [buildPlatform], then replaces it in the build output.
+  ///
+  /// Returns true on success, false if artifacts not found or swap failed.
+  Future<bool> swapEngine({
+    required String buildPlatform,
+    required String flutterVersion,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    final artifactPlatform =
+        CodePushArtifactManager.buildPlatformToArtifactPlatform(buildPlatform);
+    if (artifactPlatform == null) {
+      _logger.err('Unknown build platform: $buildPlatform');
+      return false;
+    }
+
+    // For mobile builds, we also need the host platform gen_snapshot.
+    // The engine library (libflutter.so / Flutter.framework) is a cross-compiled
+    // artifact from the mobile platform directory.
+    final engineLib = artifactManager.engineLibraryPath(
+      flutterVersion,
+      platform: artifactPlatform,
+    );
+    if (engineLib == null) {
+      _logger.err(
+        'Cached engine library not found for '
+        '$artifactPlatform (Flutter $flutterVersion). '
+        'Run "fcp codepush setup --flutter-version $flutterVersion '
+        '--platform $artifactPlatform" first.',
+      );
+      return false;
+    }
+
+    switch (buildPlatform) {
+      case 'apk':
+      case 'appbundle':
+      case 'android':
+        return swapAndroidEngine(engineLib);
+      case 'ios':
+        return swapIosEngine(engineLib);
+      case 'macos':
+        return swapMacosEngine(engineLib);
+      case 'linux':
+        return swapLinuxEngine(engineLib);
+      case 'windows':
+        return swapWindowsEngine(engineLib);
+      default:
+        _logger.err('Engine swap not supported for platform: $buildPlatform');
+        return false;
+    }
+  }
+
+  /// Recursively copy a directory.
+  Future<void> _copyDirectory(Directory source, Directory dest) async {
+    if (!dest.existsSync()) {
+      dest.createSync(recursive: true);
+    }
+    await for (final entity in source.list(recursive: false)) {
+      final newPath = '${dest.path}/${entity.uri.pathSegments.last}';
+      if (entity is File) {
+        entity.copySync(newPath);
+      } else if (entity is Directory) {
+        await _copyDirectory(entity, Directory(newPath));
+      }
+    }
   }
 }
