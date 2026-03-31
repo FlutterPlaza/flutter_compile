@@ -712,7 +712,9 @@ class F {
     final linkPath =
         '${homeDir()}${Constants.sdkVersionsPath}/${Constants.defaultSdkLink}';
     final type = FileSystemEntity.typeSync(linkPath, followLinks: false);
-    if (type == FileSystemEntityType.directory) return; // real dir — don't touch
+    if (type == FileSystemEntityType.directory) {
+      return; // real dir — don't touch
+    }
     if (type == FileSystemEntityType.link) Link(linkPath).deleteSync();
     await Link(linkPath).create(sdkPath);
   }

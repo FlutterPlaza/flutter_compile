@@ -193,7 +193,8 @@ class CodePushClient {
     required String releaseId,
   }) async {
     // First get the release info to find the snapshot URL.
-    final info = await _get('/api/v1/releases?release_id=$releaseId', token: token);
+    final info =
+        await _get('/api/v1/releases?release_id=$releaseId', token: token);
     final releases = info['releases'] as List?;
     if (releases == null || releases.isEmpty) return null;
 
@@ -252,7 +253,8 @@ class CodePushClient {
     return _parseResponse(response);
   }
 
-  Future<Map<String, dynamic>> _parseResponse(HttpClientResponse response) async {
+  Future<Map<String, dynamic>> _parseResponse(
+      HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
     if (body.isEmpty) {
       return {'status_code': response.statusCode};

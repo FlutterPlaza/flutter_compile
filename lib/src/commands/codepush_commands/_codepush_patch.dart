@@ -90,7 +90,8 @@ class CodePushPatchSubCommand extends Command<int> {
       } else {
         payloadData = Uint8List.fromList(kernelData);
         if (baselinePath != null) {
-          _logger.warn('Baseline not found at $baselinePath, using full kernel.');
+          _logger
+              .warn('Baseline not found at $baselinePath, using full kernel.');
         }
       }
 
@@ -108,7 +109,8 @@ class CodePushPatchSubCommand extends Command<int> {
       }
 
       final packageProgress = _logger.progress('Packaging .vmcode');
-      final vmcodeData = buildService.packageVmcode(payloadData, signature: signature);
+      final vmcodeData =
+          buildService.packageVmcode(payloadData, signature: signature);
       final vmcodePath = 'build/codepush/patch.vmcode';
       File(vmcodePath).writeAsBytesSync(vmcodeData);
       packageProgress.complete(

@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Push — flutter_compile</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <button class="menu-toggle" aria-label="Toggle menu">&#9776;</button>
+    <a href="index.html" class="logo">flutter_compile</a>
+  </div>
+  <div class="header-right">
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a>
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank" class="github-link">
+      <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
+</header>
+
+<div class="sidebar-overlay"></div>
+
+<aside class="sidebar">
+  <nav>
+    <div class="nav-group">
+      <a href="index.html" class="nav-link">Home</a>
+      <a href="getting-started.html" class="nav-link">Getting Started</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Guides</div>
+      <a href="sdk-management.html" class="nav-link">SDK Management</a>
+      <a href="contributor-guide.html" class="nav-link">Contributor Setup</a>
+      <a href="engine-builds.html" class="nav-link">Engine Builds</a>
+      <a href="code-push.html" class="nav-link active">Code Push</a>
+      <a href="configuration.html" class="nav-link">Configuration</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Reference</div>
+      <a href="cli-reference.html" class="nav-link">CLI Reference</a>
+      <a href="daemon-api.html" class="nav-link">Daemon API</a>
+    </div>
+    <div class="nav-group">
+      <div class="nav-group-title">Extensions</div>
+      <a href="vscode-extension.html" class="nav-link">VS Code</a>
+      <a href="intellij-extension.html" class="nav-link">IntelliJ / Android Studio</a>
+    </div>
+    <div class="nav-group">
+      <a href="changelog.html" class="nav-link">Changelog</a>
+    </div>
+  </nav>
+</aside>
+
+<main class="main-content">
+  <h1>Code Push</h1>
+  <p>
+    Code Push lets you push Dart code changes to deployed Flutter apps without
+    going through app store review. Users get updates within hours instead of
+    days.
+  </p>
+
+  <h2 id="how-it-works">How It Works</h2>
+  <p>Code Push uses <strong>Approach B (Engine Swap)</strong>:</p>
+  <ol>
+    <li>Developers use a <strong>standard Flutter SDK</strong> from flutter.dev.</li>
+    <li>The <code>fcp</code> CLI downloads a custom <code>gen_snapshot</code> and engine library
+        that include the code push runtime (C++ patch loader, updater, signature verification).</li>
+    <li>At build time, <code>fcp codepush release</code> compiles the app with the custom
+        engine and uploads the AOT snapshot as a baseline.</li>
+    <li>For patches, <code>fcp codepush patch</code> computes a binary diff (BSDIFF50)
+        between the baseline and the new snapshot, signs it, and uploads it.</li>
+    <li>At runtime, the app uses the <code>flutterplaza_code_push</code> package to check
+        for updates, download patches, and apply them on next restart.</li>
+  </ol>
+
+  <h2 id="prerequisites">Prerequisites</h2>
+  <ul>
+    <li>Flutter SDK 3.24.0 or later</li>
+    <li><code>fcp</code> CLI installed: <code>dart pub global activate flutter_compile</code></li>
+    <li>A FlutterPlaza account at <a href="https://codepush.flutterplaza.com">codepush.flutterplaza.com</a></li>
+  </ul>
+
+  <h2 id="quick-start">Quick Start</h2>
+
+  <h3>1. Authenticate</h3>
+  <pre><code>fcp codepush login --api-key YOUR_API_KEY</code></pre>
+
+  <h3>2. Download engine artifacts</h3>
+  <pre><code># Auto-detects your Flutter version
+fcp codepush setup
+
+# Or specify version and platform
+fcp codepush setup --flutter-version 3.24.0 --platform android-arm64</code></pre>
+  <p>
+    Artifacts are cached at <code>~/.flutter_compile/cache/codepush-engine/</code>
+    and verified with SHA-256 checksums.
+  </p>
+
+  <h3>3. Register your app</h3>
+  <pre><code>cd my_flutter_app
+fcp codepush init</code></pre>
+  <p>This creates an app on the server and stores the app ID in <code>~/.flutter_compilerc</code>.</p>
+
+  <h3>4. Add the runtime package</h3>
+  <pre><code>flutter pub add flutterplaza_code_push</code></pre>
+  <p>Add the update check to your app:</p>
+  <pre><code>import 'package:flutterplaza_code_push/flutterplaza_code_push.dart';
+
+Future&lt;void&gt; checkForUpdates() async {
+  final update = await CodePush.checkForUpdate();
+  if (update.isUpdateAvailable) {
+    await CodePush.downloadAndApply(
+      onProgress: (p) =&gt; print('${(p * 100).toInt()}%'),
+    );
+    // Patch takes effect on next restart.
+  }
+}</code></pre>
+
+  <h3>5. Create a release</h3>
+  <pre><code># Build and upload baseline
+fcp codepush release --build --platform apk</code></pre>
+  <p>
+    This runs <code>flutter build</code>, swaps the engine library in the
+    build output, and uploads the AOT snapshot to the server.
+  </p>
+
+  <h3>6. Push a patch</h3>
+  <pre><code># Make code changes, then:
+fcp codepush patch --build --release-id RELEASE_ID --rollout 25</code></pre>
+  <p>
+    The CLI compiles the patched source, computes a binary diff against the
+    baseline, signs it with your RSA key, packages it as a <code>.vmcode</code>
+    file, and uploads it. Use <code>--rollout</code> for staged rollout (1-100%).
+  </p>
+
+  <h3>7. Roll back if needed</h3>
+  <pre><code>fcp codepush rollback --patch-id PATCH_ID</code></pre>
+
+  <h2 id="cli-commands">CLI Commands</h2>
+
+  <table>
+    <thead>
+      <tr><th>Command</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>fcp codepush setup</code></td>
+        <td>Download code-push engine artifacts for your Flutter version</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush init</code></td>
+        <td>Register the current project as an app on the server</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush login</code></td>
+        <td>Authenticate with the code push server</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush logout</code></td>
+        <td>Clear stored credentials</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush account</code></td>
+        <td>Show subscription status and account info</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush release</code></td>
+        <td>Upload a baseline release (requires paid subscription)</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush patch</code></td>
+        <td>Upload a code push patch</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush rollback</code></td>
+        <td>Deactivate a patch so devices stop receiving it</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush status</code></td>
+        <td>Show releases and patches for an app</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2 id="engine-artifacts">Engine Artifacts</h2>
+  <p>
+    The <code>fcp codepush setup</code> command downloads pre-built engine
+    binaries from Google Cloud Storage. Each Flutter version has its own
+    set of artifacts:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Platform</th><th>Artifacts</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>darwin-arm64</td><td><code>gen_snapshot</code>, <code>libflutter_engine.dylib</code></td></tr>
+      <tr><td>darwin-x64</td><td><code>gen_snapshot</code>, <code>libflutter_engine.dylib</code></td></tr>
+      <tr><td>linux-x64</td><td><code>gen_snapshot</code>, <code>libflutter.so</code></td></tr>
+      <tr><td>windows-x64</td><td><code>gen_snapshot.exe</code>, <code>flutter_engine.dll</code></td></tr>
+      <tr><td>android-arm64</td><td><code>gen_snapshot</code>, <code>libflutter.so</code></td></tr>
+      <tr><td>ios-arm64</td><td><code>gen_snapshot</code>, <code>Flutter.xcframework.tar.gz</code></td></tr>
+    </tbody>
+  </table>
+  <p>
+    Artifacts are cached at
+    <code>~/.flutter_compile/cache/codepush-engine/flutter-&lt;version&gt;/&lt;platform&gt;/</code>
+    and verified via SHA-256 checksums.
+  </p>
+
+  <h2 id="engine-swap">Engine Swap</h2>
+  <p>
+    When you run <code>fcp codepush release --build</code>, the CLI:
+  </p>
+  <ol>
+    <li>Runs <code>flutter build &lt;platform&gt; --release</code> using the standard SDK.</li>
+    <li>Replaces the engine library in the build output with the code-push-enabled version:
+      <ul>
+        <li><strong>Android:</strong> <code>libflutter.so</code> in <code>stripped_native_libs/</code></li>
+        <li><strong>iOS:</strong> <code>Flutter.framework</code> from the xcframework archive</li>
+        <li><strong>macOS:</strong> <code>FlutterMacOS</code> in <code>Frameworks/</code></li>
+        <li><strong>Linux:</strong> <code>libflutter_linux_gtk.so</code> in <code>bundle/lib/</code></li>
+        <li><strong>Windows:</strong> <code>flutter_windows.dll</code> in <code>runner/Release/</code></li>
+      </ul>
+    </li>
+    <li>Optionally re-runs <code>gen_snapshot</code> with <code>--deterministic</code> for
+        stable binary diffs.</li>
+  </ol>
+  <p>Original files are backed up with a <code>.original</code> suffix.</p>
+
+  <h2 id="runtime-api">Runtime API</h2>
+  <p>
+    The <a href="https://pub.dev/packages/flutterplaza_code_push"><code>flutterplaza_code_push</code></a>
+    package provides the runtime API. Key methods:
+  </p>
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>CodePush.checkForUpdate()</code></td><td>Check server for available patches</td></tr>
+      <tr><td><code>CodePush.downloadAndApply()</code></td><td>Download and install the latest patch</td></tr>
+      <tr><td><code>CodePush.installPatch(bytes)</code></td><td>Install a patch from raw bytes</td></tr>
+      <tr><td><code>CodePush.rollback()</code></td><td>Remove the active patch</td></tr>
+      <tr><td><code>CodePush.currentPatch</code></td><td>Get info about the active patch</td></tr>
+      <tr><td><code>CodePush.isPatched</code></td><td>Check if a patch is active</td></tr>
+      <tr><td><code>CodePush.releaseVersion</code></td><td>Get the base release version</td></tr>
+      <tr><td><code>CodePush.patchCount</code></td><td>Number of patches stored on device</td></tr>
+      <tr><td><code>CodePush.cleanupOldPatches()</code></td><td>Remove inactive patches</td></tr>
+      <tr><td><code>CodePush.checkForUpdatePeriodically()</code></td><td>Periodic background update checks</td></tr>
+    </tbody>
+  </table>
+
+  <h2 id="security">Security</h2>
+  <ul>
+    <li><strong>Patch signing:</strong> Patches are signed with RSA-SHA256 using the developer's
+        private key. The engine verifies the signature before applying.</li>
+    <li><strong>Integrity verification:</strong> SHA-256 hashes are embedded in the <code>.vmcode</code>
+        header and checked on both the CLI and engine side.</li>
+    <li><strong>Artifact verification:</strong> Engine artifacts downloaded via <code>fcp codepush setup</code>
+        are verified against SHA-256 checksums from the server.</li>
+    <li><strong>TLS:</strong> All server communication uses HTTPS. Optional certificate pinning
+        is supported via <code>codepush_pinned_cert</code> in <code>~/.flutter_compilerc</code>.</li>
+    <li><strong>App store compliance:</strong> Code push uses native AOT compilation, not
+        interpretation. This complies with Apple's App Store Review Guidelines (3.3.2)
+        and Google Play policies.</li>
+  </ul>
+
+  <h2 id="ide-integration">IDE Integration</h2>
+  <p>
+    Both the <a href="vscode-extension.html">VS Code</a> and
+    <a href="intellij-extension.html">IntelliJ / Android Studio</a> extensions
+    include a <strong>Code Push</strong> panel showing:
+  </p>
+  <ul>
+    <li>Account status (email, subscription tier)</li>
+    <li>App configuration</li>
+    <li>Releases with version, platform, and creation date</li>
+    <li>Patches with rollout percentage and active/inactive status</li>
+  </ul>
+  <p>
+    Actions like Login, Release, Patch, and Rollback are available directly
+    from the IDE toolbar and context menus.
+  </p>
+
+  <h2 id="pricing">Pricing</h2>
+  <p>
+    Code push operations (release, patch) require a paid FlutterPlaza
+    subscription. See
+    <a href="https://codepush.flutterplaza.com/pricing">codepush.flutterplaza.com/pricing</a>
+    for tiers and limits. The <code>fcp codepush account</code> command shows your
+    current tier and subscription status.
+  </p>
+
+  <h2 id="supported-versions">Supported Flutter Versions</h2>
+  <p>
+    Run <code>fcp codepush setup --list-versions</code> to see all Flutter
+    versions with available code push engine artifacts.
+  </p>
+</main>
+
+<footer class="site-footer">
+  <span>MIT License &copy; FlutterPlaza</span>
+  <span>
+    <a href="https://pub.dev/packages/flutter_compile" target="_blank">pub.dev</a> &middot;
+    <a href="https://github.com/FlutterPlaza/flutter_compile" target="_blank">GitHub</a>
+  </span>
+</footer>
+
+<script src="js/main.js"></script>
+</body>
+</html>

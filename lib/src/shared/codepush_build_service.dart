@@ -6,7 +6,6 @@ import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
 
-
 /// Build service for code push operations.
 ///
 /// Handles:
@@ -93,7 +92,8 @@ class CodePushBuildService {
     final args = ['build', platform, '--release', ...extraArgs];
     _logger.detail('Running: flutter ${args.join(' ')}');
 
-    final process = await Process.start(flutter, args, mode: ProcessStartMode.inheritStdio);
+    final process =
+        await Process.start(flutter, args, mode: ProcessStartMode.inheritStdio);
     final exitCode = await process.exitCode;
 
     if (exitCode != 0) {
@@ -291,8 +291,13 @@ class CodePushBuildService {
       final sigFile = '${tempDir.path}/payload.sig';
 
       final result = Process.runSync('openssl', [
-        'dgst', '-sha256', '-sign', privateKeyPath,
-        '-out', sigFile, dataFile.path,
+        'dgst',
+        '-sha256',
+        '-sign',
+        privateKeyPath,
+        '-out',
+        sigFile,
+        dataFile.path,
       ]);
 
       if (result.exitCode != 0) {
@@ -318,7 +323,10 @@ class CodePushBuildService {
     final publicPath = '$outputDir/codepush_public.pem';
 
     var result = Process.runSync('openssl', [
-      'genrsa', '-out', privatePath, '2048',
+      'genrsa',
+      '-out',
+      privatePath,
+      '2048',
     ]);
     if (result.exitCode != 0) {
       _logger.err('Key generation failed: ${result.stderr}');
@@ -326,7 +334,12 @@ class CodePushBuildService {
     }
 
     result = Process.runSync('openssl', [
-      'rsa', '-in', privatePath, '-pubout', '-out', publicPath,
+      'rsa',
+      '-in',
+      privatePath,
+      '-pubout',
+      '-out',
+      publicPath,
     ]);
     if (result.exitCode != 0) {
       _logger.err('Public key extraction failed: ${result.stderr}');
@@ -382,7 +395,8 @@ class CodePushBuildService {
       final flutterDir = File(flutter).parent.parent.path;
       final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
       final os = Platform.isMacOS ? 'darwin' : 'linux';
-      final candidate = '$flutterDir/bin/cache/artifacts/engine/$os-$arch/gen_snapshot';
+      final candidate =
+          '$flutterDir/bin/cache/artifacts/engine/$os-$arch/gen_snapshot';
       if (File(candidate).existsSync()) return candidate;
     }
 
@@ -623,14 +637,14 @@ class CodePushBuildService {
       }
     }
 
-    _logger.err('Could not find libflutter_linux_gtk.so in Linux build output.');
+    _logger
+        .err('Could not find libflutter_linux_gtk.so in Linux build output.');
     return false;
   }
 
   /// Swap the engine library on Windows.
   bool swapWindowsEngine(String cachedFlutterEngineDll) {
-    final candidate =
-        'build/windows/x64/runner/Release/flutter_windows.dll';
+    final candidate = 'build/windows/x64/runner/Release/flutter_windows.dll';
     final file = File(candidate);
     if (file.existsSync()) {
       final backup = File('$candidate.original');

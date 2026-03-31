@@ -165,7 +165,8 @@ class CodePushSeedSecretsSubCommand extends Command<int> {
         continue;
       }
 
-      final masked = '${value.substring(0, (value.length > 8 ? 8 : value.length))}...';
+      final masked =
+          '${value.substring(0, (value.length > 8 ? 8 : value.length))}...';
 
       if (dryRun) {
         _logger.info('  [dry-run] $key → $name ($masked)');
@@ -199,7 +200,8 @@ class CodePushSeedSecretsSubCommand extends Command<int> {
       _logger.success('$seeded secret(s) seeded, $skipped skipped.');
       _logger.info('');
       _logger.info('Your deploy.sh will now use --set-secrets to inject these');
-      _logger.info('at runtime. The .env file is no longer needed for deploys.');
+      _logger
+          .info('at runtime. The .env file is no longer needed for deploys.');
       _logger.warn(
         'Rotate the values in your local .env — they should not match production.',
       );

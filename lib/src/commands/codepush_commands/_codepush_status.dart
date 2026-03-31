@@ -61,7 +61,8 @@ class CodePushStatusSubCommand extends Command<int> {
       final releases = releasesResult['releases'] as List<dynamic>? ?? [];
 
       if (releases.isEmpty) {
-        _logger.info('\n  No releases yet. Run "fcp codepush release" to create one.');
+        _logger.info(
+            '\n  No releases yet. Run "fcp codepush release" to create one.');
         return ExitCode.success.code;
       }
 

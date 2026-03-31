@@ -46,7 +46,8 @@ Uint8List bsdiff(Uint8List oldBytes, Uint8List newBytes) {
     scan += len;
     int prevScan = scan;
     while (scan < newSize) {
-      final _MatchResult match = _matchLen(suffixArray, oldBytes, oldSize, newBytes, newSize, scan);
+      final _MatchResult match =
+          _matchLen(suffixArray, oldBytes, oldSize, newBytes, newSize, scan);
       matchLen = match.length;
       pos = match.position;
 
@@ -58,7 +59,8 @@ Uint8List bsdiff(Uint8List oldBytes, Uint8List newBytes) {
         prevScan++;
       }
 
-      if ((matchLen == oldScore && matchLen != 0) || (matchLen > oldScore + 8)) {
+      if ((matchLen == oldScore && matchLen != 0) ||
+          (matchLen > oldScore + 8)) {
         break;
       }
 
@@ -148,7 +150,8 @@ Uint8List bsdiff(Uint8List oldBytes, Uint8List newBytes) {
   }
 
   // Encode the patch.
-  return _encodePatch(controlAdd, controlCopy, controlSeek, diffBlock, extraBlock, newSize);
+  return _encodePatch(
+      controlAdd, controlCopy, controlSeek, diffBlock, extraBlock, newSize);
 }
 
 /// Applies a BSDIFF50-format [patch] to [oldBytes] to produce the new file.
@@ -204,7 +207,8 @@ Uint8List bspatch(Uint8List oldBytes, Uint8List patch) {
     );
   }
 
-  final ByteData controlBd = controlData.buffer.asByteData(controlData.offsetInBytes);
+  final ByteData controlBd =
+      controlData.buffer.asByteData(controlData.offsetInBytes);
   final int numTuples = controlData.length ~/ 24;
 
   // Apply the patch.
@@ -282,7 +286,8 @@ Uint8List _encodePatch(
   // Compress each block.
   final Uint8List compressedControl = _zlibCompress(controlBytes);
   final Uint8List compressedDiff = _zlibCompress(Uint8List.fromList(diffBlock));
-  final Uint8List compressedExtra = _zlibCompress(Uint8List.fromList(extraBlock));
+  final Uint8List compressedExtra =
+      _zlibCompress(Uint8List.fromList(extraBlock));
 
   // Build the final patch.
   final int totalSize = _kHeaderSize +
@@ -574,8 +579,9 @@ void _sais(Int32List text, Int32List sa, int n, int alphabetSize) {
 }
 
 /// Compares two LMS substrings starting at [pos1] and [pos2].
-bool _lmsSubstringsEqual(Int32List text, Uint8List types, int pos1, int pos2, int n) {
-  for (int i = 0; ; i++) {
+bool _lmsSubstringsEqual(
+    Int32List text, Uint8List types, int pos1, int pos2, int n) {
+  for (int i = 0;; i++) {
     final int p1 = pos1 + i;
     final int p2 = pos2 + i;
 

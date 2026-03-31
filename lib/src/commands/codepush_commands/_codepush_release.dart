@@ -33,7 +33,8 @@ class CodePushReleaseSubCommand extends Command<int> {
       )
       ..addFlag(
         'deterministic',
-        help: 'Re-run gen_snapshot with --stable_object_pool_indices for deterministic output.',
+        help:
+            'Re-run gen_snapshot with --stable_object_pool_indices for deterministic output.',
         defaultsTo: false,
       );
   }
@@ -71,14 +72,15 @@ class CodePushReleaseSubCommand extends Command<int> {
       final pubspec = File('pubspec.yaml');
       if (pubspec.existsSync()) {
         final content = pubspec.readAsStringSync();
-        final match = RegExp(r'^version:\s*(.+)$', multiLine: true)
-            .firstMatch(content);
+        final match =
+            RegExp(r'^version:\s*(.+)$', multiLine: true).firstMatch(content);
         if (match != null) {
           version = match.group(1)?.trim();
         }
       }
       if (version == null || version.isEmpty) {
-        _logger.err('No version specified. Use --version or add one to pubspec.yaml.');
+        _logger.err(
+            'No version specified. Use --version or add one to pubspec.yaml.');
         return ExitCode.usage.code;
       }
       _logger.detail('Using version from pubspec.yaml: $version');
@@ -127,7 +129,8 @@ class CodePushReleaseSubCommand extends Command<int> {
     // If --deterministic, re-run gen_snapshot with stable pool indices.
     final deterministic = argResults?['deterministic'] as bool? ?? false;
     if (deterministic) {
-      final detProgress = _logger.progress('Re-running gen_snapshot (deterministic)');
+      final detProgress =
+          _logger.progress('Re-running gen_snapshot (deterministic)');
       final detOutput = 'build/codepush/snapshot_deterministic.so';
       final detResult = await buildService.buildDeterministicSnapshot(
         inputPath: snapshotPath,

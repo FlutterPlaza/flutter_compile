@@ -1,5 +1,15 @@
 # CHANGE LOG
 
+## 0.13.0
+
+- feat: `fcp codepush seed-secrets` command — push .env secrets into GCP Secret Manager for Cloud Run deployment
+- feat: multi-platform engine artifact support — added `buildPlatformToArtifactPlatform()` mapping for Android, iOS, macOS, Linux, Windows build targets
+- feat: platform-specific gen_snapshot and engine library path resolution (`genSnapshotPathForPlatform`, `isPlatformCached`)
+- feat: `engineLibraryPath` now accepts optional `platform` parameter for cross-platform engine swaps
+- security: removed proprietary .vmcode format specification comments from public code
+- fix: resolved all `dart analyze` errors (undefined methods, missing parameters)
+- fix: formatted all source files to pass `dart format` checks
+
 ## 0.12.0
 
 - feat: `FLUTTER_COMPILE_SDK` environment variable — IDE terminals now use the project-pinned SDK instead of always falling back to the global default

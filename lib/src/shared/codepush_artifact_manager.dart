@@ -50,13 +50,48 @@ class CodePushArtifactManager {
     return '$os-$arch';
   }
 
-  /// All platforms we distribute artifacts for.
-  static const platforms = [
+  /// All host (desktop) platforms we distribute artifacts for.
+  static const hostPlatforms = [
     'darwin-arm64',
     'darwin-x64',
     'linux-x64',
     'windows-x64',
   ];
+
+  /// Mobile/embedded platforms we distribute artifacts for.
+  static const mobilePlatforms = [
+    'android-arm64',
+    'ios-arm64',
+  ];
+
+  /// All platforms we distribute artifacts for.
+  static const platforms = [
+    ...hostPlatforms,
+    ...mobilePlatforms,
+  ];
+
+  /// Map a Flutter build platform (e.g. "apk", "ios") to the artifact
+  /// platform identifier (e.g. "android-arm64", "ios-arm64").
+  /// Returns null for unknown platforms.
+  static String? buildPlatformToArtifactPlatform(String buildPlatform) {
+    switch (buildPlatform) {
+      case 'apk':
+      case 'appbundle':
+      case 'android':
+        return 'android-arm64';
+      case 'ios':
+      case 'ipa':
+        return 'ios-arm64';
+      case 'macos':
+        return 'darwin-arm64';
+      case 'linux':
+        return 'linux-x64';
+      case 'windows':
+        return 'windows-x64';
+      default:
+        return null;
+    }
+  }
 
   /// Artifacts distributed per platform.
   static const _artifactNames = {
@@ -117,17 +152,28 @@ class CodePushArtifactManager {
 
   /// Path to gen_snapshot for the current platform and a given Flutter version.
   String? genSnapshotPath(String flutterVersion) {
-    final path =
-        '${versionDir(flutterVersion)}/$currentPlatform/gen_snapshot${Platform.isWindows ? '.exe' : ''}';
+    return genSnapshotPathForPlatform(flutterVersion, currentPlatform);
+  }
+
+  /// Path to gen_snapshot for a specific platform and Flutter version.
+  String? genSnapshotPathForPlatform(
+    String flutterVersion,
+    String platform,
+  ) {
+    final exe = platform.startsWith('windows') ? '.exe' : '';
+    final path = '${versionDir(flutterVersion)}/$platform/gen_snapshot$exe';
     return File(path).existsSync() ? path : null;
   }
 
-  /// Path to the engine library for the current platform and a given version.
-  String? engineLibraryPath(String flutterVersion) {
-    final names = _artifactNames[currentPlatform];
+  /// Path to the engine library for a given version and optional platform.
+  String? engineLibraryPath(
+    String flutterVersion, {
+    String? platform,
+  }) {
+    final p = platform ?? currentPlatform;
+    final names = _artifactNames[p];
     if (names == null || names.length < 2) return null;
-    final path =
-        '${versionDir(flutterVersion)}/$currentPlatform/${names[1]}';
+    final path = '${versionDir(flutterVersion)}/$p/${names[1]}';
     return File(path).existsSync() ? path : null;
   }
 
@@ -135,6 +181,12 @@ class CodePushArtifactManager {
   bool isVersionCached(String flutterVersion) {
     final stampFile = File('${versionDir(flutterVersion)}/.stamp');
     return stampFile.existsSync();
+  }
+
+  /// Check if artifacts for a specific platform are cached.
+  bool isPlatformCached(String flutterVersion, String platform) {
+    final dir = Directory('${versionDir(flutterVersion)}/$platform');
+    return dir.existsSync();
   }
 
   // ── Version manifest ──────────────────────────────────────────────
@@ -195,8 +247,7 @@ class CodePushArtifactManager {
       return false;
     }
 
-    final dir =
-        Directory('${versionDir(flutterVersion)}/$targetPlatform');
+    final dir = Directory('${versionDir(flutterVersion)}/$targetPlatform');
     if (!dir.existsSync()) {
       dir.createSync(recursive: true);
     }
@@ -205,8 +256,7 @@ class CodePushArtifactManager {
     final versionPrefix = 'flutter-$flutterVersion';
 
     // Download checksums first.
-    final checksums =
-        await _downloadChecksums(versionPrefix, targetPlatform);
+    final checksums = await _downloadChecksums(versionPrefix, targetPlatform);
 
     // Download each artifact.
     for (final artifact in artifacts) {
@@ -297,14 +347,12 @@ class CodePushArtifactManager {
         .whereType<Directory>()
         .where((d) => File('${d.path}/.stamp').existsSync())
         .map((d) {
-          final name =
-              d.uri.pathSegments.where((s) => s.isNotEmpty).last;
-          // Strip the "flutter-" prefix for display.
-          return name.startsWith('flutter-')
-              ? name.substring('flutter-'.length)
-              : name;
-        })
-        .toList()
+      final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
+      // Strip the "flutter-" prefix for display.
+      return name.startsWith('flutter-')
+          ? name.substring('flutter-'.length)
+          : name;
+    }).toList()
       ..sort();
   }
 
@@ -330,8 +378,7 @@ class CodePushArtifactManager {
   Future<void> saveActiveVersion(String flutterVersion) async {
     final home = Platform.environment['HOME'] ?? '/tmp';
     final rcFile = File('$home/.flutter_compilerc');
-    final lines =
-        rcFile.existsSync() ? rcFile.readAsLinesSync() : <String>[];
+    final lines = rcFile.existsSync() ? rcFile.readAsLinesSync() : <String>[];
 
     final key = Constants.codePushEngineVersionKey;
     final newLine = '$key:$flutterVersion';
@@ -438,8 +485,7 @@ class CodePushArtifactManager {
           sink.add(chunk);
           receivedBytes += chunk.length;
           if (totalBytes > 0) {
-            final pct =
-                (receivedBytes / totalBytes * 100).toStringAsFixed(0);
+            final pct = (receivedBytes / totalBytes * 100).toStringAsFixed(0);
             stdout.write('\r  $pct% ($receivedBytes / $totalBytes bytes)');
           }
         }

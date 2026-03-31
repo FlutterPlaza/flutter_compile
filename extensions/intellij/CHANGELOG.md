@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **Code Push tree panel** — view account, app, releases, and patches in the tool window
+- **Code Push actions** — Login, Release, Patch, Rollback from the Tools menu and context menus
+- **Code Push CLI integration** — all operations delegate to `fcp codepush` commands
+
+### Changed
+
+- Updated Code Push actions to use Approach B (engine swap) CLI commands
+
 ## 0.3.0
 
 ### Added

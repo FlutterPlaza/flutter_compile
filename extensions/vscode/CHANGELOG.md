@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- **Code Push tree view** — account status, current app, releases list, and patches per release in the sidebar
+- **Code Push commands** — Login, Init, Release, Patch, Rollback available from the Command Palette and tree view
+- **Code Push status** — view rollout percentages and active/inactive patch status
+
+### Changed
+
+- Updated all Code Push commands to invoke `fcp codepush` CLI (Approach B: engine swap model)
+
 ## 0.3.0
 
 ### Added

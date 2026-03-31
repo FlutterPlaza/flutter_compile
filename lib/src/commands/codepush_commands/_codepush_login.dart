@@ -48,7 +48,8 @@ class CodePushLoginSubCommand extends Command<int> {
       final statusCode = result['status_code'] as int;
 
       if (statusCode != 200) {
-        progress.fail('Authentication failed: ${result['error'] ?? 'Unknown error'}');
+        progress.fail(
+            'Authentication failed: ${result['error'] ?? 'Unknown error'}');
         return ExitCode.software.code;
       }
 
