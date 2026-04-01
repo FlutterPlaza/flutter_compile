@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -127,6 +129,26 @@ class CodePushSetupSubCommand extends Command<int> {
     final engineLib = manager.engineLibraryPath(flutterVersion);
     if (engineLib != null) {
       _logger.info('  engine:       $engineLib');
+    }
+
+    // Ensure Dart SDK is available in the contribution Flutter repo.
+    // This prevents the broken download when the repo has a custom
+    // engine hash not in Google's infrastructure bucket.
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    final contributionRepo = Directory('$home/flutter_compile/flutter');
+    if (contributionRepo.existsSync()) {
+      final sdkProgress = _logger.progress('Ensuring Dart SDK is available');
+      final sdkOk = manager.ensureDartSdk(
+        targetFlutterRoot: contributionRepo.path,
+      );
+      if (sdkOk) {
+        sdkProgress.complete('Dart SDK ready');
+      } else {
+        sdkProgress.fail(
+          'Could not copy Dart SDK. '
+          '`fcp switch` may fail to download it.',
+        );
+      }
     }
 
     // Clean up other versions if requested.

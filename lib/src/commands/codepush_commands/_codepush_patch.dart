@@ -36,6 +36,11 @@ class CodePushPatchSubCommand extends Command<int> {
       ..addOption(
         'signing-key',
         help: 'Path to RSA private key for signing the patch.',
+      )
+      ..addOption(
+        'channel',
+        help: 'Deployment channel (e.g., beta, production).',
+        defaultsTo: 'production',
       );
   }
 
@@ -149,6 +154,7 @@ class CodePushPatchSubCommand extends Command<int> {
 
     final rolloutStr = argResults?['rollout'] as String? ?? '100';
     final rollout = int.tryParse(rolloutStr) ?? 100;
+    final channel = argResults?['channel'] as String? ?? 'production';
     if (rollout < 1 || rollout > 100) {
       _logger.err('Rollout percentage must be between 1 and 100.');
       return ExitCode.usage.code;
@@ -169,6 +175,7 @@ class CodePushPatchSubCommand extends Command<int> {
         releaseId: releaseId,
         patchData: patchData,
         rolloutPercentage: rollout,
+        channel: channel,
       );
 
       final statusCode = result['status_code'] as int;
@@ -198,6 +205,7 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.info('  Patch #:      ${patch['number']}');
         _logger.info('  Hash:         ${patch['patch_hash']}');
         _logger.info('  Rollout:      ${patch['rollout_percentage']}%');
+        _logger.info('  Channel:      ${patch['channel']}');
         _logger.info('  Download URL: ${patch['patch_url']}');
       }
 

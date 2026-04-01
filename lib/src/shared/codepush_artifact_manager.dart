@@ -378,6 +378,81 @@ class CodePushArtifactManager {
     }
   }
 
+  /// Ensure the Dart SDK is available in a target Flutter installation.
+  ///
+  /// Copies the Dart SDK from the user's current Flutter installation to
+  /// [targetFlutterRoot]/bin/cache/dart-sdk/. This avoids the broken download
+  /// when the target has a custom engine hash not in Google's infra bucket.
+  ///
+  /// Returns true if the Dart SDK is ready, false on failure.
+  bool ensureDartSdk({required String targetFlutterRoot}) {
+    final targetSdk = Directory('$targetFlutterRoot/bin/cache/dart-sdk');
+    final targetDart = File('$targetFlutterRoot/bin/cache/dart-sdk/bin/dart');
+
+    // Already has a working Dart SDK.
+    if (targetDart.existsSync()) {
+      _logger.detail('Dart SDK already present at ${targetSdk.path}');
+      return true;
+    }
+
+    // Find the source Dart SDK from the current Flutter installation.
+    final flutterBin = _findFlutterBin();
+    if (flutterBin == null) {
+      _logger.err('Cannot find Flutter on PATH to copy Dart SDK from.');
+      return false;
+    }
+
+    final resolved = File(flutterBin).resolveSymbolicLinksSync();
+    final sourceFlutterRoot = File(resolved).parent.parent.path;
+    final sourceSdk = Directory('$sourceFlutterRoot/bin/cache/dart-sdk');
+    final sourceDart = File('$sourceFlutterRoot/bin/cache/dart-sdk/bin/dart');
+
+    if (!sourceDart.existsSync()) {
+      _logger.err('Source Flutter SDK at $sourceFlutterRoot has no Dart SDK.');
+      return false;
+    }
+
+    // Don't copy over itself.
+    if (sourceSdk.path == targetSdk.path) {
+      return true;
+    }
+
+    _logger.detail(
+      'Copying Dart SDK from $sourceFlutterRoot to $targetFlutterRoot',
+    );
+
+    // Remove stale target if it exists.
+    if (targetSdk.existsSync()) {
+      targetSdk.deleteSync(recursive: true);
+    }
+
+    // Copy recursively.
+    final result =
+        Process.runSync('cp', ['-R', sourceSdk.path, targetSdk.path]);
+    if (result.exitCode != 0) {
+      _logger.err('Failed to copy Dart SDK: ${result.stderr}');
+      return false;
+    }
+
+    // Update the stamp so Flutter doesn't try to re-download.
+    final engineStamp = File('$targetFlutterRoot/bin/cache/engine.stamp');
+    if (engineStamp.existsSync()) {
+      final hash = engineStamp.readAsStringSync().trim();
+      File('$targetFlutterRoot/bin/cache/engine-dart-sdk.stamp')
+          .writeAsStringSync(hash);
+    }
+
+    return true;
+  }
+
+  String? _findFlutterBin() {
+    final result = Process.runSync('which', ['flutter']);
+    if (result.exitCode == 0) {
+      return (result.stdout as String).trim();
+    }
+    return null;
+  }
+
   /// Store the active Flutter version for code push in ~/.flutter_compilerc.
   Future<void> saveActiveVersion(String flutterVersion) async {
     final home = Platform.environment['HOME'] ?? '/tmp';

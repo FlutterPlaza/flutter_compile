@@ -163,6 +163,7 @@ class CodePushClient {
     required String releaseId,
     required List<int> patchData,
     int rolloutPercentage = 100,
+    String channel = 'production',
   }) async {
     return _post(
       '/api/v1/patches',
@@ -171,6 +172,7 @@ class CodePushClient {
         'release_id': releaseId,
         'patch': base64Encode(patchData),
         'rollout_percentage': rolloutPercentage,
+        'channel': channel,
       },
     );
   }
