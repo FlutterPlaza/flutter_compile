@@ -101,10 +101,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
 
       final buildProgress = _logger.progress('Building release ($platform)');
-      final snapshotResult = await buildService.buildRelease(
+      final buildOk = await buildService.buildRelease(
         platform: platform,
       );
-      if (snapshotResult == null) {
+      if (!buildOk) {
         buildProgress.fail('Build failed');
         return ExitCode.software.code;
       }

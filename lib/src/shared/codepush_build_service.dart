@@ -78,30 +78,33 @@ class CodePushBuildService {
 
   /// Build a Flutter app in release mode.
   ///
-  /// Returns the path to the build output directory, or null on failure.
-  Future<String?> buildRelease({
+  /// Returns true if the build succeeded, false otherwise.
+  Future<bool> buildRelease({
     required String platform,
     List<String> extraArgs = const [],
   }) async {
     final flutter = findFlutterBin();
     if (flutter == null) {
       _logger.err('Flutter not found on PATH.');
-      return null;
+      return false;
     }
 
     final args = ['build', platform, '--release', ...extraArgs];
     _logger.detail('Running: flutter ${args.join(' ')}');
 
-    final process =
-        await Process.start(flutter, args, mode: ProcessStartMode.inheritStdio);
+    final process = await Process.start(
+      flutter,
+      args,
+      mode: ProcessStartMode.inheritStdio,
+    );
     final exitCode = await process.exitCode;
 
     if (exitCode != 0) {
       _logger.err('Flutter build failed with exit code $exitCode');
-      return null;
+      return false;
     }
 
-    return findSnapshotPath(platform);
+    return true;
   }
 
   /// Find the AOT snapshot in the build output.
@@ -111,6 +114,9 @@ class CodePushBuildService {
         'build/app/intermediates/flutter/release/app.so',
         'build/app/intermediates/stripped_native_libs/release/out/lib/arm64-v8a/libapp.so',
         'build/app/intermediates/stripped_native_libs/release/out/lib/armeabi-v7a/libapp.so',
+        'build/app/intermediates/flutter/release/arm64-v8a/app.so',
+        'build/app/intermediates/flutter/release/armeabi-v7a/app.so',
+        'build/app/outputs/flutter-apk/app-release.apk',
       ],
       'appbundle': [
         'build/app/intermediates/flutter/release/app.so',
