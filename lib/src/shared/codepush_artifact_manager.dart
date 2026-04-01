@@ -99,6 +99,8 @@ class CodePushArtifactManager {
     'darwin-x64': ['gen_snapshot', 'libflutter_engine.dylib'],
     'linux-x64': ['gen_snapshot', 'libflutter.so'],
     'windows-x64': ['gen_snapshot.exe', 'flutter_engine.dll'],
+    'android-arm64': ['gen_snapshot', 'libflutter.so'],
+    'ios-arm64': ['gen_snapshot', 'Flutter.xcframework.tar.gz'],
   };
 
   // ── Flutter version detection ─────────────────────────────────────
@@ -183,10 +185,12 @@ class CodePushArtifactManager {
     return stampFile.existsSync();
   }
 
-  /// Check if artifacts for a specific platform are cached.
+  /// Check if all expected artifacts for a specific platform are cached.
   bool isPlatformCached(String flutterVersion, String platform) {
-    final dir = Directory('${versionDir(flutterVersion)}/$platform');
-    return dir.existsSync();
+    final names = _artifactNames[platform];
+    if (names == null) return false;
+    final dir = '${versionDir(flutterVersion)}/$platform';
+    return names.every((name) => File('$dir/$name').existsSync());
   }
 
   // ── Version manifest ──────────────────────────────────────────────

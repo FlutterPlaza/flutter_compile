@@ -32,6 +32,7 @@ interface FvmContextResponse {
 }
 
 export class FvmSdkBackend implements SdkBackend {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async listSdks(_projectRoot?: string): Promise<SdkEntry[]> {
     try {
       const raw = await runFvm(["api", "list"]);

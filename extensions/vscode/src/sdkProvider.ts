@@ -45,9 +45,11 @@ export function getBackend(): SdkBackend {
   _currentMode = mode;
   if (mode === "fvm") {
     // Lazy import to avoid loading FVM backend if not needed
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { FvmSdkBackend } = require("./fvmSdkBackend");
     _backend = new FvmSdkBackend();
   } else {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { NativeSdkBackend } = require("./nativeSdkBackend");
     _backend = new NativeSdkBackend();
   }
