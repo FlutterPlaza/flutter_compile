@@ -28,7 +28,7 @@ class CodePushSeedSecretsSubCommand extends Command<int> {
   final String name = 'seed-secrets';
   @override
   final String description =
-      'Push secrets from a .env file into GCP Secret Manager for Cloud Run deployment.';
+      'Push secrets from a .env file into GCP Secret Manager for server deployment.';
 
   static const _secretKeys = [
     'JWT_SECRET',

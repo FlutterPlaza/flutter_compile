@@ -358,7 +358,7 @@ class CodePushBuildService {
     return (privatePath, publicPath);
   }
 
-  /// Find the gen_snapshot binary from the Dart SDK fork.
+  /// Find the gen_snapshot binary for deterministic builds.
   /// Checks code push artifact cache first, then the contribution Flutter SDK,
   /// then falls back to PATH.
   String? findGenSnapshot() {
@@ -418,7 +418,7 @@ class CodePushBuildService {
   }) async {
     final genSnapshot = findGenSnapshot();
     if (genSnapshot == null) {
-      _logger.err('gen_snapshot not found. Ensure the Dart SDK fork is built.');
+      _logger.err('gen_snapshot not found. Run "fcp codepush setup" first.');
       return null;
     }
 
