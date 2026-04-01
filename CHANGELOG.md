@@ -1,13 +1,20 @@
 # CHANGE LOG
 
+## 0.14.0
+
+- feat: `fcp codepush patch --channel beta|production` — deploy patches to specific channels for safer rollouts
+- feat: `fcp codepush setup` now ensures the Dart SDK is available in the contribution Flutter repo, fixing the corrupt download issue
+- fix: `fcp codepush release --build` no longer reports failure after a successful build
+- fix: improved APK snapshot path detection for different Gradle output layouts
+- fix: improved error messages for missing tools
+
 ## 0.13.0
 
-- feat: `fcp codepush seed-secrets` command — push .env secrets into GCP Secret Manager for Cloud Run deployment
-- feat: multi-platform engine artifact support — added `buildPlatformToArtifactPlatform()` mapping for Android, iOS, macOS, Linux, Windows build targets
-- feat: platform-specific gen_snapshot and engine library path resolution (`genSnapshotPathForPlatform`, `isPlatformCached`)
+- feat: `fcp codepush seed-secrets` command — push .env secrets into GCP Secret Manager for server deployment
+- feat: multi-platform engine artifact support — Android, iOS, macOS, Linux, Windows build targets
+- feat: platform-specific gen_snapshot and engine library path resolution
 - feat: `engineLibraryPath` now accepts optional `platform` parameter for cross-platform engine swaps
-- security: removed proprietary .vmcode format specification comments from public code
-- fix: resolved all `dart analyze` errors (undefined methods, missing parameters)
+- fix: resolved all `dart analyze` errors
 - fix: formatted all source files to pass `dart format` checks
 
 ## 0.12.0
