@@ -95,6 +95,25 @@ class CodePushClient {
     await F.writeKeyValueToRcConfig(rcFile, Constants.codePushAppIdKey, appId);
   }
 
+  static Future<void> storeSigningKey(String path) async {
+    final home = F.homeDir();
+    final rcFile = File('$home/.flutter_compilerc');
+    await F.writeKeyValueToRcConfig(
+      rcFile,
+      Constants.codePushSigningKeyKey,
+      path,
+    );
+  }
+
+  static Future<String?> getStoredSigningKey() async {
+    final home = F.homeDir();
+    final rcFile = File('$home/.flutter_compilerc');
+    return F.readValueForKeyFromRcConfig(
+      rcFile,
+      Constants.codePushSigningKeyKey,
+    );
+  }
+
   /// Clear stored credentials.
   static Future<void> clearCredentials() async {
     final home = F.homeDir();

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -86,6 +87,32 @@ class CodePushInitSubCommand extends Command<int> {
       progress.complete('App created');
       _logger.info('  App ID: $appId');
       _logger.info('  Name:   $appName');
+
+      // Generate RSA signing key pair if not already present.
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final keyDir = '$home/.flutter_codepush';
+      final privateKeyPath = '$keyDir/codepush_private.pem';
+
+      if (!File(privateKeyPath).existsSync()) {
+        final keyProgress = _logger.progress('Generating RSA signing key pair');
+        final buildService = CodePushBuildService(logger: _logger);
+        final result = await buildService.generateSigningKey(keyDir);
+        if (result != null) {
+          await CodePushClient.storeSigningKey(result.$1);
+          keyProgress.complete('Signing keys generated');
+          _logger.info('  Private key: ${result.$1}');
+          _logger.info('  Public key:  ${result.$2}');
+        } else {
+          keyProgress
+              .fail('Could not generate signing keys (openssl missing?)');
+          _logger.warn(
+            'Patches will not be signed. Install openssl and re-run init.',
+          );
+        }
+      } else {
+        _logger.info('  Signing key: $privateKeyPath (existing)');
+      }
+
       _logger.info('  Stored in ~/.flutter_compilerc');
 
       return ExitCode.success.code;

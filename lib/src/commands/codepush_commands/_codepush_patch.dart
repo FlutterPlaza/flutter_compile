@@ -100,10 +100,11 @@ class CodePushPatchSubCommand extends Command<int> {
         }
       }
 
-      // Sign if signing key is provided.
+      // Sign the patch. Auto-detect stored key if --signing-key not provided.
       Uint8List? signature;
-      final signingKeyPath = argResults?['signing-key'] as String?;
-      if (signingKeyPath != null) {
+      var signingKeyPath = argResults?['signing-key'] as String?;
+      signingKeyPath ??= await CodePushClient.getStoredSigningKey();
+      if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
         final signProgress = _logger.progress('Signing patch');
         signature = await buildService.signPayload(payloadData, signingKeyPath);
         if (signature == null) {
@@ -111,6 +112,12 @@ class CodePushPatchSubCommand extends Command<int> {
           return ExitCode.software.code;
         }
         signProgress.complete('Signed (${signature.length} bytes)');
+      } else {
+        _logger.warn(
+          'No signing key found. Patch will be unsigned.\n'
+          '  Run "fcp codepush init" to generate a key pair, or use '
+          '--signing-key.',
+        );
       }
 
       final packageProgress = _logger.progress('Packaging .vmcode');

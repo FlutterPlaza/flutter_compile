@@ -1,5 +1,12 @@
 # CHANGE LOG
 
+## 0.15.0
+
+- feat: `fcp codepush init` now generates RSA signing key pair automatically
+- feat: `fcp codepush patch` auto-detects stored signing key — patches are signed by default
+- feat: warning displayed when patching without a signing key
+- security: signing is now the default workflow, not opt-in
+
 ## 0.14.0
 
 - feat: `fcp codepush patch --channel beta|production` — deploy patches to specific channels for safer rollouts
