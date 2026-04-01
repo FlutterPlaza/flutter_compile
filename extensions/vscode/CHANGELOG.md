@@ -1,16 +1,18 @@
 # Changelog
 
-## 0.3.1
+## 0.3.2
 
 ### Added
 
 - **Code Push tree view** — account status, current app, releases list, and patches per release in the sidebar
 - **Code Push commands** — Login, Init, Release, Patch, Rollback available from the Command Palette and tree view
 - **Code Push status** — view rollout percentages and active/inactive patch status
+- **Seed Secrets** — new `fcp codepush seed-secrets` support for GCP Secret Manager deployment
 
 ### Changed
 
 - Updated all Code Push commands to invoke `fcp codepush` CLI (Approach B: engine swap model)
+- CLI version bumped to v0.13.0 with multi-platform artifact support
 
 ## 0.3.0
 

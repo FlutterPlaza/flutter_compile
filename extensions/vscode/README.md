@@ -93,6 +93,24 @@ Switching SDKs automatically updates `dart.flutterSdkPath` in workspace settings
 | `Flutter Compile: Uninstall Environment` | Remove a contributor environment |
 | `Flutter Compile: Refresh SDKs / Doctor / Builds / All` | Refresh views |
 
+### Code Push
+
+Manage over-the-air updates for your Flutter apps directly from VS Code.
+
+**Tree View:** Account status, current app, releases, and patches with rollout percentages.
+
+**Commands:**
+
+| Command | Description |
+|---|---|
+| `Flutter Compile: Code Push Login` | Authenticate with the code push server |
+| `Flutter Compile: Code Push Init` | Initialize code push for the current project |
+| `Flutter Compile: Code Push Release` | Build and upload a baseline release |
+| `Flutter Compile: Code Push Patch` | Build and upload a patch |
+| `Flutter Compile: Code Push Rollback` | Deactivate a patch |
+
+---
+
 ## Extension Settings
 
 | Setting | Type | Default | Description |

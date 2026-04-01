@@ -1,16 +1,18 @@
 # Changelog
 
-## 0.3.1
+## 0.3.2
 
 ### Added
 
 - **Code Push tree panel** — view account, app, releases, and patches in the tool window
 - **Code Push actions** — Login, Release, Patch, Rollback from the Tools menu and context menus
 - **Code Push CLI integration** — all operations delegate to `fcp codepush` commands
+- **Seed Secrets** — new `fcp codepush seed-secrets` support for GCP Secret Manager deployment
 
 ### Changed
 
 - Updated Code Push actions to use Approach B (engine swap) CLI commands
+- CLI version bumped to v0.13.0 with multi-platform artifact support
 
 ## 0.3.0
 
