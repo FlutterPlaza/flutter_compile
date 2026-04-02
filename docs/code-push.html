@@ -86,7 +86,8 @@
   <h2 id="quick-start">Quick Start</h2>
 
   <h3>1. Authenticate</h3>
-  <pre><code>fcp codepush login --api-key YOUR_API_KEY</code></pre>
+  <pre><code># Opens your browser — sign in and click Authorize
+fcp codepush login</code></pre>
 
   <h3>2. Download engine artifacts</h3>
   <pre><code># Auto-detects your Flutter version
@@ -156,7 +157,7 @@ fcp codepush patch --build --release-id RELEASE_ID --rollout 25</code></pre>
       </tr>
       <tr>
         <td><code>fcp codepush login</code></td>
-        <td>Authenticate with the code push server</td>
+        <td>Authenticate via browser (or <code>--api-key</code> for headless)</td>
       </tr>
       <tr>
         <td><code>fcp codepush logout</code></td>
