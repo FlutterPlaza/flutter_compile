@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
@@ -8,7 +11,7 @@ class CodePushLoginSubCommand extends Command<int> {
     argParser
       ..addOption(
         'api-key',
-        help: 'API key for authentication.',
+        help: 'API key for authentication (skips browser flow).',
       )
       ..addOption(
         'server',
@@ -29,17 +32,105 @@ class CodePushLoginSubCommand extends Command<int> {
     final serverUrl =
         argResults?['server'] as String? ?? Constants.codePushDefaultServer;
 
-    // Get API key from flag or prompt.
-    var apiKey = argResults?['api-key'] as String?;
-    if (apiKey == null || apiKey.isEmpty) {
-      apiKey = _logger.prompt('Enter your API key:');
+    // If --api-key provided, use the old direct login flow.
+    final apiKey = argResults?['api-key'] as String?;
+    if (apiKey != null && apiKey.isNotEmpty) {
+      return _loginWithApiKey(serverUrl, apiKey);
     }
 
-    if (apiKey.isEmpty) {
-      _logger.err('API key is required.');
-      return ExitCode.usage.code;
-    }
+    // Default: browser-based device authorization flow.
+    return _loginWithBrowser(serverUrl);
+  }
 
+  Future<int> _loginWithBrowser(String serverUrl) async {
+    _logger.info('Opening browser for authentication...');
+    _logger.info('');
+
+    // Step 1: Request a device code.
+    final httpClient = HttpClient();
+    try {
+      final uri = Uri.parse('$serverUrl/api/v1/auth/device');
+      final request = await httpClient.postUrl(uri);
+      request.headers.set('Content-Type', 'application/json');
+      request.write('{}');
+      final response = await request.close();
+      final body = await response.transform(utf8.decoder).join();
+      final data = json.decode(body) as Map<String, dynamic>;
+
+      if (response.statusCode != 201) {
+        _logger.err(
+          'Failed to start login: ${data['error'] ?? 'Unknown'}',
+        );
+        return ExitCode.software.code;
+      }
+
+      final deviceCode = data['device_code'] as String;
+      final userCode = data['user_code'] as String;
+      final authorizeUrl = data['authorize_url'] as String;
+      final interval = data['interval'] as int? ?? 2;
+
+      // Step 2: Open browser.
+      _logger.info('Your authorization code: $userCode');
+      _logger.info('');
+
+      try {
+        await _openBrowser(authorizeUrl);
+        _logger.info('Browser opened. Authorize the CLI there.');
+      } catch (_) {
+        _logger.info('Open this URL in your browser:');
+        _logger.info('  $authorizeUrl');
+      }
+
+      _logger.info('');
+      final progress = _logger.progress('Waiting for authorization');
+
+      // Step 3: Poll for completion.
+      for (var i = 0; i < 300 ~/ interval; i++) {
+        await Future<void>.delayed(Duration(seconds: interval));
+
+        final pollUri = Uri.parse(
+          '$serverUrl/api/v1/auth/device?device_code=$deviceCode',
+        );
+        final pollReq = await httpClient.getUrl(pollUri);
+        final pollRes = await pollReq.close();
+        final pollBody = await pollRes.transform(utf8.decoder).join();
+        final pollData = json.decode(pollBody) as Map<String, dynamic>;
+
+        final status = pollData['status'] as String? ?? '';
+
+        if (status == 'complete') {
+          final token = pollData['token'] as String;
+          await CodePushClient.storeToken(token);
+          await CodePushClient.storeServerUrl(serverUrl);
+          progress.complete('Authenticated successfully');
+
+          final user = pollData['user'] as Map<String, dynamic>?;
+          if (user != null) {
+            _logger.info('  Email: ${user['email']}');
+            _logger.info('  Tier:  ${user['tier']}');
+          }
+          return ExitCode.success.code;
+        }
+
+        if (status == 'expired') {
+          progress.fail('Authorization expired. Run "fcp codepush login" again.');
+          return ExitCode.software.code;
+        }
+
+        // status == 'pending' — keep polling.
+      }
+
+      progress.fail('Timed out waiting for authorization.');
+      return ExitCode.software.code;
+    } catch (e) {
+      _logger.err('Login failed: $e');
+      return ExitCode.software.code;
+    } finally {
+      httpClient.close();
+    }
+  }
+
+  Future<int> _loginWithApiKey(String serverUrl, String apiKey) async {
     final progress = _logger.progress('Authenticating');
     final client = CodePushClient(serverUrl: serverUrl);
 
@@ -49,7 +140,8 @@ class CodePushLoginSubCommand extends Command<int> {
 
       if (statusCode != 200) {
         progress.fail(
-            'Authentication failed: ${result['error'] ?? 'Unknown error'}');
+          'Authentication failed: ${result['error'] ?? 'Unknown error'}',
+        );
         return ExitCode.software.code;
       }
 
@@ -63,9 +155,6 @@ class CodePushLoginSubCommand extends Command<int> {
       if (user != null) {
         _logger.info('  Email: ${user['email']}');
         _logger.info('  Tier:  ${user['tier']}');
-        _logger.info(
-          '  Subscription: ${user['has_active_subscription'] == true ? 'Active' : 'Inactive'}',
-        );
       }
 
       return ExitCode.success.code;
@@ -74,6 +163,16 @@ class CodePushLoginSubCommand extends Command<int> {
       return ExitCode.software.code;
     } finally {
       client.close();
+    }
+  }
+
+  Future<void> _openBrowser(String url) async {
+    if (Platform.isMacOS) {
+      await Process.run('open', [url]);
+    } else if (Platform.isLinux) {
+      await Process.run('xdg-open', [url]);
+    } else if (Platform.isWindows) {
+      await Process.run('start', [url], runInShell: true);
     }
   }
 }
