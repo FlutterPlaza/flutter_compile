@@ -26,7 +26,7 @@ class CodePushPatchSubCommand extends Command<int> {
       ..addFlag(
         'build',
         help:
-            'Compile the current source to kernel and package as .vmcode before uploading.',
+            'Build the app with Flutter, extract snapshot, and package as .vmcode.',
         defaultsTo: false,
       )
       ..addOption(
@@ -41,6 +41,10 @@ class CodePushPatchSubCommand extends Command<int> {
         'channel',
         help: 'Deployment channel (e.g., beta, production).',
         defaultsTo: 'production',
+      )
+      ..addOption(
+        'platform',
+        help: 'Target platform (apk, appbundle, ios, linux, macos, windows).',
       );
   }
 
@@ -66,37 +70,61 @@ class CodePushPatchSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // If --build, compile kernel and package as .vmcode.
+    // If --build, use flutter build to compile, then extract the snapshot.
     final shouldBuild = argResults?['build'] as bool? ?? false;
     final buildService = CodePushBuildService(logger: _logger);
 
     if (shouldBuild) {
-      final compileProgress = _logger.progress('Compiling kernel');
-      final kernelPath = await buildService.compileKernel();
-      if (kernelPath == null) {
-        compileProgress.fail('Kernel compilation failed');
+      var platform = argResults?['platform'] as String?;
+      platform ??= buildService.detectPlatform();
+      if (platform == null) {
+        _logger.err(
+          'Cannot detect platform. '
+          'Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
+        );
+        return ExitCode.usage.code;
+      }
+
+      // Build the app using Flutter's own compiler (handles dart:ui etc).
+      final buildProgress = _logger.progress('Building ($platform)');
+      final buildOk = await buildService.buildRelease(platform: platform);
+      if (!buildOk) {
+        buildProgress.fail('Build failed');
         return ExitCode.software.code;
       }
-      compileProgress.complete('Kernel compiled');
+      buildProgress.complete('Build succeeded');
 
-      final kernelData = File(kernelPath).readAsBytesSync();
+      // Extract the AOT snapshot from the build output.
+      final snapshotPath = buildService.findSnapshotPath(platform);
+      if (snapshotPath == null) {
+        _logger.err(
+          'Could not find snapshot in build output. '
+          'Build succeeded but snapshot path is unknown for $platform.',
+        );
+        return ExitCode.software.code;
+      }
 
-      // If baseline is provided, compute binary diff instead of full kernel.
+      _logger.detail('Using snapshot: $snapshotPath');
+      final snapshotData = File(snapshotPath).readAsBytesSync();
+
+      // If baseline is provided, compute binary diff instead of full snapshot.
       Uint8List payloadData;
       final baselinePath = argResults?['baseline'] as String?;
       if (baselinePath != null && File(baselinePath).existsSync()) {
         final diffProgress = _logger.progress('Computing binary diff');
         final baseline = File(baselinePath).readAsBytesSync();
-        payloadData = bsdiff(baseline, Uint8List.fromList(kernelData));
-        final savings = kernelData.length - payloadData.length;
+        payloadData = bsdiff(baseline, Uint8List.fromList(snapshotData));
+        final savings = snapshotData.length - payloadData.length;
         diffProgress.complete(
-          'Diff: ${payloadData.length} bytes (saved ${savings > 0 ? savings : 0} bytes)',
+          'Diff: ${payloadData.length} bytes '
+          '(saved ${savings > 0 ? savings : 0} bytes)',
         );
       } else {
-        payloadData = Uint8List.fromList(kernelData);
+        payloadData = Uint8List.fromList(snapshotData);
         if (baselinePath != null) {
-          _logger
-              .warn('Baseline not found at $baselinePath, using full kernel.');
+          _logger.warn(
+            'Baseline not found at $baselinePath, using full snapshot.',
+          );
         }
       }
 
