@@ -130,7 +130,7 @@ fcp codepush release --build --platform apk</code></pre>
 
   <h3>6. Push a patch</h3>
   <pre><code># Make code changes, then:
-fcp codepush patch --build --release-id RELEASE_ID --rollout 25</code></pre>
+fcp codepush patch --build --platform apk --release-id RELEASE_ID --rollout 25</code></pre>
   <p>
     The CLI compiles the patched source, computes a binary diff against the
     baseline, signs it with your RSA key, packages it as a <code>.vmcode</code>
