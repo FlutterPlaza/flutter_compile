@@ -1,5 +1,13 @@
 # CHANGE LOG
 
+## 0.16.0
+
+- feat: `fcp codepush login` — browser-based authentication (no API key in terminal)
+- feat: `fcp codepush apps list` — list all apps on your account
+- feat: `fcp codepush apps create` — create a new app from CLI
+- feat: `fcp codepush billing usage` — view plan, installs, and usage percentage
+- feat: 39 codepush subcommand tests (343 total)
+
 ## 0.15.0
 
 - feat: `fcp codepush init` now generates RSA signing key pair automatically

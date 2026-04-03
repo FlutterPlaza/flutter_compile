@@ -113,7 +113,8 @@ class CodePushLoginSubCommand extends Command<int> {
         }
 
         if (status == 'expired') {
-          progress.fail('Authorization expired. Run "fcp codepush login" again.');
+          progress
+              .fail('Authorization expired. Run "fcp codepush login" again.');
           return ExitCode.software.code;
         }
 
