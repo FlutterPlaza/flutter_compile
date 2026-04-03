@@ -1,5 +1,12 @@
 # CHANGE LOG
 
+## 0.17.0
+
+- feat: `fcp codepush register` — browser OAuth flow, auto-creates account (alias for login)
+- feat: `fcp switch` now copies Dart SDK to contribution repo (fixes broken download)
+- feat: budget alerts UI in Console settings (threshold selector + save)
+- feat: `--api-key` fallback on both register and login for headless/CI use
+
 ## 0.16.0
 
 - feat: `fcp codepush login` — browser-based authentication (no API key in terminal)
