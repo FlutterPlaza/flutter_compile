@@ -676,9 +676,15 @@ class CodePushBuildService {
   /// Returns true on success, false if artifacts not found or swap failed.
   Future<bool> swapEngine({
     required String buildPlatform,
-    required String flutterVersion,
+    String? flutterVersion,
     required CodePushArtifactManager artifactManager,
   }) async {
+    // Auto-detect Flutter version if not provided.
+    flutterVersion ??= artifactManager.detectFlutterVersion();
+    if (flutterVersion == null) {
+      _logger.err('Could not detect Flutter version for engine swap.');
+      return false;
+    }
     final artifactPlatform =
         CodePushArtifactManager.buildPlatformToArtifactPlatform(buildPlatform);
     if (artifactPlatform == null) {

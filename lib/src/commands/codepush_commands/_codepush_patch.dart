@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/binary_diff.dart';
+import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -83,6 +84,22 @@ class CodePushPatchSubCommand extends Command<int> {
           'Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
         );
         return ExitCode.usage.code;
+      }
+
+      // Swap standard engine with code-push engine before building.
+      final swapProgress = _logger.progress('Preparing code push build');
+      final swapped = await buildService.swapEngine(
+        buildPlatform: platform,
+        flutterVersion: null,
+        artifactManager: CodePushArtifactManager(logger: _logger),
+      );
+      if (swapped) {
+        swapProgress.complete('Ready');
+      } else {
+        swapProgress.fail(
+          'Code push build preparation failed.'
+          'Run "fcp codepush setup" first.',
+        );
       }
 
       // Build the app using Flutter's own compiler (handles dart:ui etc).
