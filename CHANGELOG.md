@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.18.0
+
+- fix: `fcp codepush patch --build` now uses `flutter build` instead of raw Dart kernel compiler — fixes dart:ui missing types
+- feat: `fcp codepush patch --platform` flag to specify target platform
+- feat: `appbundle` added as supported platform for Android App Bundle builds
+
 ## 0.17.0
 
 - feat: `fcp codepush register` — browser OAuth flow, auto-creates account (alias for login)
