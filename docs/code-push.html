@@ -124,8 +124,8 @@ Future&lt;void&gt; checkForUpdates() async {
   <pre><code># Build and upload baseline
 fcp codepush release --build --platform apk</code></pre>
   <p>
-    This runs <code>flutter build</code>, swaps the engine library in the
-    build output, and uploads the AOT snapshot to the server.
+    This builds your app with code push support enabled and uploads
+    the snapshot to the server.
   </p>
 
   <h3>6. Push a patch</h3>
@@ -188,48 +188,14 @@ fcp codepush patch --build --platform apk --release-id RELEASE_ID --rollout 25</
 
   <h2 id="engine-artifacts">Engine Artifacts</h2>
   <p>
-    The <code>fcp codepush setup</code> command downloads pre-built engine
-    binaries from Google Cloud Storage. Each Flutter version has its own
-    set of artifacts:
+    The <code>fcp codepush setup</code> command downloads code-push-enabled
+    build tools for your Flutter version and platform. Artifacts are cached
+    locally and verified via SHA-256 checksums.
   </p>
-  <table>
-    <thead>
-      <tr><th>Platform</th><th>Artifacts</th></tr>
-    </thead>
-    <tbody>
-      <tr><td>darwin-arm64</td><td><code>gen_snapshot</code>, <code>libflutter_engine.dylib</code></td></tr>
-      <tr><td>darwin-x64</td><td><code>gen_snapshot</code>, <code>libflutter_engine.dylib</code></td></tr>
-      <tr><td>linux-x64</td><td><code>gen_snapshot</code>, <code>libflutter.so</code></td></tr>
-      <tr><td>windows-x64</td><td><code>gen_snapshot.exe</code>, <code>flutter_engine.dll</code></td></tr>
-      <tr><td>android-arm64</td><td><code>gen_snapshot</code>, <code>libflutter.so</code></td></tr>
-      <tr><td>ios-arm64</td><td><code>gen_snapshot</code>, <code>Flutter.xcframework.tar.gz</code></td></tr>
-    </tbody>
-  </table>
   <p>
-    Artifacts are cached at
-    <code>~/.flutter_compile/cache/codepush-engine/flutter-&lt;version&gt;/&lt;platform&gt;/</code>
-    and verified via SHA-256 checksums.
+    Supported platforms: Android (arm64), iOS (arm64), macOS (arm64, x64),
+    Linux (x64), Windows (x64).
   </p>
-
-  <h2 id="engine-swap">Engine Swap</h2>
-  <p>
-    When you run <code>fcp codepush release --build</code>, the CLI:
-  </p>
-  <ol>
-    <li>Runs <code>flutter build &lt;platform&gt; --release</code> using the standard SDK.</li>
-    <li>Replaces the engine library in the build output with the code-push-enabled version:
-      <ul>
-        <li><strong>Android:</strong> <code>libflutter.so</code> in <code>stripped_native_libs/</code></li>
-        <li><strong>iOS:</strong> <code>Flutter.framework</code> from the xcframework archive</li>
-        <li><strong>macOS:</strong> <code>FlutterMacOS</code> in <code>Frameworks/</code></li>
-        <li><strong>Linux:</strong> <code>libflutter_linux_gtk.so</code> in <code>bundle/lib/</code></li>
-        <li><strong>Windows:</strong> <code>flutter_windows.dll</code> in <code>runner/Release/</code></li>
-      </ul>
-    </li>
-    <li>Optionally re-runs <code>gen_snapshot</code> with <code>--deterministic</code> for
-        stable binary diffs.</li>
-  </ol>
-  <p>Original files are backed up with a <code>.original</code> suffix.</p>
 
   <h2 id="runtime-api">Runtime API</h2>
   <p>
