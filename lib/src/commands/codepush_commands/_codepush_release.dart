@@ -103,7 +103,7 @@ class CodePushReleaseSubCommand extends Command<int> {
 
       // Swap standard engine with code-push engine before building.
       final swapProgress = _logger.progress('Preparing code push build');
-      final swapped = await buildService.swapEngine(
+      final swapped = await buildService.prepareBuild(
         buildPlatform: platform,
         flutterVersion: null, // auto-detect
         artifactManager: CodePushArtifactManager(logger: _logger),
