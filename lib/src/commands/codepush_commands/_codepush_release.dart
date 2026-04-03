@@ -24,7 +24,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       ..addOption(
         'platform',
         abbr: 'p',
-        help: 'Target platform (apk, ios, linux, macos, windows).',
+        help: 'Target platform (apk, appbundle, ios, linux, macos, windows).',
       )
       ..addFlag(
         'build',
@@ -95,7 +95,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       platform ??= buildService.detectPlatform();
       if (platform == null) {
         _logger.err(
-          'Cannot detect platform. Use --platform to specify (apk, ios, linux, macos, windows).',
+          'Cannot detect platform. Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
         );
         return ExitCode.usage.code;
       }
