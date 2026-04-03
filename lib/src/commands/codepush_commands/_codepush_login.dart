@@ -42,6 +42,15 @@ class CodePushLoginSubCommand extends Command<int> {
     return _loginWithBrowser(serverUrl);
   }
 
+  /// Called by register command to forward args.
+  Future<int> runWith({String? apiKey, String? serverUrl}) async {
+    final server = serverUrl ?? Constants.codePushDefaultServer;
+    if (apiKey != null && apiKey.isNotEmpty) {
+      return _loginWithApiKey(server, apiKey);
+    }
+    return _loginWithBrowser(server);
+  }
+
   Future<int> _loginWithBrowser(String serverUrl) async {
     _logger.info('Opening browser for authentication...');
     _logger.info('');
