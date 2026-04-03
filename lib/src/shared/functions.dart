@@ -461,6 +461,8 @@ class F {
         contents += flutterCompilePATHExport;
         await envFile.parent.create(recursive: true);
         await envFile.writeAsString(contents);
+        // Ensure the Dart SDK is available in the contribution repo.
+        _ensureDartSdkForCompiled(flutterCompilePath);
         logger.success(Constants.flutterCompileSwitchedToCompiled);
       } else if (mode == FlutterMode.normal && isUsingCompiledVersion) {
         contents = contents.replaceAll(_flutterCompileBlockPattern, '');
@@ -472,6 +474,9 @@ class F {
             : contents + flutterCompilePATHExport;
         await envFile.parent.create(recursive: true);
         await envFile.writeAsString(contents);
+        if (!isUsingCompiledVersion) {
+          _ensureDartSdkForCompiled(flutterCompilePath);
+        }
         logger.success(
           isUsingCompiledVersion
               ? Constants.flutterCompileSwitchedToNormal
@@ -490,6 +495,47 @@ class F {
       final message = 'Error: $e';
       logger.err(message);
       throw FlutterCompileException(message, exitCode: ExitCode.software.code);
+    }
+  }
+
+  /// Copy Dart SDK from the active Flutter installation into the contribution
+  /// Flutter repo so `fcp switch` doesn't fail with a broken Dart SDK download.
+  static void _ensureDartSdkForCompiled(String compiledFlutterPath) {
+    try {
+      final targetDart =
+          File('$compiledFlutterPath/bin/cache/dart-sdk/bin/dart');
+      if (targetDart.existsSync()) return; // Already has a Dart SDK.
+
+      // Find the source Dart SDK.
+      final result = Process.runSync('which', ['flutter']);
+      if (result.exitCode != 0) return;
+
+      final flutterBin = (result.stdout as String).trim();
+      final resolved = File(flutterBin).resolveSymbolicLinksSync();
+      final sourceRoot = File(resolved).parent.parent.path;
+      final sourceDart = File('$sourceRoot/bin/cache/dart-sdk/bin/dart');
+      if (!sourceDart.existsSync()) return;
+
+      final sourceDir = '$sourceRoot/bin/cache/dart-sdk';
+      final targetDir = '$compiledFlutterPath/bin/cache/dart-sdk';
+
+      if (sourceDir == targetDir) return;
+
+      // Remove stale target.
+      final target = Directory(targetDir);
+      if (target.existsSync()) target.deleteSync(recursive: true);
+
+      Process.runSync('cp', ['-R', sourceDir, targetDir]);
+
+      // Update stamp so Flutter doesn't re-download.
+      final engineStamp = File('$compiledFlutterPath/bin/cache/engine.stamp');
+      if (engineStamp.existsSync()) {
+        final hash = engineStamp.readAsStringSync().trim();
+        File('$compiledFlutterPath/bin/cache/engine-dart-sdk.stamp')
+            .writeAsStringSync(hash);
+      }
+    } catch (_) {
+      // Best effort — don't break switch if this fails.
     }
   }
 

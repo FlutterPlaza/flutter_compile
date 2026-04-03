@@ -2,6 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_apps.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_billing.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_init.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_register.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_login.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_logout.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_account.dart';
@@ -34,6 +35,7 @@ class CodePushCommand extends Command<int> {
     addSubcommand(CodePushSetupSubCommand(_logger));
     addSubcommand(CodePushInitSubCommand(_logger));
     addSubcommand(CodePushLoginSubCommand(_logger));
+    addSubcommand(CodePushRegisterSubCommand(_logger));
     addSubcommand(CodePushLogoutSubCommand(_logger));
     addSubcommand(CodePushAccountSubCommand(_logger));
     addSubcommand(CodePushReleaseSubCommand(_logger));
