@@ -1,4 +1,6 @@
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_apps.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_billing.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_init.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_login.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_logout.dart';
@@ -38,6 +40,8 @@ class CodePushCommand extends Command<int> {
     addSubcommand(CodePushPatchSubCommand(_logger));
     addSubcommand(CodePushRollbackSubCommand(_logger));
     addSubcommand(CodePushStatusSubCommand(_logger));
+    addSubcommand(CodePushAppsSubCommand(_logger));
+    addSubcommand(CodePushBillingSubCommand(_logger));
     addSubcommand(CodePushSeedSecretsSubCommand(_logger));
   }
 
@@ -65,6 +69,8 @@ class CodePushCommand extends Command<int> {
     _logger.info('  patch      Upload a patch (paid)');
     _logger.info('  rollback   Deactivate a patch');
     _logger.info('  status       Show releases and patches');
+    _logger.info('  apps         List and manage your apps');
+    _logger.info('  billing      View usage and billing info');
     _logger.info('  seed-secrets Push .env secrets to GCP Secret Manager');
     return ExitCode.success.code;
   }
