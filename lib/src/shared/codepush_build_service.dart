@@ -19,9 +19,7 @@ class CodePushBuildService {
 
   final Logger _logger;
 
-  static const vmcodeMagic = [0x56, 0x4D, 0x43, 0x4F, 0x44, 0x45, 0x00, 0x00];
-  static const vmcodeVersion = 1;
-  static const vmcodeHeaderSize = 52;
+  // Patch format constants are handled by the fcp-tool binary.
 
   /// Find the `flutter` executable.
   String? findFlutterBin() {
@@ -214,73 +212,7 @@ class CodePushBuildService {
     return output;
   }
 
-  /// Package payload into .vmcode format.
-  Uint8List packageVmcode(Uint8List payload, {Uint8List? signature}) {
-    signature ??= Uint8List(0);
-
-    final hashBytes = sha256.convert(payload).bytes;
-    final payloadOffset = vmcodeHeaderSize + signature.length;
-
-    final header = ByteData(vmcodeHeaderSize);
-    for (var i = 0; i < 8; i++) {
-      header.setUint8(i, vmcodeMagic[i]);
-    }
-    header.setUint32(8, vmcodeVersion, Endian.little);
-    header.setUint32(12, payloadOffset, Endian.little);
-    for (var i = 0; i < 32; i++) {
-      header.setUint8(16 + i, hashBytes[i]);
-    }
-    header.setUint32(48, signature.length, Endian.little);
-
-    final buffer = BytesBuilder();
-    buffer.add(header.buffer.asUint8List());
-    buffer.add(signature);
-    buffer.add(payload);
-
-    return buffer.toBytes();
-  }
-
-  /// Verify and extract payload from a .vmcode file.
-  Uint8List? extractVmcode(Uint8List vmcodeData) {
-    if (vmcodeData.length < vmcodeHeaderSize) {
-      _logger.err('.vmcode file too small');
-      return null;
-    }
-
-    for (var i = 0; i < 8; i++) {
-      if (vmcodeData[i] != vmcodeMagic[i]) {
-        _logger.err('Invalid .vmcode magic bytes');
-        return null;
-      }
-    }
-
-    final bd = vmcodeData.buffer.asByteData(vmcodeData.offsetInBytes);
-    final version = bd.getUint32(8, Endian.little);
-    if (version != vmcodeVersion) {
-      _logger.err('Unsupported .vmcode version: $version');
-      return null;
-    }
-
-    final payloadOffset = bd.getUint32(12, Endian.little);
-    final storedHash = vmcodeData.sublist(16, 48);
-
-    if (payloadOffset > vmcodeData.length) {
-      _logger.err('.vmcode payload offset exceeds file size');
-      return null;
-    }
-
-    final payload = vmcodeData.sublist(payloadOffset);
-
-    final computedHash = sha256.convert(payload).bytes;
-    for (var i = 0; i < 32; i++) {
-      if (storedHash[i] != computedHash[i]) {
-        _logger.err('.vmcode integrity check failed');
-        return null;
-      }
-    }
-
-    return Uint8List.fromList(payload);
-  }
+  // Patch packaging and extraction are handled by the fcp-tool binary.
 
   /// Sign data with RSA-SHA256 using a PEM private key file.
   /// Returns the signature bytes, or null if signing fails.
@@ -473,105 +405,53 @@ class CodePushBuildService {
   }
 
   // ── Engine swap logic ───────────────────────────────────────────
+  // Engine swap, gen_snapshot swap, and build tool management are handled
+  // by the fcp-tool binary. See `fcp codepush setup` for details.
 
-  /// Swap the engine library in an Android APK build output.
-  ///
-  /// Replaces `libflutter.so` in the native libs directory with the
-  /// code-push-enabled version from the artifact cache.
-  ///
-  /// Returns true on success.
   /// Prepare the build for code push.
   ///
-  /// Downloads and runs a pre-compiled build tool that configures the
-  /// build environment. The tool is distributed as a binary — its source
-  /// is not included in this package.
+  /// Swaps the Flutter SDK's gen_snapshot with our code-push version so that
+  /// the AOT snapshot compiled by `flutter build` matches the code-push engine
+  /// runtime. Also runs a pre-compiled build tool to swap the engine library
+  /// in the build output.
+  /// Prepare the build for code push.
+  ///
+  /// Delegates to the fcp-tool binary which handles engine and
+  /// gen_snapshot swapping.
   Future<bool> prepareBuild({
     required String buildPlatform,
     String? flutterVersion,
     required CodePushArtifactManager artifactManager,
   }) async {
-    flutterVersion ??= artifactManager.detectFlutterVersion();
-    if (flutterVersion == null) {
-      _logger.err('Could not detect Flutter version.');
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) {
+      _logger.err('Build tool not available. Run "fcp codepush setup" first.');
       return false;
     }
-
-    final artifactPlatform =
-        CodePushArtifactManager.buildPlatformToArtifactPlatform(
-      buildPlatform,
-    );
-    if (artifactPlatform == null) {
-      _logger.err('Unknown build platform: $buildPlatform');
-      return false;
-    }
-
-    final engineLib = artifactManager.engineLibraryPath(
-      flutterVersion,
-      platform: artifactPlatform,
-    );
-    if (engineLib == null) {
-      _logger.err(
-        'Cached artifacts not found. '
-        'Run "fcp codepush setup" first.',
-      );
-      return false;
-    }
-
-    final toolPath = await _ensureBuildTool();
-    if (toolPath == null) {
-      _logger.err('Build tool not available.');
-      return false;
-    }
-
-    final result = Process.runSync(toolPath, [buildPlatform, engineLib]);
+    final result = Process.runSync(tool, ['prepare', buildPlatform]);
     if (result.exitCode != 0) {
-      _logger.err('Build preparation failed (exit ${result.exitCode}).');
+      _logger.err('Build preparation failed.');
     }
     return result.exitCode == 0;
   }
 
-  Future<String?> _ensureBuildTool() async {
-    final home = Platform.environment['HOME'] ?? '/tmp';
-    final os = Platform.isMacOS
-        ? 'darwin'
-        : Platform.isLinux
-            ? 'linux'
-            : Platform.isWindows
-                ? 'windows'
-                : 'unknown';
-    final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
-    final name = 'fcp-tool-$os-$arch';
-    final cached = '$home/.flutter_compile/cache/tools/$name';
-
-    if (File(cached).existsSync()) return cached;
-
-    final url = '${Constants.codePushArtifactBaseUrl}/tools/$name';
-    _logger.detail('Downloading build tool...');
-
-    try {
-      final client = HttpClient();
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
-      if (response.statusCode != 200) {
-        client.close();
-        return null;
-      }
-
-      final dir = Directory('$home/.flutter_compile/cache/tools');
-      if (!dir.existsSync()) dir.createSync(recursive: true);
-
-      final file = File(cached);
-      final sink = file.openWrite();
-      await response.pipe(sink);
-      client.close();
-
-      if (!Platform.isWindows) {
-        Process.runSync('chmod', ['+x', cached]);
-      }
-      return cached;
-    } catch (e) {
-      _logger.err('Failed to download build tool: $e');
-      return null;
+  /// Swap the engine library in the build output AFTER `flutter build`.
+  ///
+  /// Delegates to the fcp-tool binary.
+  Future<bool> swapEngineLibrary({
+    required String buildPlatform,
+    String? flutterVersion,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) {
+      _logger.err('Build tool not available.');
+      return false;
     }
+    final result = Process.runSync(tool, ['swap-engine', buildPlatform]);
+    if (result.exitCode != 0) {
+      _logger.err('Engine swap failed.');
+    }
+    return result.exitCode == 0;
   }
 }

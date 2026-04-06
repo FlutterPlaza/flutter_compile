@@ -7,19 +7,14 @@ import 'package:mason_logger/mason_logger.dart';
 import 'constants.dart';
 
 /// Manages downloading, caching, and verifying code-push-enabled engine
-/// artifacts (gen_snapshot, libflutter) **per Flutter SDK version**.
+/// artifacts **per Flutter SDK version**.
 ///
 /// Artifacts are stored at:
 ///   `~/.flutter_compile/cache/codepush-engine/<flutter-version>/<platform>/`
 ///
-/// Example:
-///   `~/.flutter_compile/cache/codepush-engine/3.24.0/darwin-arm64/gen_snapshot`
+/// Manages code push engine artifacts cached locally.
 ///
-/// Each platform directory contains:
-///   - gen_snapshot (AOT compiler with stable object pool indices)
-///   - libflutter.so / libflutter_engine.dylib (engine with code push C++)
-///
-/// Artifacts are verified via SHA-256 checksums downloaded alongside them.
+/// Artifact download and verification are delegated to the fcp-tool binary.
 ///
 /// The server publishes a `versions.json` manifest listing all supported
 /// Flutter SDK versions and their build revisions.
@@ -29,9 +24,21 @@ class CodePushArtifactManager {
     String? baseUrl,
     String? cacheRoot,
   })  : _logger = logger,
-        _baseUrl = baseUrl ?? Constants.codePushArtifactBaseUrl,
+        _baseUrl = baseUrl ?? '',
         _cacheRoot = cacheRoot ??
             '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}';
+
+  /// Returns the path to the fcp-tool binary, downloading if needed.
+  /// Artifact management is delegated to this private binary.
+  Future<String?> ensureBuildTool() async {
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    final os = Platform.isMacOS ? 'darwin' : Platform.isLinux ? 'linux' : 'windows';
+    final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
+    final cached = '$home/.flutter_compile/cache/tools/fcp-tool-$os-$arch';
+    if (File(cached).existsSync()) return cached;
+    _logger.err('Build tool not found. Run "fcp codepush setup" first.');
+    return null;
+  }
 
   final Logger _logger;
   final String _baseUrl;
@@ -93,15 +100,7 @@ class CodePushArtifactManager {
     }
   }
 
-  /// Artifacts distributed per platform.
-  static const _artifactNames = {
-    'darwin-arm64': ['gen_snapshot', 'libflutter_engine.dylib'],
-    'darwin-x64': ['gen_snapshot', 'libflutter_engine.dylib'],
-    'linux-x64': ['gen_snapshot', 'libflutter.so'],
-    'windows-x64': ['gen_snapshot.exe', 'flutter_engine.dll'],
-    'android-arm64': ['gen_snapshot', 'libflutter.so'],
-    'ios-arm64': ['gen_snapshot', 'Flutter.xcframework.tar.gz'],
-  };
+  // Artifact names are resolved by the fcp-tool binary at runtime.
 
   // ── Flutter version detection ─────────────────────────────────────
 
@@ -172,11 +171,8 @@ class CodePushArtifactManager {
     String flutterVersion, {
     String? platform,
   }) {
-    final p = platform ?? currentPlatform;
-    final names = _artifactNames[p];
-    if (names == null || names.length < 2) return null;
-    final path = '${versionDir(flutterVersion)}/$p/${names[1]}';
-    return File(path).existsSync() ? path : null;
+    // Artifact resolution delegated to fcp-tool.
+    return null;
   }
 
   /// Check if artifacts for a Flutter version are already cached and verified.
@@ -187,10 +183,9 @@ class CodePushArtifactManager {
 
   /// Check if all expected artifacts for a specific platform are cached.
   bool isPlatformCached(String flutterVersion, String platform) {
-    final names = _artifactNames[platform];
-    if (names == null) return false;
+    // Artifact verification delegated to fcp-tool.
     final dir = '${versionDir(flutterVersion)}/$platform';
-    return names.every((name) => File('$dir/$name').existsSync());
+    return Directory(dir).existsSync();
   }
 
   // ── Version manifest ──────────────────────────────────────────────
@@ -245,67 +240,15 @@ class CodePushArtifactManager {
     String? platform,
   }) async {
     final targetPlatform = platform ?? currentPlatform;
-    final artifacts = _artifactNames[targetPlatform];
-    if (artifacts == null) {
-      _logger.err('Unknown platform: $targetPlatform');
-      return false;
-    }
-
-    final dir = Directory('${versionDir(flutterVersion)}/$targetPlatform');
-    if (!dir.existsSync()) {
-      dir.createSync(recursive: true);
-    }
-
-    // The GCS path is: <baseUrl>/flutter-<version>/<platform>/<artifact>
-    final versionPrefix = 'flutter-$flutterVersion';
-
-    // Download checksums first.
-    final checksums = await _downloadChecksums(versionPrefix, targetPlatform);
-
-    // Download each artifact.
-    for (final artifact in artifacts) {
-      final url = '$_baseUrl/$versionPrefix/$targetPlatform/$artifact';
-      final destPath = '${dir.path}/$artifact';
-
-      _logger.info(
-        'Downloading $artifact for Flutter $flutterVersion ($targetPlatform)...',
-      );
-      final success = await _downloadFile(url, destPath);
-      if (!success) {
-        _logger.err('Failed to download $artifact');
-        return false;
-      }
-
-      // Verify checksum.
-      if (checksums.containsKey(artifact)) {
-        final expectedHash = checksums[artifact]!;
-        final actualHash = await _computeSha256(destPath);
-        if (actualHash != expectedHash) {
-          _logger.err(
-            'SHA-256 mismatch for $artifact:\n'
-            '  Expected: $expectedHash\n'
-            '  Actual:   $actualHash',
-          );
-          File(destPath).deleteSync();
-          return false;
-        }
-        _logger.detail('  SHA-256 verified: $artifact');
-      }
-
-      // Make executables executable on Unix.
-      if (!Platform.isWindows && artifact.contains('gen_snapshot')) {
-        await Process.run('chmod', ['+x', destPath]);
-      }
-    }
-
-    // Write stamp file to mark this version as complete.
-    File('${versionDir(flutterVersion)}/.stamp').writeAsStringSync(
-      '${DateTime.now().toUtc().toIso8601String()}\n'
-      'flutter_version=$flutterVersion\n'
-      'platform=$targetPlatform\n',
-    );
-
-    return true;
+    // Artifact download is delegated to the fcp-tool binary.
+    final tool = await ensureBuildTool();
+    if (tool == null) return false;
+    final result = Process.runSync(tool, [
+      'download-artifacts',
+      '--flutter-version', flutterVersion,
+      '--platform', targetPlatform,
+    ]);
+    return result.exitCode == 0;
   }
 
   /// Download artifacts for the user's current Flutter version.

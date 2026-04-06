@@ -249,11 +249,8 @@ if (-not $env:FLUTTER_COMPILE_SDK) {
   static const codePushSigningKeyKey = 'codepush_signing_key';
   static const codePushPinnedCertKey = 'codepush_pinned_cert';
 
-  // Code Push Engine Artifacts
-  static const codePushArtifactBaseUrl =
-      'https://storage.googleapis.com/flutterplaza-codepush-artifacts';
+  // Code Push Engine Artifacts — resolved at runtime from server config.
   static const codePushCacheDir = 'codepush-engine';
-  static const codePushRevisionKey = 'codepush_engine_revision'; // legacy
   static const codePushEngineVersionKey = 'codepush_engine_flutter_version';
 
   /// Returns the platform-appropriate PATH export template for flutter_compile.

@@ -86,23 +86,25 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
 
-      // Swap standard engine with code-push engine before building.
-      final swapProgress = _logger.progress('Preparing code push build');
-      final swapped = await buildService.prepareBuild(
+      final artifactManager = CodePushArtifactManager(logger: _logger);
+
+      // Step 1: Swap gen_snapshot BEFORE building.
+      final prepProgress = _logger.progress('Preparing code push build');
+      final prepared = await buildService.prepareBuild(
         buildPlatform: platform,
         flutterVersion: null,
-        artifactManager: CodePushArtifactManager(logger: _logger),
+        artifactManager: artifactManager,
       );
-      if (swapped) {
-        swapProgress.complete('Ready');
+      if (prepared) {
+        prepProgress.complete('Ready');
       } else {
-        swapProgress.fail(
-          'Code push build preparation failed.'
+        prepProgress.fail(
+          'Code push build preparation failed. '
           'Run "fcp codepush setup" first.',
         );
       }
 
-      // Build the app using Flutter's own compiler (handles dart:ui etc).
+      // Step 2: Build the app (uses our swapped gen_snapshot).
       final buildProgress = _logger.progress('Building ($platform)');
       final buildOk = await buildService.buildRelease(platform: platform);
       if (!buildOk) {
@@ -110,6 +112,20 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
       buildProgress.complete('Build succeeded');
+
+      // Step 3: Swap engine library in build output AFTER building.
+      final swapProgress = _logger.progress('Swapping engine');
+      final swapped = await buildService.swapEngineLibrary(
+        buildPlatform: platform,
+        flutterVersion: null,
+        artifactManager: artifactManager,
+      );
+      if (swapped) {
+        swapProgress.complete('Engine swapped');
+      } else {
+        swapProgress.fail('Engine swap failed');
+        return ExitCode.software.code;
+      }
 
       // Extract the AOT snapshot from the build output.
       final snapshotPath = buildService.findSnapshotPath(platform);
@@ -165,14 +181,21 @@ class CodePushPatchSubCommand extends Command<int> {
         );
       }
 
-      final packageProgress = _logger.progress('Packaging .vmcode');
-      final vmcodeData =
-          buildService.packageVmcode(payloadData, signature: signature);
+      // Packaging delegated to fcp-tool.
+      final packageProgress = _logger.progress('Packaging patch');
+      final am = CodePushArtifactManager(logger: _logger);
+      final tool = await am.ensureBuildTool();
+      if (tool == null) {
+        packageProgress.fail('Build tool not found.');
+        return ExitCode.software.code;
+      }
       final vmcodePath = 'build/codepush/patch.vmcode';
-      File(vmcodePath).writeAsBytesSync(vmcodeData);
-      packageProgress.complete(
-        'Packaged ${vmcodeData.length} bytes → $vmcodePath',
-      );
+      final pkgResult = Process.runSync(tool, ['package', vmcodePath]);
+      if (pkgResult.exitCode != 0) {
+        packageProgress.fail('Packaging failed.');
+        return ExitCode.software.code;
+      }
+      packageProgress.complete('Packaged → $vmcodePath');
     }
 
     // Resolve patch file.
