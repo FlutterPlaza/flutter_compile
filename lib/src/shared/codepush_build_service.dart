@@ -5,7 +5,6 @@ import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
-import 'constants.dart';
 
 /// Build service for code push operations.
 ///
