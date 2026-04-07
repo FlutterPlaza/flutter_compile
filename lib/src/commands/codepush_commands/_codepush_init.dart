@@ -125,7 +125,8 @@ class CodePushInitSubCommand extends Command<int> {
       _logger.success('Code push initialized! Next steps:');
       _logger.info('  1. Wrap your app with CodePushOverlay in main.dart:');
       _logger.info('');
-      _logger.info('     import \'package:flutterplaza_code_push/flutterplaza_code_push.dart\';');
+      _logger.info(
+          '     import \'package:flutterplaza_code_push/flutterplaza_code_push.dart\';');
       _logger.info('');
       _logger.info('     runApp(');
       _logger.info('       CodePushOverlay(');
@@ -231,9 +232,8 @@ class CodePushInitSubCommand extends Command<int> {
     final manifestContent = manifest.readAsStringSync();
 
     // Find package name from manifest, build.gradle.kts, or build.gradle
-    var packageName = RegExp(r'package="([^"]+)"')
-        .firstMatch(manifestContent)
-        ?.group(1);
+    var packageName =
+        RegExp(r'package="([^"]+)"').firstMatch(manifestContent)?.group(1);
     if (packageName == null) {
       // Try build.gradle.kts
       for (final gradleFile in [
@@ -242,8 +242,9 @@ class CodePushInitSubCommand extends Command<int> {
       ]) {
         if (gradleFile.existsSync()) {
           final gradleContent = gradleFile.readAsStringSync();
-          final nsMatch = RegExp(r'namespace\s*[=:]\s*["\x27]([^"\x27]+)["\x27]')
-              .firstMatch(gradleContent);
+          final nsMatch =
+              RegExp(r'namespace\s*[=:]\s*["\x27]([^"\x27]+)["\x27]')
+                  .firstMatch(gradleContent);
           if (nsMatch != null) {
             packageName = nsMatch.group(1);
             break;
@@ -357,11 +358,11 @@ class CodePushApp : FlutterApplication() {
       content = content.replaceFirst(
         '</dict>\n</plist>',
         '\t<key>FLTCodePushEnabled</key>\n'
-        '\t<true/>\n'
-        '\t<key>FLTCodePushReleaseVersion</key>\n'
-        '\t<string>$version</string>\n'
-        '$publicKeyBlock'
-        '</dict>\n</plist>',
+            '\t<true/>\n'
+            '\t<key>FLTCodePushReleaseVersion</key>\n'
+            '\t<string>$version</string>\n'
+            '$publicKeyBlock'
+            '</dict>\n</plist>',
       );
       plistFile.writeAsStringSync(content);
     } else {
@@ -377,7 +378,8 @@ class CodePushApp : FlutterApplication() {
     }
 
     progress.complete('iOS configured');
-    _logger.info('  Updated: Info.plist (FLTCodePushEnabled, release version, public key)');
+    _logger.info(
+        '  Updated: Info.plist (FLTCodePushEnabled, release version, public key)');
   }
 
   // ── pubspec.yaml setup ────────────────────────────────────────

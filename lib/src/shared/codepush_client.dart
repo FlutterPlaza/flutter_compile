@@ -317,8 +317,7 @@ class CodePushClient {
 
       final aesKeyHex =
           aesKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
-      final ivHex =
-          iv.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final ivHex = iv.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
       // 2. Write source to temp file and encrypt with AES-256-CBC.
       final sourceFile = File('${tempDir.path}/source.dart');
@@ -326,11 +325,16 @@ class CodePushClient {
       final encryptedFile = '${tempDir.path}/source.enc';
 
       final aesResult = Process.runSync('openssl', [
-        'enc', '-aes-256-cbc',
-        '-in', sourceFile.path,
-        '-out', encryptedFile,
-        '-K', aesKeyHex,
-        '-iv', ivHex,
+        'enc',
+        '-aes-256-cbc',
+        '-in',
+        sourceFile.path,
+        '-out',
+        encryptedFile,
+        '-K',
+        aesKeyHex,
+        '-iv',
+        ivHex,
       ]);
       if (aesResult.exitCode != 0) return null;
 
@@ -343,20 +347,22 @@ class CodePushClient {
       final encryptedKeyFile = '${tempDir.path}/aes_key.enc';
 
       final rsaResult = Process.runSync('openssl', [
-        'pkeyutl', '-encrypt',
+        'pkeyutl',
+        '-encrypt',
         '-pubin',
-        '-inkey', pubKeyFile.path,
-        '-in', aesKeyFile.path,
-        '-out', encryptedKeyFile,
+        '-inkey',
+        pubKeyFile.path,
+        '-in',
+        aesKeyFile.path,
+        '-out',
+        encryptedKeyFile,
       ]);
       if (rsaResult.exitCode != 0) return null;
 
       // 4. Base64-encode everything.
       return {
-        'encrypted_source':
-            base64Encode(File(encryptedFile).readAsBytesSync()),
-        'encrypted_key':
-            base64Encode(File(encryptedKeyFile).readAsBytesSync()),
+        'encrypted_source': base64Encode(File(encryptedFile).readAsBytesSync()),
+        'encrypted_key': base64Encode(File(encryptedKeyFile).readAsBytesSync()),
         'iv': base64Encode(iv),
       };
     } catch (_) {

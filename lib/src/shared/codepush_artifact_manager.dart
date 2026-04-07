@@ -32,7 +32,11 @@ class CodePushArtifactManager {
   /// Artifact management is delegated to this private binary.
   Future<String?> ensureBuildTool() async {
     final home = Platform.environment['HOME'] ?? '/tmp';
-    final os = Platform.isMacOS ? 'darwin' : Platform.isLinux ? 'linux' : 'windows';
+    final os = Platform.isMacOS
+        ? 'darwin'
+        : Platform.isLinux
+            ? 'linux'
+            : 'windows';
     final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
     final cached = '$home/.flutter_compile/cache/tools/fcp-tool-$os-$arch';
     if (File(cached).existsSync()) return cached;
@@ -245,8 +249,10 @@ class CodePushArtifactManager {
     if (tool == null) return false;
     final result = Process.runSync(tool, [
       'download-artifacts',
-      '--flutter-version', flutterVersion,
-      '--platform', targetPlatform,
+      '--flutter-version',
+      flutterVersion,
+      '--platform',
+      targetPlatform,
     ]);
     return result.exitCode == 0;
   }
