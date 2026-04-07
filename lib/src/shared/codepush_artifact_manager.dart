@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import 'constants.dart';
@@ -463,74 +462,5 @@ class CodePushArtifactManager {
     return null;
   }
 
-  // ── Private helpers ──────────────────────────────────────────────
-
-  Future<Map<String, String>> _downloadChecksums(
-    String versionPrefix,
-    String platform,
-  ) async {
-    final url = '$_baseUrl/$versionPrefix/$platform/checksums.sha256';
-    final checksums = <String, String>{};
-    try {
-      final client = HttpClient();
-      try {
-        final request = await client.getUrl(Uri.parse(url));
-        final response = await request.close();
-        if (response.statusCode != 200) return checksums;
-        final body = await response.transform(utf8.decoder).join();
-        for (final line in body.split('\n')) {
-          final parts = line.trim().split(RegExp(r'\s+'));
-          if (parts.length == 2) {
-            checksums[parts[1]] = parts[0];
-          }
-        }
-      } finally {
-        client.close();
-      }
-    } on Exception {
-      // Checksums are optional; proceed without them.
-    }
-    return checksums;
-  }
-
-  Future<bool> _downloadFile(String url, String destPath) async {
-    try {
-      final client = HttpClient();
-      try {
-        final request = await client.getUrl(Uri.parse(url));
-        final response = await request.close();
-        if (response.statusCode != 200) {
-          _logger.detail('HTTP ${response.statusCode} for $url');
-          return false;
-        }
-
-        final file = File(destPath);
-        final sink = file.openWrite();
-        final totalBytes = response.contentLength;
-        var receivedBytes = 0;
-
-        await for (final chunk in response) {
-          sink.add(chunk);
-          receivedBytes += chunk.length;
-          if (totalBytes > 0) {
-            final pct = (receivedBytes / totalBytes * 100).toStringAsFixed(0);
-            stdout.write('\r  $pct% ($receivedBytes / $totalBytes bytes)');
-          }
-        }
-        stdout.write('\n');
-        await sink.close();
-        return true;
-      } finally {
-        client.close();
-      }
-    } on Exception catch (e) {
-      _logger.err('Download failed: $e');
-      return false;
-    }
-  }
-
-  Future<String> _computeSha256(String filePath) async {
-    final bytes = await File(filePath).readAsBytes();
-    return sha256.convert(bytes).toString();
-  }
+  // Download helpers moved to fcp-tool binary (see `fcp codepush setup`).
 }
