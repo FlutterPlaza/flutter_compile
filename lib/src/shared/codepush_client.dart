@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
@@ -237,6 +239,161 @@ class CodePushClient {
       chunks.add(chunk);
     }
     return chunks.expand((c) => c).toList();
+  }
+
+  /// Fetch the server's encryption public key (cached in .flutter_compilerc).
+  Future<String?> getServerPublicKey({required String token}) async {
+    // Check cache first.
+    final cached = await _getCachedServerKey();
+    if (cached != null) return cached;
+
+    final result = await _get('/api/v1/encryption/public-key', token: token);
+    final key = result['public_key'] as String?;
+    if (key != null && key.isNotEmpty) {
+      await _cacheServerKey(key);
+    }
+    return key;
+  }
+
+  /// POST /api/v1/compile — compile Dart source to a patch.
+  ///
+  /// If the server's encryption key is available, source is encrypted
+  /// in transit using RSA+AES hybrid encryption.
+  Future<Map<String, dynamic>> compile({
+    required String token,
+    required String releaseId,
+    required String source,
+    required String platform,
+    bool validateOnly = false,
+  }) async {
+    // Try to encrypt the source before sending.
+    final serverKey = await getServerPublicKey(token: token);
+
+    if (serverKey != null) {
+      final encrypted = await _encryptSource(source, serverKey);
+      if (encrypted != null) {
+        return _post(
+          '/api/v1/compile',
+          token: token,
+          body: {
+            'release_id': releaseId,
+            'platform': platform,
+            'validate_only': validateOnly,
+            ...encrypted,
+          },
+        );
+      }
+    }
+
+    // Fallback: send plaintext (server may not support encryption).
+    return _post(
+      '/api/v1/compile',
+      token: token,
+      body: {
+        'release_id': releaseId,
+        'source': source,
+        'platform': platform,
+        'validate_only': validateOnly,
+      },
+    );
+  }
+
+  /// Encrypt source code with AES-256-CBC, then wrap the AES key with RSA.
+  ///
+  /// Returns a map with `encrypted_source`, `encrypted_key`, and `iv`,
+  /// all base64-encoded. Returns null if encryption fails (openssl missing).
+  Future<Map<String, String>?> _encryptSource(
+    String source,
+    String serverPublicKeyPem,
+  ) async {
+    final tempDir = Directory.systemTemp.createTempSync('fcp_encrypt_');
+    try {
+      // 1. Generate random AES-256 key (32 bytes) and IV (16 bytes).
+      final random = Random.secure();
+      final aesKey =
+          Uint8List.fromList(List.generate(32, (_) => random.nextInt(256)));
+      final iv =
+          Uint8List.fromList(List.generate(16, (_) => random.nextInt(256)));
+
+      final aesKeyHex =
+          aesKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+      final ivHex =
+          iv.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+
+      // 2. Write source to temp file and encrypt with AES-256-CBC.
+      final sourceFile = File('${tempDir.path}/source.dart');
+      sourceFile.writeAsStringSync(source);
+      final encryptedFile = '${tempDir.path}/source.enc';
+
+      final aesResult = Process.runSync('openssl', [
+        'enc', '-aes-256-cbc',
+        '-in', sourceFile.path,
+        '-out', encryptedFile,
+        '-K', aesKeyHex,
+        '-iv', ivHex,
+      ]);
+      if (aesResult.exitCode != 0) return null;
+
+      // 3. Encrypt the AES key with the server's RSA public key.
+      final pubKeyFile = File('${tempDir.path}/server_pub.pem');
+      pubKeyFile.writeAsStringSync(serverPublicKeyPem);
+
+      final aesKeyFile = File('${tempDir.path}/aes_key.bin');
+      aesKeyFile.writeAsBytesSync(aesKey);
+      final encryptedKeyFile = '${tempDir.path}/aes_key.enc';
+
+      final rsaResult = Process.runSync('openssl', [
+        'pkeyutl', '-encrypt',
+        '-pubin',
+        '-inkey', pubKeyFile.path,
+        '-in', aesKeyFile.path,
+        '-out', encryptedKeyFile,
+      ]);
+      if (rsaResult.exitCode != 0) return null;
+
+      // 4. Base64-encode everything.
+      return {
+        'encrypted_source':
+            base64Encode(File(encryptedFile).readAsBytesSync()),
+        'encrypted_key':
+            base64Encode(File(encryptedKeyFile).readAsBytesSync()),
+        'iv': base64Encode(iv),
+      };
+    } catch (_) {
+      return null;
+    } finally {
+      tempDir.deleteSync(recursive: true);
+    }
+  }
+
+  /// Read the cached server public key from .flutter_compilerc.
+  /// The PEM key is stored as base64 to avoid multi-line issues in the
+  /// line-based config format.
+  static Future<String?> _getCachedServerKey() async {
+    final home = F.homeDir();
+    final rcFile = File('$home/.flutter_compilerc');
+    final encoded = await F.readValueForKeyFromRcConfig(
+      rcFile,
+      Constants.codePushServerPublicKeyKey,
+    );
+    if (encoded == null || encoded.isEmpty) return null;
+    try {
+      return utf8.decode(base64Decode(encoded));
+    } catch (_) {
+      return null; // Corrupted cache — will re-fetch.
+    }
+  }
+
+  /// Cache the server public key as base64 in .flutter_compilerc.
+  static Future<void> _cacheServerKey(String key) async {
+    final home = F.homeDir();
+    final rcFile = File('$home/.flutter_compilerc');
+    final encoded = base64Encode(utf8.encode(key));
+    await F.writeKeyValueToRcConfig(
+      rcFile,
+      Constants.codePushServerPublicKeyKey,
+      encoded,
+    );
   }
 
   // --- HTTP helpers ---

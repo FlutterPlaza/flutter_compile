@@ -344,12 +344,23 @@ class CodePushApp : FlutterApplication() {
 
     // Add FLTCodePushEnabled if not present
     if (!content.contains('FLTCodePushEnabled')) {
+      // Read the public key if it exists, for signature verification.
+      var publicKeyBlock = '';
+      final home = Platform.environment['HOME'] ?? '/tmp';
+      final publicKeyFile = File('$home/.flutter_codepush/codepush_public.pem');
+      if (publicKeyFile.existsSync()) {
+        final pem = publicKeyFile.readAsStringSync().trim();
+        publicKeyBlock = '\t<key>FLTCodePushPublicKey</key>\n'
+            '\t<string>$pem</string>\n';
+      }
+
       content = content.replaceFirst(
         '</dict>\n</plist>',
         '\t<key>FLTCodePushEnabled</key>\n'
         '\t<true/>\n'
         '\t<key>FLTCodePushReleaseVersion</key>\n'
         '\t<string>$version</string>\n'
+        '$publicKeyBlock'
         '</dict>\n</plist>',
       );
       plistFile.writeAsStringSync(content);
@@ -366,7 +377,7 @@ class CodePushApp : FlutterApplication() {
     }
 
     progress.complete('iOS configured');
-    _logger.info('  Updated: Info.plist (FLTCodePushEnabled, release version)');
+    _logger.info('  Updated: Info.plist (FLTCodePushEnabled, release version, public key)');
   }
 
   // ── pubspec.yaml setup ────────────────────────────────────────

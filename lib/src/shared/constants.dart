@@ -248,6 +248,7 @@ if (-not $env:FLUTTER_COMPILE_SDK) {
   static const codePushDefaultServer = 'http://localhost:8090';
   static const codePushSigningKeyKey = 'codepush_signing_key';
   static const codePushPinnedCertKey = 'codepush_pinned_cert';
+  static const codePushServerPublicKeyKey = 'codepush_server_public_key';
 
   // Code Push Engine Artifacts — resolved at runtime from server config.
   static const codePushCacheDir = 'codepush-engine';

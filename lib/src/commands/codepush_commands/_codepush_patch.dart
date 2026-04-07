@@ -46,6 +46,12 @@ class CodePushPatchSubCommand extends Command<int> {
       ..addOption(
         'platform',
         help: 'Target platform (apk, appbundle, ios, linux, macos, windows).',
+      )
+      ..addFlag(
+        'unsigned',
+        help: 'Allow uploading an unsigned patch (testing only).',
+        negatable: false,
+        defaultsTo: false,
       );
   }
 
@@ -162,6 +168,8 @@ class CodePushPatchSubCommand extends Command<int> {
       }
 
       // Sign the patch. Auto-detect stored key if --signing-key not provided.
+      // Signing is mandatory unless --unsigned is explicitly passed.
+      final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
       Uint8List? signature;
       var signingKeyPath = argResults?['signing-key'] as String?;
       signingKeyPath ??= await CodePushClient.getStoredSigningKey();
@@ -173,11 +181,18 @@ class CodePushPatchSubCommand extends Command<int> {
           return ExitCode.software.code;
         }
         signProgress.complete('Signed (${signature.length} bytes)');
+      } else if (!allowUnsigned) {
+        _logger.err(
+          'No signing key found. Patches must be signed for production.\n'
+          '  Run "fcp codepush init" to generate a key pair, or use '
+          '--signing-key.\n'
+          '  To bypass (testing only): --unsigned',
+        );
+        return ExitCode.software.code;
       } else {
         _logger.warn(
-          'No signing key found. Patch will be unsigned.\n'
-          '  Run "fcp codepush init" to generate a key pair, or use '
-          '--signing-key.',
+          'Uploading unsigned patch (--unsigned). '
+          'Do NOT use in production.',
         );
       }
 
