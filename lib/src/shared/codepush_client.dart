@@ -153,11 +153,16 @@ class CodePushClient {
   }
 
   /// POST /api/v1/releases — create a release (upload baseline).
+  ///
+  /// [flutterVersion] is the Flutter SDK version this release was built with.
+  /// Required for server-side patch compilation (determines which compiler
+  /// toolchain to use).
   Future<Map<String, dynamic>> createRelease({
     required String token,
     required String appId,
     required String version,
     required List<int> snapshotData,
+    String? flutterVersion,
   }) async {
     return _post(
       '/api/v1/releases',
@@ -166,6 +171,7 @@ class CodePushClient {
         'app_id': appId,
         'version': version,
         'snapshot': base64Encode(snapshotData),
+        if (flutterVersion != null) 'flutter_version': flutterVersion,
       },
     );
   }

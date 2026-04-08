@@ -37,6 +37,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         help:
             'Re-run gen_snapshot with --stable_object_pool_indices for deterministic output.',
         defaultsTo: false,
+      )
+      ..addOption(
+        'flutter-version',
+        help: 'Flutter SDK version this release was built with (e.g., 3.41.2). '
+            'Auto-detected from "flutter --version" if not specified. '
+            'Required for server-side patch compilation.',
       );
   }
 
@@ -101,22 +107,26 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
 
-      // Swap standard engine with code-push engine before building.
-      final swapProgress = _logger.progress('Preparing code push build');
-      final swapped = await buildService.prepareBuild(
+      final artifactManager = CodePushArtifactManager(logger: _logger);
+
+      // Step 1: Swap gen_snapshot BEFORE building so the AOT snapshot
+      // matches the code-push engine runtime.
+      final prepProgress = _logger.progress('Preparing code push build');
+      final prepared = await buildService.prepareBuild(
         buildPlatform: platform,
         flutterVersion: null, // auto-detect
-        artifactManager: CodePushArtifactManager(logger: _logger),
+        artifactManager: artifactManager,
       );
-      if (swapped) {
-        swapProgress.complete('Ready');
+      if (prepared) {
+        prepProgress.complete('Ready');
       } else {
-        swapProgress.fail(
-          'Code push build preparation failed.'
+        prepProgress.fail(
+          'Code push build preparation failed. '
           'Run "fcp codepush setup" first.',
         );
       }
 
+      // Step 2: Build the app with Flutter (uses our swapped gen_snapshot).
       final buildProgress = _logger.progress('Building release ($platform)');
       final buildOk = await buildService.buildRelease(
         platform: platform,
@@ -126,6 +136,20 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
       buildProgress.complete('Build succeeded');
+
+      // Step 3: Swap engine library in the build output AFTER building.
+      final swapProgress = _logger.progress('Swapping engine');
+      final swapped = await buildService.swapEngineLibrary(
+        buildPlatform: platform,
+        flutterVersion: null,
+        artifactManager: artifactManager,
+      );
+      if (swapped) {
+        swapProgress.complete('Engine swapped');
+      } else {
+        swapProgress.fail('Engine swap failed');
+        return ExitCode.software.code;
+      }
     }
 
     // Resolve snapshot path.
@@ -170,6 +194,28 @@ class CodePushReleaseSubCommand extends Command<int> {
     final snapshotData = snapshotFile.readAsBytesSync();
     _logger.detail('Snapshot size: ${snapshotData.length} bytes');
 
+    // Resolve Flutter version for server-side compilation.
+    var flutterVersion = argResults?['flutter-version'] as String?;
+    if (flutterVersion == null || flutterVersion.isEmpty) {
+      final flutter = buildService.findFlutterBin();
+      if (flutter != null) {
+        final vResult = Process.runSync(flutter, ['--version', '--machine']);
+        if (vResult.exitCode == 0) {
+          try {
+            final vJson =
+                // ignore: avoid_dynamic_calls
+                (vResult.stdout as String).trim();
+            final match =
+                RegExp(r'"frameworkVersion"\s*:\s*"([^"]+)"').firstMatch(vJson);
+            flutterVersion = match?.group(1);
+          } catch (_) {}
+        }
+      }
+      if (flutterVersion != null) {
+        _logger.detail('Detected Flutter version: $flutterVersion');
+      }
+    }
+
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
     final progress = _logger.progress('Uploading release $version');
@@ -180,6 +226,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         appId: appId,
         version: version,
         snapshotData: snapshotData,
+        flutterVersion: flutterVersion,
       );
 
       final statusCode = result['status_code'] as int;
