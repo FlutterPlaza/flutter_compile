@@ -52,7 +52,8 @@ class CodePushArtifactManager {
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode != 200) {
-        progress.fail('Build tool download failed (HTTP ${response.statusCode})');
+        progress
+            .fail('Build tool download failed (HTTP ${response.statusCode})');
         return null;
       }
       final sink = cached.openWrite();

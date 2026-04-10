@@ -102,9 +102,8 @@ class CodePushVersionsSubCommand extends Command<int> {
       if (v['global'] == true) markers.add('global');
       if (v['project_pinned'] == true) markers.add('pinned');
       final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
-      final marker = name == selected
-          ? '*'
-          : (v['installed'] == true ? ' ' : '-');
+      final marker =
+          name == selected ? '*' : (v['installed'] == true ? ' ' : '-');
       _logger.info('  $marker $name$suffix');
     }
     if (selected == null) {
