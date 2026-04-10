@@ -6,6 +6,69 @@ import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
 
+/// Outcome of a build-tool subprocess step.
+///
+/// Methods like [CodePushBuildService.finalizeBuild] used to return a bare
+/// `bool` and swallow stderr, leaving callers with nothing to report on
+/// failure. This struct carries the exit code, command line, and captured
+/// stdio so the caller can log a useful diagnostic next to its
+/// `progress.fail(...)` line.
+class BuildStepResult {
+  const BuildStepResult({
+    required this.success,
+    this.message,
+    this.command,
+    this.exitCode,
+    this.stdout,
+    this.stderr,
+  });
+
+  final bool success;
+
+  /// Short, user-facing summary. Non-null on failure.
+  final String? message;
+
+  /// Full subprocess argv (including the tool path at index 0). Null when
+  /// the step failed before the subprocess ran (e.g. tool not downloaded).
+  final List<String>? command;
+
+  /// Subprocess exit code. Null when the subprocess never ran.
+  final int? exitCode;
+
+  final String? stdout;
+  final String? stderr;
+
+  /// Multi-line diagnostic dump suitable for `_logger.err(...)` right after
+  /// a `progress.fail(...)` call. Empty when there is nothing to add beyond
+  /// the short [message]. Never includes ANSI codes.
+  String formatDiagnostics() {
+    final buf = StringBuffer();
+    if (exitCode != null) {
+      buf.writeln('  exit code: $exitCode');
+    }
+    if (command != null && command!.isNotEmpty) {
+      final tool = command!.first.split(Platform.pathSeparator).last;
+      final display = [tool, ...command!.skip(1)];
+      buf.writeln('  command:   ${display.join(' ')}');
+    }
+    final err = stderr?.trim() ?? '';
+    if (err.isNotEmpty) {
+      buf.writeln('  stderr:');
+      for (final line in err.split('\n')) {
+        buf.writeln('    $line');
+      }
+    }
+    final out = stdout?.trim() ?? '';
+    if (out.isNotEmpty) {
+      buf.writeln('  stdout:');
+      for (final line in out.split('\n')) {
+        buf.writeln('    $line');
+      }
+    }
+    return buf.toString().trimRight();
+  }
+}
+
 /// Build service for code push operations.
 ///
 /// Only high-level, non-proprietary glue lives here:
@@ -219,15 +282,22 @@ class CodePushBuildService {
   }
 
   /// Run the finalize step of the build tool.
-  Future<bool> finalizeBuild({
+  ///
+  /// Returns a [BuildStepResult]; on failure, callers should pass
+  /// [BuildStepResult.message] to `progress.fail(...)` and then log
+  /// [BuildStepResult.formatDiagnostics] via `_logger.err(...)`.
+  Future<BuildStepResult> finalizeBuild({
     required String buildPlatform,
     String? flutterVersion,
     required CodePushArtifactManager artifactManager,
   }) async {
     final tool = await artifactManager.ensureBuildTool();
     if (tool == null) {
-      _logger.err('Build tool not available.');
-      return false;
+      return const BuildStepResult(
+        success: false,
+        message: 'Build tool not available. '
+            'Run "fcp codepush setup" first to download it.',
+      );
     }
     final args = <String>[
       'finalize',
@@ -235,10 +305,14 @@ class CodePushBuildService {
       if (flutterVersion != null) ...['--flutter-version', flutterVersion],
     ];
     final result = Process.runSync(tool, args);
-    if (result.exitCode != 0) {
-      _logger.err('Build finalization failed.');
-    }
-    return result.exitCode == 0;
+    return BuildStepResult(
+      success: result.exitCode == 0,
+      message: result.exitCode == 0 ? null : 'Build finalization failed.',
+      command: [tool, ...args],
+      exitCode: result.exitCode,
+      stdout: result.stdout as String?,
+      stderr: result.stderr as String?,
+    );
   }
 
   /// Produce a binary diff between [baseline] and [updated], using the

@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.5
+
+- fix: `fcp codepush patch --build` and `fcp codepush release --build` printed only `Finalization failed` with zero detail when the finalize step failed, even under `--verbose`. `CodePushBuildService.finalizeBuild` returned a bare `bool` and discarded the subprocess stderr, exit code, and command line — the caller had nothing to report. Introduces a `BuildStepResult` struct carrying `success`, `message`, `command`, `exitCode`, `stdout`, `stderr`, and a `formatDiagnostics()` helper that prints a multi-line dump (exit code, elided command, stderr, stdout) right after the progress line. Both `_codepush_patch.dart` and `_codepush_release.dart` now log these diagnostics on failure. The "tool not downloaded" precondition path now also returns an actionable message (`Run "fcp codepush setup" first to download it.`). Fixes #16.
+
 ## 0.19.4
 
 - fix: `fcp codepush login` ignored the server URL stored in `~/.flutter_compilerc` and always tried to connect to the hardcoded dev default `http://localhost:8090`, so users saw a misleading `SocketException: Connection refused ... address = localhost, port = <random>` on every attempt (the random port is Dart's local ephemeral source port, not the destination). Root cause was `argParser.addOption('server', defaultsTo: ...)` which made the fallback unreachable. Now calls `CodePushClient.getServerUrl()` like every other codepush command. Fixes #15 (secondary symptom).

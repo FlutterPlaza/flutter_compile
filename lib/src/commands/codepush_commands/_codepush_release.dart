@@ -133,10 +133,14 @@ class CodePushReleaseSubCommand extends Command<int> {
         flutterVersion: null,
         artifactManager: artifactManager,
       );
-      if (finalized) {
+      if (finalized.success) {
         finalizeProgress.complete('Build finalized');
       } else {
-        finalizeProgress.fail('Finalization failed');
+        finalizeProgress.fail(finalized.message ?? 'Finalization failed');
+        final diagnostics = finalized.formatDiagnostics();
+        if (diagnostics.isNotEmpty) {
+          _logger.err(diagnostics);
+        }
         return ExitCode.software.code;
       }
     }

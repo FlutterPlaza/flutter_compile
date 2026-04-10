@@ -43,4 +43,58 @@ void main() {
       });
     });
   });
+
+  group('BuildStepResult', () {
+    test('success case yields empty diagnostics', () {
+      const r = BuildStepResult(success: true);
+      expect(r.success, isTrue);
+      expect(r.formatDiagnostics(), isEmpty);
+    });
+
+    test('precondition failure carries message but no command', () {
+      const r = BuildStepResult(
+        success: false,
+        message: 'Build tool not available.',
+      );
+      expect(r.success, isFalse);
+      expect(r.message, 'Build tool not available.');
+      expect(r.formatDiagnostics(), isEmpty);
+    });
+
+    test('subprocess failure formats exit code, command, stderr, stdout', () {
+      const r = BuildStepResult(
+        success: false,
+        message: 'Build finalization failed.',
+        command: ['/long/abs/path/to/fcp-tool', 'finalize', 'ios'],
+        exitCode: 2,
+        stdout: 'packaging baseline\n',
+        stderr: 'error: missing snapshot\nline two',
+      );
+      final diag = r.formatDiagnostics();
+      expect(diag, contains('exit code: 2'));
+      // Tool path is elided to basename for scannability.
+      expect(diag, contains('command:   fcp-tool finalize ios'));
+      expect(diag, isNot(contains('/long/abs/path/to/')));
+      expect(diag, contains('stderr:'));
+      expect(diag, contains('    error: missing snapshot'));
+      expect(diag, contains('    line two'));
+      expect(diag, contains('stdout:'));
+      expect(diag, contains('    packaging baseline'));
+    });
+
+    test('empty stderr/stdout are omitted from diagnostics', () {
+      const r = BuildStepResult(
+        success: false,
+        message: 'Build finalization failed.',
+        command: ['tool', 'finalize', 'ios'],
+        exitCode: 1,
+        stdout: '',
+        stderr: '   \n',
+      );
+      final diag = r.formatDiagnostics();
+      expect(diag, contains('exit code: 1'));
+      expect(diag, isNot(contains('stderr:')));
+      expect(diag, isNot(contains('stdout:')));
+    });
+  });
 }
