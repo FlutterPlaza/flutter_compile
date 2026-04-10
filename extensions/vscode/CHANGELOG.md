@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5
+
+### Changed
+
+- Compatible with `flutter_compile` 0.19.0 — the build pipeline internals are now delegated to a private build tool the CLI downloads on first use
+- `Code Push: Release` no longer offers the deterministic toggle; deterministic builds are now the default inside the build tool
+
 ## 0.3.4
 
 ### Added

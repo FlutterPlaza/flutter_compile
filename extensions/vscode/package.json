@@ -2,7 +2,7 @@
   "name": "flutter-compile",
   "displayName": "Flutter Compile",
   "description": "Manage multiple Flutter SDK versions — install, switch, pin, remove SDKs, run diagnostics, and monitor engine builds from the VS Code sidebar.",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "publisher": "flutterPlaza-com",
   "license": "BSD-3-Clause",
   "icon": "media/flutter-compile.png",

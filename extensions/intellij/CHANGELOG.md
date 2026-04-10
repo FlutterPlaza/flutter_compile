@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.5
+
+### Changed
+
+- Compatible with `flutter_compile` 0.19.0 — the build pipeline internals are now delegated to a private build tool the CLI downloads on first use
+
 ## 0.3.4
 
 ### Added

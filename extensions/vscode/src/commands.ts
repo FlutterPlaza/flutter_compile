@@ -653,7 +653,6 @@ export async function codePushRelease(): Promise<void> {
   const flags = await vscode.window.showQuickPick(
     [
       { label: "Build first", description: "Run flutter build before uploading", picked: true },
-      { label: "Deterministic", description: "Use --stable_object_pool_indices", picked: false },
     ],
     { placeHolder: "Options", canPickMany: true }
   );
@@ -661,7 +660,6 @@ export async function codePushRelease(): Promise<void> {
   const args = ["codepush", "release", "--platform", platform];
   const flagLabels = new Set(flags?.map((f) => f.label) ?? []);
   if (flagLabels.has("Build first")) args.push("--build");
-  if (flagLabels.has("Deterministic")) args.push("--deterministic");
 
   cli.runInTerminal(args);
 }
