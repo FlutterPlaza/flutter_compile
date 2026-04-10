@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.9
+
+- docs: bundle the new Signing & Migration section in the `docs/code-push.html` page that ships with the package. Adds a version-keyed migration table (< 0.15.0, 0.15.0–0.19.7, 0.19.8+) with the exact commands for each cohort, expands the Security section to describe server-side signature verification + HTTP 403 rejection, adds rows for `fcp codepush keys generate` / `register` to the CLI Commands table, and links out to the full guide at [codepush.flutterplaza.com/docs#patch-signing](https://codepush.flutterplaza.com/docs#patch-signing). No code changes.
+
 ## 0.19.8
 
 - **security / feat**: end-to-end RSA-SHA256 patch signature verification with an opt-in migration path for existing apps.
