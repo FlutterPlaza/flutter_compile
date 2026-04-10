@@ -177,6 +177,18 @@ export async function activate(
       "flutterCompile.codePushRollback",
       commands.codePushRollback
     ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushDownloadVersion",
+      commands.codePushDownloadVersion
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushSetVersion",
+      commands.codePushSetVersion
+    ),
+    vscode.commands.registerCommand(
+      "flutterCompile.codePushCopyPatchId",
+      commands.codePushCopyPatchId
+    ),
     vscode.commands.registerCommand("flutterCompile.refreshCodePush", () => {
       codePushProvider.refresh();
     })

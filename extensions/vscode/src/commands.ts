@@ -6,6 +6,7 @@ import { updateFlutterSdkPath } from "./sdkSettings";
 import type { SdkTreeItem } from "./views/sdkTreeProvider";
 import type { BuildEntryItem } from "./views/buildsTreeProvider";
 import type { CheckItem } from "./views/doctorTreeProvider";
+import type { CodePushTreeItem } from "./views/codePushTreeProvider";
 
 /** Callback invoked after mutating commands to refresh tree views. */
 export type RefreshCallback = () => void;
@@ -538,25 +539,93 @@ export async function toggleSdkManager(): Promise<void> {
 
 // ─── Code Push commands ──────────────────────────────────────────────
 
-/** `Flutter Compile: Code Push Login` */
+/**
+ * `Flutter Compile: Code Push Login`
+ *
+ * Runs `fcp codepush login` in an integrated terminal and triggers a
+ * tree refresh when the terminal exits cleanly. No API key prompt —
+ * the CLI handles the browser-based device code flow.
+ */
 export async function codePushLogin(): Promise<void> {
-  const apiKey = await vscode.window.showInputBox({
-    prompt: "Enter your Code Push API key",
-    placeHolder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-    password: true,
-  });
-  if (!apiKey) return;
+  const terminal = vscode.window.createTerminal("Code Push Login");
+  terminal.sendText(`${cli.cliExe()} codepush login`);
+  terminal.show();
 
-  const server = await vscode.window.showInputBox({
-    prompt: "Code Push server URL (leave empty for default)",
-    placeHolder: "http://localhost:8090",
+  const disposable = vscode.window.onDidCloseTerminal((closed) => {
+    if (closed !== terminal) return;
+    disposable.dispose();
+    if (closed.exitStatus?.code === 0) {
+      refreshAll();
+    }
   });
+}
 
-  const args = ["codepush", "login", "--api-key", apiKey];
-  if (server) {
-    args.push("--server", server);
+/**
+ * `Flutter Compile: Code Push Download Version`
+ *
+ * Install a supported Flutter version using the active SDK backend's
+ * normal install flow (same as the SDKs view's install action).
+ */
+export async function codePushDownloadVersion(
+  item?: CodePushTreeItem
+): Promise<void> {
+  const version = item?.versionName;
+  if (!version) {
+    return;
   }
-  cli.runInTerminal(args);
+  getBackend().installSdkInTerminal(version);
+}
+
+/**
+ * `Flutter Compile: Set Code Push Flutter Version`
+ *
+ * Pin an already-installed supported version to the current project as
+ * its code push Flutter version.
+ */
+export async function codePushSetVersion(
+  item?: CodePushTreeItem
+): Promise<void> {
+  const version = item?.versionName;
+  if (!version) {
+    return;
+  }
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) {
+    vscode.window.showErrorMessage("No workspace folder open.");
+    return;
+  }
+  const projectRoot = folders[0].uri.fsPath;
+
+  await vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: `Setting Flutter ${version} as the code push version...`,
+    },
+    async () => {
+      try {
+        await getBackend().pinToProject(version, projectRoot);
+        await updateFlutterSdkPath(version);
+        await refreshAll();
+        vscode.window.showInformationMessage(
+          `Code push will use Flutter ${version}.`
+        );
+      } catch (e) {
+        vscode.window.showErrorMessage(`Failed to pin SDK: ${e}`);
+      }
+    }
+  );
+}
+
+/** Copy a patch ID to the clipboard from a Code Push tree row. */
+export async function codePushCopyPatchId(
+  item?: CodePushTreeItem
+): Promise<void> {
+  const id = item?.patchId;
+  if (!id) {
+    return;
+  }
+  await vscode.env.clipboard.writeText(id);
+  vscode.window.showInformationMessage(`Copied patch ID: ${id}`);
 }
 
 /** `Flutter Compile: Code Push Init` */

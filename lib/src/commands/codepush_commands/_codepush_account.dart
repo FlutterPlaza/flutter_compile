@@ -1,9 +1,17 @@
+import 'dart:convert';
+
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushAccountSubCommand extends Command<int> {
-  CodePushAccountSubCommand(this._logger);
+  CodePushAccountSubCommand(this._logger) {
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
+  }
 
   final Logger _logger;
 
@@ -14,33 +22,66 @@ class CodePushAccountSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    final asJson = argResults?['json'] == true;
+
     final token = await CodePushClient.getStoredToken();
     if (token == null || token.isEmpty) {
+      if (asJson) {
+        _logger.info(json.encode({'logged_in': false}));
+        return ExitCode.success.code;
+      }
       _logger.err('Not logged in. Run "fcp codepush login" first.');
       return ExitCode.software.code;
     }
 
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
-    final progress = _logger.progress('Fetching account info');
+    final progress = asJson ? null : _logger.progress('Fetching account info');
 
     try {
       final result = await client.getAccount(token);
       final statusCode = result['status_code'] as int;
 
       if (statusCode == 401) {
-        progress.fail('Session expired. Run "fcp codepush login" again.');
+        if (asJson) {
+          _logger.info(json.encode({'logged_in': false}));
+          return ExitCode.success.code;
+        }
+        progress?.fail('Session expired. Run "fcp codepush login" again.');
         return ExitCode.software.code;
       }
 
       if (statusCode != 200) {
-        progress.fail('Error: ${result['error'] ?? 'Unknown'}');
+        if (asJson) {
+          // --json contract: structured output exits 0, callers inspect the
+          // `error` field instead of the process status.
+          _logger.info(json.encode({
+            'logged_in': false,
+            'error': result['error'] ?? 'Unknown',
+          }));
+          return ExitCode.success.code;
+        }
+        progress?.fail('Error: ${result['error'] ?? 'Unknown'}');
         return ExitCode.software.code;
       }
 
-      progress.complete('Account info');
-
       final user = result['user'] as Map<String, dynamic>?;
+      final apps = result['apps'] as List<dynamic>?;
+
+      if (asJson) {
+        _logger.info(json.encode({
+          'logged_in': true,
+          'email': user?['email'],
+          'name': user?['name'],
+          'tier': user?['tier'],
+          'has_active_subscription': user?['has_active_subscription'] ?? false,
+          'apps': apps ?? [],
+        }));
+        return ExitCode.success.code;
+      }
+
+      progress?.complete('Account info');
+
       if (user != null) {
         _logger.info('');
         _logger.info('  Email:        ${user['email']}');
@@ -53,7 +94,6 @@ class CodePushAccountSubCommand extends Command<int> {
         );
       }
 
-      final apps = result['apps'] as List<dynamic>?;
       if (apps != null && apps.isNotEmpty) {
         _logger.info('');
         _logger.info('  Apps:');
@@ -65,7 +105,11 @@ class CodePushAccountSubCommand extends Command<int> {
 
       return ExitCode.success.code;
     } catch (e) {
-      progress.fail('Failed to connect: $e');
+      if (asJson) {
+        _logger.info(json.encode({'logged_in': false, 'error': '$e'}));
+        return ExitCode.success.code;
+      }
+      progress?.fail('Failed to connect: $e');
       return ExitCode.software.code;
     } finally {
       client.close();

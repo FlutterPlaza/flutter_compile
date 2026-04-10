@@ -12,6 +12,7 @@ import 'package:flutter_compile/src/commands/codepush_commands/_codepush_rollbac
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_seed_secrets.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_setup.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_status.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_versions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 /// {@template codepush_command}
@@ -42,6 +43,7 @@ class CodePushCommand extends Command<int> {
     addSubcommand(CodePushPatchSubCommand(_logger));
     addSubcommand(CodePushRollbackSubCommand(_logger));
     addSubcommand(CodePushStatusSubCommand(_logger));
+    addSubcommand(CodePushVersionsSubCommand(_logger));
     addSubcommand(CodePushAppsSubCommand(_logger));
     addSubcommand(CodePushBillingSubCommand(_logger));
     addSubcommand(CodePushSeedSecretsSubCommand(_logger));
@@ -71,6 +73,7 @@ class CodePushCommand extends Command<int> {
     _logger.info('  patch      Upload a patch (paid)');
     _logger.info('  rollback   Deactivate a patch');
     _logger.info('  status       Show releases and patches');
+    _logger.info('  versions     List supported Flutter versions');
     _logger.info('  apps         List and manage your apps');
     _logger.info('  billing      View usage and billing info');
     _logger.info('  seed-secrets Push .env secrets to GCP Secret Manager');

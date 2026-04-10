@@ -100,6 +100,11 @@ export function runInTerminal(args: string[]): void {
   terminal.show();
 }
 
+/** Resolved path to the `flutter_compile` CLI executable. */
+export function cliExe(): string {
+  return cliPath();
+}
+
 /** Get installed SDKs via `sdk list --json`. */
 export async function listSdks(): Promise<SdkEntry[]> {
   try {

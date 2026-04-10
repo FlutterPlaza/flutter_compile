@@ -2,7 +2,7 @@
   "name": "flutter-compile",
   "displayName": "Flutter Compile",
   "description": "Manage multiple Flutter SDK versions — install, switch, pin, remove SDKs, run diagnostics, and monitor engine builds from the VS Code sidebar.",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "publisher": "flutterPlaza-com",
   "license": "BSD-3-Clause",
   "icon": "media/flutter-compile.png",
@@ -73,6 +73,11 @@
         "view": "flutterCompile.builds",
         "contents": "No engine configured.\n[Initialize Engine](command:flutterCompile.initEngine)",
         "when": "flutterCompile.noEngine"
+      },
+      {
+        "view": "flutterCompile.codePush",
+        "contents": "Not logged in to Code Push.\n[Login](command:flutterCompile.codePushLogin)\n\nNo app configured?\n[Init App](command:flutterCompile.codePushInit)",
+        "when": "flutterCompile.codePushLoggedOut"
       }
     ],
     "commands": [
@@ -198,6 +203,24 @@
         "title": "Code Push: Refresh",
         "category": "Flutter Compile",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "flutterCompile.codePushDownloadVersion",
+        "title": "Code Push: Download Version",
+        "category": "Flutter Compile",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "flutterCompile.codePushSetVersion",
+        "title": "Code Push: Set as Code Push Version",
+        "category": "Flutter Compile",
+        "icon": "$(star-full)"
+      },
+      {
+        "command": "flutterCompile.codePushCopyPatchId",
+        "title": "Code Push: Copy Patch ID",
+        "category": "Flutter Compile",
+        "icon": "$(copy)"
       }
     ],
     "menus": {
@@ -313,6 +336,26 @@
           "command": "flutterCompile.deleteBuild",
           "when": "view == flutterCompile.doctor && viewItem == buildEntry",
           "group": "1_destructive@1"
+        },
+        {
+          "command": "flutterCompile.codePushDownloadVersion",
+          "when": "view == flutterCompile.codePush && viewItem == cpVersion",
+          "group": "inline@1"
+        },
+        {
+          "command": "flutterCompile.codePushSetVersion",
+          "when": "view == flutterCompile.codePush && viewItem == cpVersionInstalled",
+          "group": "inline@1"
+        },
+        {
+          "command": "flutterCompile.codePushCopyPatchId",
+          "when": "view == flutterCompile.codePush && viewItem =~ /^patch-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "flutterCompile.codePushCopyPatchId",
+          "when": "view == flutterCompile.codePush && viewItem =~ /^patch-/",
+          "group": "1_actions@1"
         }
       ]
     },

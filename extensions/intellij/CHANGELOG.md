@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.3.4
+
+### Added
+
+- **Supported Flutter Versions section** — Code Push tool window now shows every Flutter version the server supports, with a checkmark on the selected one and right-click Download / Set as Code Push Version actions
+- **Patches summary row** — total patch count across releases rendered directly under the App node
+- **Copy Patch ID** — right-click a patch row to copy its ID to the clipboard
+- **Init App link** — clickable row appears when no app is configured, launching `fcp codepush init` in a terminal
+- Uses a new `fcp codepush versions --json` CLI subcommand for the supported-versions data
+
+### Changed
+
+- **Browser-only Code Push login** — the Login action now opens a terminal running `fcp codepush login` (no API key dialog); the view auto-refreshes once authentication completes
+- CLI bridge parses the new `logged_in`, `total_patches`, and patch-id fields from `codepush status --json`
+
 ## 0.3.3
 
 ### Added

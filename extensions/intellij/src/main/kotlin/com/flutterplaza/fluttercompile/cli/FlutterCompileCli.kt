@@ -264,6 +264,22 @@ object FlutterCompileCli {
         }
     }
 
+    /** Get supported Flutter versions via `codepush versions --json`. */
+    fun codePushVersions(): CodePushVersionsResponse {
+        val raw = run("codepush", "versions", "--json") ?: return CodePushVersionsResponse()
+        val json = extractJson(raw)
+        if (json == null) {
+            LOG.warn("No JSON found in codepush versions output")
+            return CodePushVersionsResponse()
+        }
+        return try {
+            gson.fromJson(json, CodePushVersionsResponse::class.java)
+        } catch (e: Exception) {
+            LOG.warn("Failed to parse codepush versions JSON", e)
+            CodePushVersionsResponse()
+        }
+    }
+
     /** Get patches for a Code Push release via `codepush status --json --release-id <id>`. */
     fun codePushPatches(releaseId: String): CodePushPatchesResponse {
         val raw = run("codepush", "status", "--json", "--release-id", releaseId)
