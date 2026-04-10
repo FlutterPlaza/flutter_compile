@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.3
+
+- fix: `lib/src/version.dart` had been frozen at `0.12.0` since the v0.12.0 release, so every published version from 0.12.0 → 0.19.2 reported the wrong version from `fcp --version` and made `fcp update` run a no-op activate on every invocation (never marking the CLI as up-to-date). Bumps the constant and replaces the hardcoded `ensure_build_test.dart` assertion with a dynamic pubspec-vs-version.dart comparison so future drift fails CI. Fixes #15.
+
 ## 0.19.2
 
 - fix: drop the inaccurate "requires paid subscription" claim from the public README, from the `codepush` / `codepush release` / `codepush patch` command descriptions shown in `fcp --help`, and from the `docs/code-push.html` table. Free tier supports production `release` and `patch`; see [the pricing page](https://codepush.flutterplaza.com/#pricing) for plan limits.
