@@ -102,7 +102,19 @@ fcp codepush setup --flutter-version 3.24.0 --platform android-arm64</code></pre
   <h3>3. Register your app</h3>
   <pre><code>cd my_flutter_app
 fcp codepush init</code></pre>
-  <p>This creates an app on the server and stores the app ID in <code>~/.flutter_compilerc</code>.</p>
+  <p>
+    This creates an app on the server, stores the app ID in
+    <code>~/.flutter_compilerc</code>, and &mdash; on
+    <strong>flutter_compile&nbsp;0.19.8 and later</strong> &mdash; generates an
+    RSA&#8209;2048 signing keypair under <code>~/.flutter_codepush/</code> and
+    registers the public key with the server in the same call so patch
+    signatures are verified end to end from your first patch.
+  </p>
+  <p>
+    If you&rsquo;re upgrading an existing project from an older CLI, see the
+    <a href="#signing-and-migration">Signing &amp; Migration</a> section
+    below.
+  </p>
 
   <h3>4. Add the runtime package</h3>
   <pre><code>flutter pub add flutterplaza_code_push</code></pre>
@@ -152,7 +164,15 @@ fcp codepush patch --build --platform apk --release-id RELEASE_ID --rollout 25</
       </tr>
       <tr>
         <td><code>fcp codepush init</code></td>
-        <td>Register the current project as an app on the server</td>
+        <td>Register the current project as an app on the server (also generates and registers a signing key from&nbsp;0.19.8)</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush keys generate</code></td>
+        <td>Generate a local RSA&#8209;2048 signing keypair (0.19.8+)</td>
+      </tr>
+      <tr>
+        <td><code>fcp codepush keys register</code></td>
+        <td>Upload the local public key to the server for the current app, enabling mandatory signature verification (0.19.8+)</td>
       </tr>
       <tr>
         <td><code>fcp codepush login</code></td>
@@ -221,8 +241,14 @@ fcp codepush patch --build --platform apk --release-id RELEASE_ID --rollout 25</
 
   <h2 id="security">Security</h2>
   <ul>
-    <li><strong>Patch signing:</strong> Patches are signed with RSA-SHA256 using the developer's
-        private key. The runtime verifies the signature before applying.</li>
+    <li><strong>Patch signing:</strong> Patches are signed with RSA&#8209;SHA256
+        using the developer&rsquo;s private key. Starting with
+        <strong>0.19.8</strong>, the server also verifies the signature against
+        the public key registered for your app &mdash; any unsigned or tampered
+        patch is rejected with <code>HTTP&nbsp;403</code> before it can reach
+        devices. The runtime performs a second verification on-device before
+        applying. See
+        <a href="#signing-and-migration">Signing &amp; Migration</a> below.</li>
     <li><strong>Integrity verification:</strong> SHA-256 hashes are computed over every
         patch and checked on both the CLI and runtime side.</li>
     <li><strong>Build tool verification:</strong> Everything downloaded by
@@ -230,9 +256,63 @@ fcp codepush patch --build --platform apk --release-id RELEASE_ID --rollout 25</
     <li><strong>TLS:</strong> All server communication uses HTTPS. Optional certificate pinning
         is supported via <code>codepush_pinned_cert</code> in <code>~/.flutter_compilerc</code>.</li>
     <li><strong>App store compliance:</strong> Code push uses native AOT compilation, not
-        interpretation. This complies with Apple's App Store Review Guidelines (3.3.2)
+        interpretation. This complies with Apple&rsquo;s App Store Review Guidelines (3.3.2)
         and Google Play policies.</li>
   </ul>
+
+  <h2 id="signing-and-migration">Signing &amp; Migration</h2>
+  <p>
+    Starting with <strong>flutter_compile&nbsp;0.19.8</strong>, the code push
+    server verifies an RSA&#8209;SHA256 signature on every incoming patch
+    against the public key registered for your app. Existing apps created with
+    an older CLI are <strong>grandfathered</strong>: unsigned patches still
+    succeed today, but the CLI prints a migration banner on every upload and
+    the grandfather path will eventually be removed. Run the migration below
+    once per project and forget about it.
+  </p>
+
+  <h3>Brand new project</h3>
+  <p>
+    Nothing to do. <code>fcp codepush init</code> generates the keypair,
+    creates the app, and registers the public key in a single call. The first
+    <code>fcp codepush patch</code> you run is signed and verified end to end.
+  </p>
+
+  <h3>Existing project &mdash; pick the row that matches your original init</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>CLI version at <code>init</code></th>
+        <th>What you need to run</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>&lt; 0.15.0</strong><br><em>no local key, no server key</em></td>
+        <td>
+          <code>fcp codepush keys generate</code><br>
+          <code>fcp codepush keys register</code>
+        </td>
+      </tr>
+      <tr>
+        <td><strong>0.15.0 &ndash; 0.19.7</strong><br><em>local key exists, server has no key</em></td>
+        <td><code>fcp codepush keys register</code></td>
+      </tr>
+      <tr>
+        <td><strong>0.19.8+</strong> (fresh <code>init</code>)</td>
+        <td><em>Nothing &mdash; already done.</em></td>
+      </tr>
+    </tbody>
+  </table>
+  <p>
+    Upgrading the CLI alone does <strong>not</strong> migrate an existing app
+    &mdash; you need to run <code>fcp codepush keys register</code> so the
+    server learns your public key.
+  </p>
+  <p>
+    Full documentation, rotation, and troubleshooting:
+    <a href="https://codepush.flutterplaza.com/docs#patch-signing">codepush.flutterplaza.com/docs#patch-signing</a>.
+  </p>
 
   <h2 id="ide-integration">IDE Integration</h2>
   <p>
