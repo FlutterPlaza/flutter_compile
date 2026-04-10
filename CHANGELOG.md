@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.4
+
+- fix: `fcp codepush login` ignored the server URL stored in `~/.flutter_compilerc` and always tried to connect to the hardcoded dev default `http://localhost:8090`, so users saw a misleading `SocketException: Connection refused ... address = localhost, port = <random>` on every attempt (the random port is Dart's local ephemeral source port, not the destination). Root cause was `argParser.addOption('server', defaultsTo: ...)` which made the fallback unreachable. Now calls `CodePushClient.getServerUrl()` like every other codepush command. Fixes #15 (secondary symptom).
+
 ## 0.19.3
 
 - fix: `lib/src/version.dart` had been frozen at `0.12.0` since the v0.12.0 release, so every published version from 0.12.0 → 0.19.2 reported the wrong version from `fcp --version` and made `fcp update` run a no-op activate on every invocation (never marking the CLI as up-to-date). Bumps the constant and replaces the hardcoded `ensure_build_test.dart` assertion with a dynamic pubspec-vs-version.dart comparison so future drift fails CI. Fixes #15.

@@ -15,8 +15,10 @@ class CodePushLoginSubCommand extends Command<int> {
       )
       ..addOption(
         'server',
-        help: 'Code push server URL.',
-        defaultsTo: Constants.codePushDefaultServer,
+        help: 'Code push server URL. Defaults to the value stored in '
+            '~/.flutter_compilerc (set by previous login or '
+            '`fcp codepush config --server`), or '
+            '${Constants.codePushDefaultServer} if unset.',
       );
   }
 
@@ -29,8 +31,8 @@ class CodePushLoginSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final serverUrl =
-        argResults?['server'] as String? ?? Constants.codePushDefaultServer;
+    final serverUrl = (argResults?['server'] as String?) ??
+        await CodePushClient.getServerUrl();
 
     // If --api-key provided, use the old direct login flow.
     final apiKey = argResults?['api-key'] as String?;
@@ -44,7 +46,7 @@ class CodePushLoginSubCommand extends Command<int> {
 
   /// Called by register command to forward args.
   Future<int> runWith({String? apiKey, String? serverUrl}) async {
-    final server = serverUrl ?? Constants.codePushDefaultServer;
+    final server = serverUrl ?? await CodePushClient.getServerUrl();
     if (apiKey != null && apiKey.isNotEmpty) {
       return _loginWithApiKey(server, apiKey);
     }
