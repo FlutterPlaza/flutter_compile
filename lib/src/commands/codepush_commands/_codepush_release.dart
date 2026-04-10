@@ -199,26 +199,42 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (flutterVersion == null || flutterVersion.isEmpty) {
       final flutter = buildService.findFlutterBin();
       if (flutter != null) {
+        // Try --machine output first (structured JSON).
         final vResult = Process.runSync(flutter, ['--version', '--machine']);
         if (vResult.exitCode == 0) {
           try {
-            final vJson =
-                // ignore: avoid_dynamic_calls
-                (vResult.stdout as String).trim();
+            final vJson = (vResult.stdout as String).trim();
             final match =
                 RegExp(r'"frameworkVersion"\s*:\s*"([^"]+)"').firstMatch(vJson);
             flutterVersion = match?.group(1);
           } catch (_) {}
         }
+        // Fallback: parse plain `flutter --version` output.
+        if (flutterVersion == null || flutterVersion.isEmpty) {
+          final plainResult = Process.runSync(flutter, ['--version']);
+          if (plainResult.exitCode == 0) {
+            final match = RegExp(r'Flutter (\d+\.\d+\.\d+)')
+                .firstMatch(plainResult.stdout as String);
+            flutterVersion = match?.group(1);
+          }
+        }
       }
       if (flutterVersion != null) {
         _logger.detail('Detected Flutter version: $flutterVersion');
+      } else {
+        _logger.warn(
+          'Warning: Could not detect Flutter version. Server-side compilation '
+          'will not be available for this release.',
+        );
       }
     }
 
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
-    final progress = _logger.progress('Uploading release $version');
+    final versionSuffix =
+        flutterVersion != null ? ' (Flutter $flutterVersion)' : '';
+    final progress =
+        _logger.progress('Creating release v$version for $appId$versionSuffix');
 
     try {
       final result = await client.createRelease(
@@ -252,9 +268,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       progress.complete('Release $version uploaded');
 
       if (release != null) {
-        _logger.info('  Release ID: ${release['id']}');
-        _logger.info('  Version:    ${release['version']}');
-        _logger.info('  Hash:       ${release['snapshot_hash']}');
+        _logger.info('  Release ID:      ${release['id']}');
+        _logger.info('  Version:         ${release['version']}');
+        _logger.info('  Hash:            ${release['snapshot_hash']}');
+        if (release['flutter_version'] != null) {
+          _logger.info('  Flutter version: ${release['flutter_version']}');
+        }
       }
 
       return ExitCode.success.code;

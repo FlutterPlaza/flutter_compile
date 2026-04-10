@@ -111,6 +111,12 @@ void main() {
         final release = cmd.subcommands['release']!;
         expect(release.argParser.options, contains('deterministic'));
       });
+
+      test('has --flutter-version option', () {
+        final cmd = commandRunner.commands['codepush']!;
+        final release = cmd.subcommands['release']!;
+        expect(release.argParser.options, contains('flutter-version'));
+      });
     });
 
     group('patch subcommand', () {
