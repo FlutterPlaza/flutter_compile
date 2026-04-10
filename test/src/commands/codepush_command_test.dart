@@ -35,7 +35,6 @@ void main() {
       expect(subcommands, contains('setup'));
       expect(subcommands, contains('apps'));
       expect(subcommands, contains('billing'));
-      expect(subcommands, contains('seed-secrets'));
     });
 
     test('codepush run completes without error', () async {
@@ -242,31 +241,6 @@ void main() {
         final cmd = commandRunner.commands['codepush']!;
         final billing = cmd.subcommands['billing']!;
         expect(billing.subcommands, contains('usage'));
-      });
-    });
-
-    group('seed-secrets subcommand', () {
-      test('is registered', () {
-        final cmd = commandRunner.commands['codepush']!;
-        expect(cmd.subcommands, contains('seed-secrets'));
-      });
-
-      test('has --env-file option', () {
-        final cmd = commandRunner.commands['codepush']!;
-        final seeds = cmd.subcommands['seed-secrets']!;
-        expect(seeds.argParser.options, contains('env-file'));
-      });
-
-      test('has --project option', () {
-        final cmd = commandRunner.commands['codepush']!;
-        final seeds = cmd.subcommands['seed-secrets']!;
-        expect(seeds.argParser.options, contains('project'));
-      });
-
-      test('has --dry-run flag', () {
-        final cmd = commandRunner.commands['codepush']!;
-        final seeds = cmd.subcommands['seed-secrets']!;
-        expect(seeds.argParser.options, contains('dry-run'));
       });
     });
 

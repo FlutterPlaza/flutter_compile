@@ -9,7 +9,6 @@ import 'package:flutter_compile/src/commands/codepush_commands/_codepush_account
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_release.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_rollback.dart';
-import 'package:flutter_compile/src/commands/codepush_commands/_codepush_seed_secrets.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_setup.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_status.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_versions.dart';
@@ -46,7 +45,6 @@ class CodePushCommand extends Command<int> {
     addSubcommand(CodePushVersionsSubCommand(_logger));
     addSubcommand(CodePushAppsSubCommand(_logger));
     addSubcommand(CodePushBillingSubCommand(_logger));
-    addSubcommand(CodePushSeedSecretsSubCommand(_logger));
   }
 
   @override
@@ -76,7 +74,6 @@ class CodePushCommand extends Command<int> {
     _logger.info('  versions     List supported Flutter versions');
     _logger.info('  apps         List and manage your apps');
     _logger.info('  billing      View usage and billing info');
-    _logger.info('  seed-secrets Push .env secrets to GCP Secret Manager');
     return ExitCode.success.code;
   }
 }
