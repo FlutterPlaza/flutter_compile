@@ -55,6 +55,12 @@ class CodePushSetupSubCommand extends Command<int> {
       return _listVersions(manager);
     }
 
+    // Ensure the build tool is ready (bootstrap download if missing).
+    final tool = await manager.ensureBuildTool();
+    if (tool == null) {
+      return ExitCode.software.code;
+    }
+
     // Determine the Flutter version to download for.
     var flutterVersion = argResults?['flutter-version'] as String?;
     if (flutterVersion == null) {
@@ -73,13 +79,13 @@ class CodePushSetupSubCommand extends Command<int> {
     // Check if already cached.
     if (!force && manager.isVersionCached(flutterVersion)) {
       _logger.info(
-        'Engine artifacts already cached for Flutter $flutterVersion.',
+        'Build artifacts already cached for Flutter $flutterVersion.',
       );
       _logger.info(
         '  Path: ${manager.versionDir(flutterVersion)}/${targetPlatform ?? manager.currentPlatform}',
       );
       await manager.saveActiveVersion(flutterVersion);
-      _logger.success('Code push engine is ready.');
+      _logger.success('Code push is ready.');
       return ExitCode.success.code;
     }
 
@@ -101,7 +107,7 @@ class CodePushSetupSubCommand extends Command<int> {
 
     // Download artifacts.
     final progress = _logger.progress(
-      'Downloading engine artifacts for '
+      'Downloading build artifacts for '
       '${targetPlatform ?? manager.currentPlatform}',
     );
 
@@ -111,25 +117,16 @@ class CodePushSetupSubCommand extends Command<int> {
     );
 
     if (!success) {
-      progress.fail('Failed to download engine artifacts');
+      progress.fail('Failed to download build artifacts');
       return ExitCode.software.code;
     }
 
-    progress.complete('Engine artifacts downloaded');
+    progress.complete('Build artifacts downloaded');
 
     // Save as active version.
     await manager.saveActiveVersion(flutterVersion);
 
-    // Show artifact paths.
-    final genSnapshot = manager.genSnapshotPath(flutterVersion);
-    if (genSnapshot != null) {
-      _logger.info('  gen_snapshot: $genSnapshot');
-    }
-
-    final engineLib = manager.engineLibraryPath(flutterVersion);
-    if (engineLib != null) {
-      _logger.info('  engine:       $engineLib');
-    }
+    _logger.info('  Cached at: ${manager.versionDir(flutterVersion)}');
 
     // Ensure Dart SDK is available in the contribution Flutter repo.
     // This prevents the broken download when the repo has a custom
@@ -157,7 +154,7 @@ class CodePushSetupSubCommand extends Command<int> {
     }
 
     _logger.success(
-      'Code push engine is ready for Flutter $flutterVersion.',
+      'Code push is ready for Flutter $flutterVersion.',
     );
     return ExitCode.success.code;
   }

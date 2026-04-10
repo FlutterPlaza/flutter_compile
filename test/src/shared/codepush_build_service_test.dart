@@ -15,9 +15,6 @@ void main() {
       service = CodePushBuildService(logger: logger);
     });
 
-    // packageVmcode and extractVmcode tests removed — those methods
-    // were moved to the fcp-tool binary (see `fcp codepush setup`).
-
     group('computeHash', () {
       test('returns consistent hash for same input', () {
         final data = [1, 2, 3, 4, 5];
@@ -45,7 +42,5 @@ void main() {
         expect(result == null || result.isNotEmpty, isTrue);
       });
     });
-
-    // vmcode constants tests removed — constants moved to fcp-tool binary.
   });
 }

@@ -1,5 +1,19 @@
 # CHANGE LOG
 
+## 0.19.0
+
+- security: patch signing is now enforced by default — pass `--unsigned` to bypass
+- security: source uploads to the compile endpoint use RSA+AES hybrid encryption; server public key cached in `.flutter_compilerc`
+- security: `fcp codepush init` writes `FLTCodePushPublicKey` to `Info.plist`
+- feat: `fcp codepush init` generates native setup automatically — `CodePushApp.kt`, `codepush.yaml`, `AndroidManifest.xml`, and `Info.plist`; flavored apps get manual integration instructions
+- feat: `fcp codepush release --build` and `patch --build` now produce release-ready artifacts end to end (fixes #5)
+- feat: build steps are delegated to a private `fcp-tool` binary that the CLI downloads on first use
+- feat: Flutter SDK version auto-detected from `flutter --version --machine` (with plain-text fallback) and sent on `POST /api/v1/releases` — required for server-side patch compilation
+- feat: `fcp codepush versions --json` — list supported/installed Flutter versions
+- feat: `fcp codepush account --json` and `codepush status --json` now emit structured output (status supports `--release-id` filtering and `total_patches`)
+- chore: remove internal implementation details from public code and docs
+- chore: remove `fcp codepush seed-secrets` — moved to the private admin CLI
+
 ## 0.18.0
 
 - fix: `fcp codepush patch --build` now uses `flutter build` instead of raw Dart kernel compiler — fixes dart:ui missing types
@@ -40,8 +54,8 @@
 
 - feat: `fcp codepush seed-secrets` command — push .env secrets into GCP Secret Manager for server deployment
 - feat: multi-platform engine artifact support — Android, iOS, macOS, Linux, Windows build targets
-- feat: platform-specific gen_snapshot and engine library path resolution
-- feat: `engineLibraryPath` now accepts optional `platform` parameter for cross-platform engine swaps
+- feat: platform-specific build artifact resolution for code push
+- feat: cross-platform build artifact lookup with optional `platform` parameter
 - fix: resolved all `dart analyze` errors
 - fix: formatted all source files to pass `dart format` checks
 

@@ -105,12 +105,6 @@ void main() {
         expect(release.argParser.options, contains('app-id'));
       });
 
-      test('has --deterministic flag', () {
-        final cmd = commandRunner.commands['codepush']!;
-        final release = cmd.subcommands['release']!;
-        expect(release.argParser.options, contains('deterministic'));
-      });
-
       test('has --flutter-version option', () {
         final cmd = commandRunner.commands['codepush']!;
         final release = cmd.subcommands['release']!;

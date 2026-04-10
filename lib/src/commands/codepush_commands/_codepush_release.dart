@@ -32,12 +32,6 @@ class CodePushReleaseSubCommand extends Command<int> {
         help: 'Build the app in release mode before uploading.',
         defaultsTo: false,
       )
-      ..addFlag(
-        'deterministic',
-        help:
-            'Re-run gen_snapshot with --stable_object_pool_indices for deterministic output.',
-        defaultsTo: false,
-      )
       ..addOption(
         'flutter-version',
         help: 'Flutter SDK version this release was built with (e.g., 3.41.2). '
@@ -109,12 +103,10 @@ class CodePushReleaseSubCommand extends Command<int> {
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
-      // Step 1: Swap gen_snapshot BEFORE building so the AOT snapshot
-      // matches the code-push engine runtime.
       final prepProgress = _logger.progress('Preparing code push build');
-      final prepared = await buildService.prepareBuild(
+      final prepared = await buildService.prepareCodePushBuild(
         buildPlatform: platform,
-        flutterVersion: null, // auto-detect
+        flutterVersion: null,
         artifactManager: artifactManager,
       );
       if (prepared) {
@@ -126,7 +118,6 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
       }
 
-      // Step 2: Build the app with Flutter (uses our swapped gen_snapshot).
       final buildProgress = _logger.progress('Building release ($platform)');
       final buildOk = await buildService.buildRelease(
         platform: platform,
@@ -137,17 +128,16 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       buildProgress.complete('Build succeeded');
 
-      // Step 3: Swap engine library in the build output AFTER building.
-      final swapProgress = _logger.progress('Swapping engine');
-      final swapped = await buildService.swapEngineLibrary(
+      final finalizeProgress = _logger.progress('Finalizing build');
+      final finalized = await buildService.finalizeBuild(
         buildPlatform: platform,
         flutterVersion: null,
         artifactManager: artifactManager,
       );
-      if (swapped) {
-        swapProgress.complete('Engine swapped');
+      if (finalized) {
+        finalizeProgress.complete('Build finalized');
       } else {
-        swapProgress.fail('Engine swap failed');
+        finalizeProgress.fail('Finalization failed');
         return ExitCode.software.code;
       }
     }
@@ -165,24 +155,6 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       _logger.detail('Using snapshot: $snapshotPath');
-    }
-
-    // If --deterministic, re-run gen_snapshot with stable pool indices.
-    final deterministic = argResults?['deterministic'] as bool? ?? false;
-    if (deterministic) {
-      final detProgress =
-          _logger.progress('Re-running gen_snapshot (deterministic)');
-      final detOutput = 'build/codepush/snapshot_deterministic.so';
-      final detResult = await buildService.buildDeterministicSnapshot(
-        inputPath: snapshotPath,
-        outputPath: detOutput,
-      );
-      if (detResult == null) {
-        detProgress.fail('Deterministic snapshot failed');
-        return ExitCode.software.code;
-      }
-      snapshotPath = detResult;
-      detProgress.complete('Deterministic snapshot ready');
     }
 
     final snapshotFile = File(snapshotPath);

@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
-import 'package:flutter_compile/src/shared/binary_diff.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
@@ -17,7 +16,7 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'patch-file',
-        help: 'Path to the patch binary (.vmcode).',
+        help: 'Path to an existing patch file to upload.',
       )
       ..addOption(
         'rollout',
@@ -26,8 +25,7 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addFlag(
         'build',
-        help:
-            'Build the app with Flutter, extract snapshot, and package as .vmcode.',
+        help: 'Build the app with Flutter and produce a patch file.',
         defaultsTo: false,
       )
       ..addOption(
@@ -94,9 +92,8 @@ class CodePushPatchSubCommand extends Command<int> {
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
-      // Step 1: Swap gen_snapshot BEFORE building.
       final prepProgress = _logger.progress('Preparing code push build');
-      final prepared = await buildService.prepareBuild(
+      final prepared = await buildService.prepareCodePushBuild(
         buildPlatform: platform,
         flutterVersion: null,
         artifactManager: artifactManager,
@@ -110,7 +107,6 @@ class CodePushPatchSubCommand extends Command<int> {
         );
       }
 
-      // Step 2: Build the app (uses our swapped gen_snapshot).
       final buildProgress = _logger.progress('Building ($platform)');
       final buildOk = await buildService.buildRelease(platform: platform);
       if (!buildOk) {
@@ -119,17 +115,16 @@ class CodePushPatchSubCommand extends Command<int> {
       }
       buildProgress.complete('Build succeeded');
 
-      // Step 3: Swap engine library in build output AFTER building.
-      final swapProgress = _logger.progress('Swapping engine');
-      final swapped = await buildService.swapEngineLibrary(
+      final finalizeProgress = _logger.progress('Finalizing build');
+      final finalized = await buildService.finalizeBuild(
         buildPlatform: platform,
         flutterVersion: null,
         artifactManager: artifactManager,
       );
-      if (swapped) {
-        swapProgress.complete('Engine swapped');
+      if (finalized) {
+        finalizeProgress.complete('Build finalized');
       } else {
-        swapProgress.fail('Engine swap failed');
+        finalizeProgress.fail('Finalization failed');
         return ExitCode.software.code;
       }
 
@@ -146,13 +141,23 @@ class CodePushPatchSubCommand extends Command<int> {
       _logger.detail('Using snapshot: $snapshotPath');
       final snapshotData = File(snapshotPath).readAsBytesSync();
 
-      // If baseline is provided, compute binary diff instead of full snapshot.
+      // If baseline is provided, compute a binary diff via the build tool
+      // instead of uploading the full snapshot.
       Uint8List payloadData;
       final baselinePath = argResults?['baseline'] as String?;
       if (baselinePath != null && File(baselinePath).existsSync()) {
         final diffProgress = _logger.progress('Computing binary diff');
         final baseline = File(baselinePath).readAsBytesSync();
-        payloadData = bsdiff(baseline, Uint8List.fromList(snapshotData));
+        final diff = await buildService.diffBytes(
+          baseline: Uint8List.fromList(baseline),
+          updated: Uint8List.fromList(snapshotData),
+          artifactManager: artifactManager,
+        );
+        if (diff == null) {
+          diffProgress.fail('Binary diff failed');
+          return ExitCode.software.code;
+        }
+        payloadData = diff;
         final savings = snapshotData.length - payloadData.length;
         diffProgress.complete(
           'Diff: ${payloadData.length} bytes '
@@ -196,30 +201,25 @@ class CodePushPatchSubCommand extends Command<int> {
         );
       }
 
-      // Packaging delegated to fcp-tool.
       final packageProgress = _logger.progress('Packaging patch');
-      final am = CodePushArtifactManager(logger: _logger);
-      final tool = await am.ensureBuildTool();
-      if (tool == null) {
-        packageProgress.fail('Build tool not found.');
-        return ExitCode.software.code;
-      }
-      final vmcodePath = 'build/codepush/patch.vmcode';
-      final pkgResult = Process.runSync(tool, ['package', vmcodePath]);
-      if (pkgResult.exitCode != 0) {
+      const patchOutputPath = 'build/codepush/patch.fcppatch';
+      final packaged = await buildService.packagePayload(
+        payload: payloadData,
+        outputPath: patchOutputPath,
+        artifactManager: artifactManager,
+      );
+      if (!packaged) {
         packageProgress.fail('Packaging failed.');
         return ExitCode.software.code;
       }
-      packageProgress.complete('Packaged → $vmcodePath');
+      packageProgress.complete('Patch ready → $patchOutputPath');
     }
 
-    // Resolve patch file.
     var patchPath = argResults?['patch-file'] as String?;
     if (patchPath == null || patchPath.isEmpty) {
-      // Look for default patch output.
       final candidates = [
-        'build/codepush/patch.vmcode',
-        'build/patch.vmcode',
+        'build/codepush/patch.fcppatch',
+        'build/patch.fcppatch',
       ];
       for (final candidate in candidates) {
         if (File(candidate).existsSync()) {
