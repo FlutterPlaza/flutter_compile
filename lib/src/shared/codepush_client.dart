@@ -116,6 +116,22 @@ class CodePushClient {
     );
   }
 
+  /// Read the stored Flutter engine version from ~/.flutter_compilerc.
+  ///
+  /// Written by `fcp codepush setup` when the user installs engine
+  /// artifacts for a specific Flutter version. Used as a fallback for
+  /// `codepush patch --build` / `codepush release --build` when
+  /// `--flutter-version` isn't passed and `flutter --version` can't be
+  /// resolved from PATH.
+  static Future<String?> getStoredEngineFlutterVersion() async {
+    final home = F.homeDir();
+    final rcFile = File('$home/.flutter_compilerc');
+    return F.readValueForKeyFromRcConfig(
+      rcFile,
+      Constants.codePushEngineVersionKey,
+    );
+  }
+
   /// Clear stored credentials.
   static Future<void> clearCredentials() async {
     final home = F.homeDir();

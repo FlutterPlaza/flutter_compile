@@ -42,6 +42,65 @@ void main() {
         expect(result == null || result.isNotEmpty, isTrue);
       });
     });
+
+    group('parseFlutterVersionOutput', () {
+      test('extracts stable channel version', () {
+        const output = 'Flutter 3.41.2 • channel stable • https://github.com/'
+            'flutter/flutter.git\n'
+            'Framework • revision abc123 (3 days ago)\n';
+        expect(
+          CodePushBuildService.parseFlutterVersionOutput(output),
+          '3.41.2',
+        );
+      });
+
+      test('extracts pre-release version with dashes and dots', () {
+        const output = 'Flutter 3.27.0-0.1.pre • channel beta • url\n';
+        expect(
+          CodePushBuildService.parseFlutterVersionOutput(output),
+          '3.27.0-0.1.pre',
+        );
+      });
+
+      test('returns null for empty input', () {
+        expect(CodePushBuildService.parseFlutterVersionOutput(''), isNull);
+      });
+
+      test('returns null when first line does not start with Flutter', () {
+        const output = 'Downloading Flutter SDK...\n'
+            'Flutter 3.41.2 • channel stable\n';
+        expect(
+          CodePushBuildService.parseFlutterVersionOutput(output),
+          isNull,
+        );
+      });
+
+      test('tolerates trailing whitespace on the first line', () {
+        const output = 'Flutter 3.5.0   \n';
+        expect(
+          CodePushBuildService.parseFlutterVersionOutput(output),
+          '3.5.0',
+        );
+      });
+    });
+
+    group('resolveFlutterVersion', () {
+      test('explicit value short-circuits detection and stored config',
+          () async {
+        final resolved = await service.resolveFlutterVersion(
+          explicit: '3.29.1',
+        );
+        expect(resolved, '3.29.1');
+      });
+
+      test('empty explicit is treated as absent and falls through', () async {
+        // We cannot assert the downstream result without mocking
+        // subprocess + rc file, but we can assert the method doesn't
+        // prematurely return an empty string to the caller.
+        final resolved = await service.resolveFlutterVersion(explicit: '');
+        expect(resolved, isNot(''));
+      });
+    });
   });
 
   group('BuildStepResult', () {

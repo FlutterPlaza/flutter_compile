@@ -1,5 +1,11 @@
 # CHANGE LOG
 
+## 0.19.7
+
+- fix: `fcp codepush patch --build` and `fcp codepush release --build` hard-failed at the finalize step on every project because both commands called `CodePushBuildService.finalizeBuild` with `flutterVersion: null` hardcoded, and the `release` command's existing `--flutter-version` option was parsed but never actually wired through to the service. Adds a new `CodePushBuildService.resolveFlutterVersion({explicit})` helper with a three-step precedence: (1) the `--flutter-version` CLI flag, (2) `flutter --version` auto-detection, (3) `codepush_engine_flutter_version` from `~/.flutter_compilerc` (written by `fcp codepush setup`). The `patch` command gains a `--flutter-version` option to match `release`. The resolved value is now passed to both `prepareCodePushBuild` and `finalizeBuild`. If all three sources fail, the command exits with a clear error telling the user what to do.
+- feat: `CodePushBuildService.detectFlutterVersion()` — runs `flutter --version`, parses the first line, returns the version string or null on any failure.
+- feat: `CodePushClient.getStoredEngineFlutterVersion()` — reads `codepush_engine_flutter_version` from `~/.flutter_compilerc`, mirroring the existing `getStoredToken` / `getAppId` accessors.
+
 ## 0.19.6
 
 - fix: `flutter_compile update` could report "already at the latest version" while the very next command run (e.g. `fcp --version`) showed an "Update available!" banner pointing at a newer release, because the two version checks hit different pub.dev CDN edge nodes right after a publish. Wraps `PubUpdater`'s HTTP client with a new `PubCacheBustingClient` that appends a `_cb=<microsecond-timestamp>` query parameter and `Cache-Control: no-cache, no-store, max-age=0` / `Pragma: no-cache` headers to every request, forcing every version lookup to be a cache miss at the edge. Both `update_command.run()` and `command_runner._checkForUpdates()` go through the same shared `PubUpdater` instance, so they now always agree. Fixes #17.

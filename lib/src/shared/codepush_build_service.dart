@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
+import 'codepush_client.dart';
 
 /// Outcome of a build-tool subprocess step.
 ///
@@ -87,6 +88,58 @@ class CodePushBuildService {
     if (result.exitCode == 0) {
       return (result.stdout as String).trim();
     }
+    return null;
+  }
+
+  /// Parse the first line of `flutter --version` stdout into a bare
+  /// version string.
+  ///
+  /// Example inputs:
+  ///   "Flutter 3.41.2 • channel stable • https://..." → "3.41.2"
+  ///   "Flutter 3.27.0-0.1.pre • channel beta • ..."   → "3.27.0-0.1.pre"
+  ///
+  /// Returns null when the input is empty or the first line does not
+  /// start with `Flutter <version>`.
+  static String? parseFlutterVersionOutput(String stdout) {
+    if (stdout.isEmpty) return null;
+    final firstLine = stdout.split('\n').first.trim();
+    final match = RegExp(r'^Flutter\s+(\S+)').firstMatch(firstLine);
+    return match?.group(1);
+  }
+
+  /// Detect the installed Flutter SDK version by running `flutter --version`
+  /// and passing its stdout through [parseFlutterVersionOutput]. Returns
+  /// null if `flutter` is not on PATH, the subprocess fails, or the output
+  /// can't be parsed.
+  Future<String?> detectFlutterVersion() async {
+    final flutterBin = findFlutterBin();
+    if (flutterBin == null) return null;
+    try {
+      final result = await Process.run(flutterBin, ['--version']);
+      if (result.exitCode != 0) return null;
+      return parseFlutterVersionOutput(result.stdout as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Resolve the Flutter SDK version to use for code push build steps.
+  ///
+  /// Precedence:
+  ///   1. [explicit] — typically from a `--flutter-version` CLI flag.
+  ///   2. `flutter --version` output ([detectFlutterVersion]).
+  ///   3. `codepush_engine_flutter_version` in `~/.flutter_compilerc`
+  ///      ([CodePushClient.getStoredEngineFlutterVersion]).
+  ///
+  /// Returns null only when all three sources yield an empty/missing value.
+  /// Callers should treat null as a user-facing error and tell the user to
+  /// pass `--flutter-version` explicitly or run `fcp codepush setup`.
+  Future<String?> resolveFlutterVersion({String? explicit}) async {
+    if (explicit != null && explicit.isNotEmpty) return explicit;
+    final detected = await detectFlutterVersion();
+    if (detected != null && detected.isNotEmpty) return detected;
+    final stored = await CodePushClient.getStoredEngineFlutterVersion();
+    if (stored != null && stored.isNotEmpty) return stored;
     return null;
   }
 

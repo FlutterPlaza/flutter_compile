@@ -50,6 +50,14 @@ class CodePushPatchSubCommand extends Command<int> {
         help: 'Allow uploading an unsigned patch (testing only).',
         negatable: false,
         defaultsTo: false,
+      )
+      ..addOption(
+        'flutter-version',
+        help: 'Flutter SDK version this patch was built with (e.g., 3.41.2). '
+            'Auto-detected from "flutter --version" if not specified, '
+            'then falls back to codepush_engine_flutter_version in '
+            '~/.flutter_compilerc. Required by the finalize step to locate '
+            'the cached engine library.',
       );
   }
 
@@ -91,10 +99,23 @@ class CodePushPatchSubCommand extends Command<int> {
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
+      final flutterVersion = await buildService.resolveFlutterVersion(
+        explicit: argResults?['flutter-version'] as String?,
+      );
+      if (flutterVersion == null) {
+        _logger.err(
+          'Could not resolve Flutter SDK version. Pass --flutter-version '
+          '<version>, ensure "flutter --version" works in this shell, or '
+          'run "fcp codepush setup" to store a default engine version.',
+        );
+        return ExitCode.usage.code;
+      }
+      _logger.detail('Using Flutter version: $flutterVersion');
+
       final prepProgress = _logger.progress('Preparing code push build');
       final prepared = await buildService.prepareCodePushBuild(
         buildPlatform: platform,
-        flutterVersion: null,
+        flutterVersion: flutterVersion,
         artifactManager: artifactManager,
       );
       if (prepared) {
@@ -117,7 +138,7 @@ class CodePushPatchSubCommand extends Command<int> {
       final finalizeProgress = _logger.progress('Finalizing build');
       final finalized = await buildService.finalizeBuild(
         buildPlatform: platform,
-        flutterVersion: null,
+        flutterVersion: flutterVersion,
         artifactManager: artifactManager,
       );
       if (finalized.success) {
