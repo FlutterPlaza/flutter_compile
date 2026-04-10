@@ -145,9 +145,7 @@ fcp codepush patch --build --rollout 25    # ship a signed patch at 25% rollout
 fcp codepush rollback --patch-id <id>      # roll a patch back
 ```
 
-**Full documentation:** [codepush.flutterplaza.com/docs](https://codepush.flutterplaza.com/docs) — runtime SDK integration, signing key management, channel-based rollouts, admin console, and the runtime Flutter plugin ([`flutterplaza_code_push`](https://pub.dev/packages/flutterplaza_code_push)).
-
-> `release` and `patch` require a paid subscription. Free tier covers development and testing.
+**Full documentation:** [codepush.flutterplaza.com/docs](https://codepush.flutterplaza.com/docs) — runtime SDK integration, signing key management, channel-based rollouts, admin console, and the runtime Flutter plugin ([`flutterplaza_code_push`](https://pub.dev/packages/flutterplaza_code_push)). See the [pricing page](https://codepush.flutterplaza.com/#pricing) for plan limits.
 
 ---
 

@@ -1,5 +1,10 @@
 # CHANGE LOG
 
+## 0.19.2
+
+- fix: drop the inaccurate "requires paid subscription" claim from the public README, from the `codepush` / `codepush release` / `codepush patch` command descriptions shown in `fcp --help`, and from the `docs/code-push.html` table. Free tier supports production `release` and `patch`; see [the pricing page](https://codepush.flutterplaza.com/#pricing) for plan limits.
+- fix: `release` and `patch` HTTP 403 error handlers now surface the server's actual error message instead of hardcoding "Paid subscription required".
+
 ## 0.19.1
 
 - docs: add a Code Push section to the README with a link to [codepush.flutterplaza.com/docs](https://codepush.flutterplaza.com/docs)

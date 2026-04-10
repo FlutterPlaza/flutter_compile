@@ -45,8 +45,7 @@ class CodePushReleaseSubCommand extends Command<int> {
   @override
   final String name = 'release';
   @override
-  final String description =
-      'Upload a baseline release (requires paid subscription).';
+  final String description = 'Upload a baseline release.';
 
   @override
   Future<int> run() async {
@@ -220,8 +219,13 @@ class CodePushReleaseSubCommand extends Command<int> {
       final statusCode = result['status_code'] as int;
 
       if (statusCode == 403) {
+        final serverError = result['error'] as String?;
+        final upgradeUrl =
+            result['upgrade_url'] as String? ?? 'flutterplaza.com/pricing';
         progress.fail(
-          'Paid subscription required. Upgrade at ${result['upgrade_url'] ?? 'flutterplaza.com/pricing'}',
+          serverError != null
+              ? '$serverError See $upgradeUrl'
+              : 'Upload denied by server. See $upgradeUrl',
         );
         return ExitCode.software.code;
       }

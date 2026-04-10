@@ -50,8 +50,7 @@ class CodePushCommand extends Command<int> {
   @override
   final String name = 'codepush';
   @override
-  final String description =
-      'Code push — OTA updates for Flutter apps (paid subscription required for release/patch).';
+  final String description = 'Code push — OTA updates for Flutter apps.';
   @override
   final List<String> aliases = ['cp'];
 
