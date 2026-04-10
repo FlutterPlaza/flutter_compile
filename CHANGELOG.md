@@ -1,5 +1,10 @@
 # CHANGE LOG
 
+## 0.19.1
+
+- docs: add a Code Push section to the README with a link to [codepush.flutterplaza.com/docs](https://codepush.flutterplaza.com/docs)
+- chore: apply `dart format` to two files that tripped the `--set-exit-if-changed` CI check (pure whitespace, no behavior change)
+
 ## 0.19.0
 
 - security: patch signing is now enforced by default — pass `--unsigned` to bypass

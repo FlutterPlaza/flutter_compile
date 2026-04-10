@@ -132,6 +132,25 @@ fcp status                                    # engine config overview
 
 ---
 
+## Code Push
+
+Ship Dart-only updates to your Flutter app without resubmitting to the app stores. Signed patches, staged rollouts, and one-tap rollbacks — all driven from the CLI.
+
+```sh
+fcp codepush setup                         # one-time toolchain setup
+fcp codepush init                          # generate native integration files + signing key
+fcp codepush login                         # browser-based OAuth
+fcp codepush release --build               # build and upload a baseline release
+fcp codepush patch --build --rollout 25    # ship a signed patch at 25% rollout
+fcp codepush rollback --patch-id <id>      # roll a patch back
+```
+
+**Full documentation:** [codepush.flutterplaza.com/docs](https://codepush.flutterplaza.com/docs) — runtime SDK integration, signing key management, channel-based rollouts, admin console, and the runtime Flutter plugin ([`flutterplaza_code_push`](https://pub.dev/packages/flutterplaza_code_push)).
+
+> `release` and `patch` require a paid subscription. Free tier covers development and testing.
+
+---
+
 ## Daemon & Terminal UI
 
 ```sh
