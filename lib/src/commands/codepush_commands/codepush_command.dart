@@ -2,6 +2,7 @@ import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_apps.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_billing.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_init.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_keys.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_register.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_login.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_logout.dart';
@@ -34,6 +35,7 @@ class CodePushCommand extends Command<int> {
   CodePushCommand(this._logger) {
     addSubcommand(CodePushSetupSubCommand(_logger));
     addSubcommand(CodePushInitSubCommand(_logger));
+    addSubcommand(CodePushKeysSubCommand(_logger));
     addSubcommand(CodePushLoginSubCommand(_logger));
     addSubcommand(CodePushRegisterSubCommand(_logger));
     addSubcommand(CodePushLogoutSubCommand(_logger));
@@ -63,6 +65,7 @@ class CodePushCommand extends Command<int> {
     _logger.info('Available subcommands:');
     _logger.info('  setup      Download code-push-enabled engine artifacts');
     _logger.info('  init       Initialize code push for this project');
+    _logger.info('  keys       Generate or register RSA signing keys');
     _logger.info('  login      Authenticate with the code push server');
     _logger.info('  logout     Clear stored credentials');
     _logger.info('  account    Show subscription status');

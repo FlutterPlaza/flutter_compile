@@ -201,12 +201,18 @@ class CodePushClient {
   }
 
   /// POST /api/v1/patches — upload a patch.
+  ///
+  /// [signature] is the base64-encoded RSA-SHA256 signature over the raw
+  /// patch bytes. Required if the app has a public key registered on the
+  /// server; ignored for grandfathered apps (but still recommended so
+  /// that enabling enforcement later is painless).
   Future<Map<String, dynamic>> createPatch({
     required String token,
     required String releaseId,
     required List<int> patchData,
     int rolloutPercentage = 100,
     String channel = 'production',
+    String? signature,
   }) async {
     return _post(
       '/api/v1/patches',
@@ -216,6 +222,50 @@ class CodePushClient {
         'patch': base64Encode(patchData),
         'rollout_percentage': rolloutPercentage,
         'channel': channel,
+        if (signature != null) 'signature': signature,
+      },
+    );
+  }
+
+  /// POST /api/v1/apps — create a new app, optionally registering the
+  /// RSA public key that future patches will be signed with.
+  ///
+  /// Passing [publicKeyPem] at create time enables server-side signature
+  /// enforcement immediately. Omit it for manual registration via
+  /// [registerAppPublicKey] later.
+  Future<Map<String, dynamic>> createApp({
+    required String token,
+    required String name,
+    String? platform,
+    String? publicKeyPem,
+  }) async {
+    return _post(
+      '/api/v1/apps',
+      token: token,
+      body: {
+        'name': name,
+        if (platform != null) 'platform': platform,
+        if (publicKeyPem != null) 'public_key': publicKeyPem,
+      },
+    );
+  }
+
+  /// PATCH /api/v1/apps — register or rotate the RSA public key used to
+  /// verify patch signatures for an existing (grandfathered) app.
+  ///
+  /// After this call succeeds, the server will reject any unsigned or
+  /// invalid-signature patch for this app.
+  Future<Map<String, dynamic>> registerAppPublicKey({
+    required String token,
+    required String appId,
+    required String publicKeyPem,
+  }) async {
+    return _patch(
+      '/api/v1/apps',
+      token: token,
+      body: {
+        'app_id': appId,
+        'public_key': publicKeyPem,
       },
     );
   }
@@ -447,6 +497,25 @@ class CodePushClient {
   }) async {
     final uri = Uri.parse('$_serverUrl$path');
     final request = await _http.postUrl(uri);
+    if (token != null) {
+      request.headers.set('Authorization', 'Bearer $token');
+    }
+    request.headers.set('Content-Type', 'application/json');
+    request.headers.set('Accept', 'application/json');
+    if (body != null) {
+      request.write(json.encode(body));
+    }
+    final response = await request.close();
+    return _parseResponse(response);
+  }
+
+  Future<Map<String, dynamic>> _patch(
+    String path, {
+    String? token,
+    Map<String, dynamic>? body,
+  }) async {
+    final uri = Uri.parse('$_serverUrl$path');
+    final request = await _http.openUrl('PATCH', uri);
     if (token != null) {
       request.headers.set('Authorization', 'Bearer $token');
     }

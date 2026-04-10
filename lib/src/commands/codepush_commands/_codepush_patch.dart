@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -196,35 +197,6 @@ class CodePushPatchSubCommand extends Command<int> {
         }
       }
 
-      // Sign the patch. Auto-detect stored key if --signing-key not provided.
-      // Signing is mandatory unless --unsigned is explicitly passed.
-      final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
-      Uint8List? signature;
-      var signingKeyPath = argResults?['signing-key'] as String?;
-      signingKeyPath ??= await CodePushClient.getStoredSigningKey();
-      if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
-        final signProgress = _logger.progress('Signing patch');
-        signature = await buildService.signPayload(payloadData, signingKeyPath);
-        if (signature == null) {
-          signProgress.fail('Signing failed');
-          return ExitCode.software.code;
-        }
-        signProgress.complete('Signed (${signature.length} bytes)');
-      } else if (!allowUnsigned) {
-        _logger.err(
-          'No signing key found. Patches must be signed for production.\n'
-          '  Run "fcp codepush init" to generate a key pair, or use '
-          '--signing-key.\n'
-          '  To bypass (testing only): --unsigned',
-        );
-        return ExitCode.software.code;
-      } else {
-        _logger.warn(
-          'Uploading unsigned patch (--unsigned). '
-          'Do NOT use in production.',
-        );
-      }
-
       final packageProgress = _logger.progress('Packaging patch');
       const patchOutputPath = 'build/codepush/patch.fcppatch';
       final packaged = await buildService.packagePayload(
@@ -277,6 +249,42 @@ class CodePushPatchSubCommand extends Command<int> {
     final patchData = patchFile.readAsBytesSync();
     _logger.detail('Patch size: ${patchData.length} bytes');
 
+    // Sign the packaged patch bytes (not the raw payload). The server
+    // will verify the signature against exactly these bytes.
+    // Auto-detect stored key if --signing-key isn't passed. Signing is
+    // mandatory unless --unsigned is explicitly set.
+    final buildServiceForSigning = CodePushBuildService(logger: _logger);
+    final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
+    Uint8List? signature;
+    var signingKeyPath = argResults?['signing-key'] as String?;
+    signingKeyPath ??= await CodePushClient.getStoredSigningKey();
+    if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
+      final signProgress = _logger.progress('Signing patch');
+      signature = await buildServiceForSigning.signPayload(
+        Uint8List.fromList(patchData),
+        signingKeyPath,
+      );
+      if (signature == null) {
+        signProgress.fail('Signing failed');
+        return ExitCode.software.code;
+      }
+      signProgress.complete('Signed (${signature.length} bytes)');
+    } else if (!allowUnsigned) {
+      _logger.err(
+        'No signing key found. Patches must be signed for production.\n'
+        '  Run "fcp codepush keys generate" to create a key pair, then\n'
+        '  "fcp codepush keys register" to upload the public key, or\n'
+        '  pass --signing-key <path>.\n'
+        '  To bypass (testing only): --unsigned',
+      );
+      return ExitCode.software.code;
+    } else {
+      _logger.warn(
+        'Uploading unsigned patch (--unsigned). '
+        'Do NOT use in production.',
+      );
+    }
+
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
     final progress = _logger.progress(
@@ -290,19 +298,26 @@ class CodePushPatchSubCommand extends Command<int> {
         patchData: patchData,
         rolloutPercentage: rollout,
         channel: channel,
+        signature: signature == null ? null : base64Encode(signature),
       );
 
       final statusCode = result['status_code'] as int;
 
       if (statusCode == 403) {
         final serverError = result['error'] as String?;
+        final serverMessage = result['message'] as String?;
+        final docsUrl = result['docs_url'] as String?;
         final upgradeUrl =
             result['upgrade_url'] as String? ?? 'flutterplaza.com/pricing';
-        progress.fail(
-          serverError != null
-              ? '$serverError See $upgradeUrl'
-              : 'Upload denied by server. See $upgradeUrl',
-        );
+        progress.fail(serverError ?? 'Upload denied by server.');
+        if (serverMessage != null) {
+          _logger.err(serverMessage);
+        }
+        if (docsUrl != null) {
+          _logger.info('  Docs: $docsUrl');
+        } else if (serverError != null) {
+          _logger.info('  See $upgradeUrl');
+        }
         return ExitCode.software.code;
       }
 
@@ -326,6 +341,24 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.info('  Rollout:      ${patch['rollout_percentage']}%');
         _logger.info('  Channel:      ${patch['channel']}');
         _logger.info('  Download URL: ${patch['patch_url']}');
+      }
+
+      // Migration banner: the server replies with a `signature_enforcement`
+      // block whenever it grandfathers an unsigned patch (app has no
+      // public key on file). Tell the user loudly, once, how to flip on
+      // mandatory verification.
+      final enforcement =
+          result['signature_enforcement'] as Map<String, dynamic>?;
+      if (enforcement != null) {
+        _logger
+          ..info('')
+          ..warn('⚠  Signature enforcement: ${enforcement['status']}')
+          ..warn('   ${enforcement['message']}')
+          ..info('   Action:  ${enforcement['action']}');
+        final docsUrl = enforcement['docs_url'];
+        if (docsUrl is String) {
+          _logger.info('   Docs:    $docsUrl');
+        }
       }
 
       return ExitCode.success.code;

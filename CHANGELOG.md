@@ -1,5 +1,33 @@
 # CHANGE LOG
 
+## 0.19.8
+
+- **security / feat**: end-to-end RSA-SHA256 patch signature verification with an opt-in migration path for existing apps.
+  - New subcommand group `fcp codepush keys` with `generate` and `register` actions.
+    - `fcp codepush keys generate` creates an RSA-2048 keypair under `~/.flutter_codepush/` and stores the private-key path in `~/.flutter_compilerc`. Idempotent unless `--force` is passed. Fixes the "init was run on pre-0.15.0 and no key was ever generated" pain point that previously had no in-CLI recovery path.
+    - `fcp codepush keys register` uploads the **public** key to the code push server for the current app via `PATCH /api/v1/apps`, enabling mandatory server-side signature enforcement for every subsequent patch.
+  - `fcp codepush init` now generates the keypair **before** the `POST /api/v1/apps` call and includes the public key in the create-app body, so new apps are secure by default (enforcement is on from the first patch).
+  - `fcp codepush patch` now sends the computed RSA-SHA256 signature in the `signature` field of `POST /api/v1/patches`.
+  - When the server grandfathers an unsigned patch (app has no public key on file), the response includes a `signature_enforcement` block that the CLI surfaces as a loud migration banner directing the user to run `fcp codepush keys register`.
+
+### 🛠 Migration guide for all existing users
+
+**Pre-0.15.0 users** (apps created before auto-keygen existed):
+```
+fcp codepush keys generate      # generate local keypair
+fcp codepush keys register      # upload public key to server for your app
+fcp codepush patch --build ...  # signed from here on; server verifies
+```
+
+**0.15.0–0.19.7 users** (apps created with auto-keygen but no server registration):
+```
+fcp codepush keys register      # local key already exists, just upload it
+```
+
+**0.19.8+ new installs**: no migration needed. `fcp codepush init` registers the public key automatically.
+
+**What happens if you do nothing?** Your existing unsigned patches keep working. The server logs a warning per upload and the CLI prints a banner nudging you to register a key. Future releases will eventually remove the grandfather path — the warning will become the main signal that it's time to migrate.
+
 ## 0.19.7
 
 - fix: `fcp codepush patch --build` and `fcp codepush release --build` hard-failed at the finalize step on every project because both commands called `CodePushBuildService.finalizeBuild` with `flutterVersion: null` hardcoded, and the `release` command's existing `--flutter-version` option was parsed but never actually wired through to the service. Adds a new `CodePushBuildService.resolveFlutterVersion({explicit})` helper with a three-step precedence: (1) the `--flutter-version` CLI flag, (2) `flutter --version` auto-detection, (3) `codepush_engine_flutter_version` from `~/.flutter_compilerc` (written by `fcp codepush setup`). The `patch` command gains a `--flutter-version` option to match `release`. The resolved value is now passed to both `prepareCodePushBuild` and `finalizeBuild`. If all three sources fail, the command exits with a clear error telling the user what to do.
