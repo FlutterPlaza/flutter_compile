@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.6
+
+- fix: `flutter_compile update` could report "already at the latest version" while the very next command run (e.g. `fcp --version`) showed an "Update available!" banner pointing at a newer release, because the two version checks hit different pub.dev CDN edge nodes right after a publish. Wraps `PubUpdater`'s HTTP client with a new `PubCacheBustingClient` that appends a `_cb=<microsecond-timestamp>` query parameter and `Cache-Control: no-cache, no-store, max-age=0` / `Pragma: no-cache` headers to every request, forcing every version lookup to be a cache miss at the edge. Both `update_command.run()` and `command_runner._checkForUpdates()` go through the same shared `PubUpdater` instance, so they now always agree. Fixes #17.
+
 ## 0.19.5
 
 - fix: `fcp codepush patch --build` and `fcp codepush release --build` printed only `Finalization failed` with zero detail when the finalize step failed, even under `--verbose`. `CodePushBuildService.finalizeBuild` returned a bare `bool` and discarded the subprocess stderr, exit code, and command line — the caller had nothing to report. Introduces a `BuildStepResult` struct carrying `success`, `message`, `command`, `exitCode`, `stdout`, `stderr`, and a `formatDiagnostics()` helper that prints a multi-line dump (exit code, elided command, stderr, stdout) right after the progress line. Both `_codepush_patch.dart` and `_codepush_release.dart` now log these diagnostics on failure. The "tool not downloaded" precondition path now also returns an actionable message (`Run "fcp codepush setup" first to download it.`). Fixes #16.

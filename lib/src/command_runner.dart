@@ -3,6 +3,7 @@ import 'package:args/command_runner.dart';
 import 'package:cli_completion/cli_completion.dart';
 import 'package:flutter_compile/src/commands/commands.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/pub_cache_busting_client.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:pub_updater/pub_updater.dart';
@@ -25,7 +26,11 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
     Logger? logger,
     PubUpdater? pubUpdater,
   })  : _logger = logger ?? Logger(),
-        _pubUpdater = pubUpdater ?? PubUpdater(),
+        // Wrap PubUpdater's HTTP client with a cache-busting shim so that
+        // back-to-back version checks (e.g. `update` then `--version`)
+        // can't disagree because pub.dev's CDN served one a stale edge
+        // node. See pub_cache_busting_client.dart and issue #17.
+        _pubUpdater = pubUpdater ?? PubUpdater(PubCacheBustingClient()),
         super(executableName, description) {
     // Add root options and flags
     argParser
