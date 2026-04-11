@@ -54,10 +54,10 @@ void main() {
       const machO64BeMagic = [0xFE, 0xED, 0xFA, 0xCF];
       const machO64LeMagic = [0xCF, 0xFA, 0xED, 0xFE];
 
-      test('accepts Dart kernel on iOS', () {
+      test('accepts ELF on iOS (dynamic-module snapshot)', () {
         expect(
           CodePushBuildService.validatePayloadMagic(
-            mk(dartKernelMagic),
+            mk(elfMagic),
             'ios',
           ),
           isNull,
@@ -71,8 +71,7 @@ void main() {
         );
         expect(err, isNotNull);
         expect(err, contains('Mach-O'));
-        expect(err, contains('App.framework/App'));
-        expect(err, contains('app.dill'));
+        expect(err, contains('0.19.13'));
       });
 
       test('rejects Mach-O (little-endian) on iOS', () {
@@ -84,14 +83,14 @@ void main() {
         expect(err, contains('Mach-O'));
       });
 
-      test('rejects ELF on iOS with cross-platform hint', () {
+      test('rejects raw Dart kernel on iOS with snapshot-step hint', () {
         final err = CodePushBuildService.validatePayloadMagic(
-          mk(elfMagic),
+          mk(dartKernelMagic),
           'ios',
         );
         expect(err, isNotNull);
-        expect(err, contains('ELF'));
-        expect(err, contains('Android'));
+        expect(err, contains('kernel'));
+        expect(err, contains('snapshot'));
       });
 
       test('rejects unknown magic on iOS', () {
@@ -129,16 +128,16 @@ void main() {
           'apk',
         );
         expect(err, isNotNull);
-        expect(err, contains('not ELF'));
+        expect(err, contains('Mach-O'));
       });
 
-      test('rejects Dart kernel on apk (wrong platform)', () {
+      test('rejects Dart kernel on apk with snapshot-step hint', () {
         final err = CodePushBuildService.validatePayloadMagic(
           mk(dartKernelMagic),
           'apk',
         );
         expect(err, isNotNull);
-        expect(err, contains('not ELF'));
+        expect(err, contains('kernel'));
       });
 
       test('rejects short payloads', () {

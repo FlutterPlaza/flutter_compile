@@ -271,16 +271,28 @@ class CodePushBuildService {
   /// for [platform], returning `null` if the format is correct or a
   /// human-readable error message if it isn't.
   ///
-  /// Expected formats:
+  /// Expected format on **every** supported platform is a Dart AOT
+  /// dynamic-module **ELF** blob (magic bytes `7F 45 4C 46`). The
+  /// ELF is the output of `gen_snapshot --snapshot-kind=app-aot-elf`
+  /// (or the equivalent `fcp-tool snapshot` subcommand) run on a
+  /// Dart kernel `.dill` file — which is what the Dart VM's
+  /// `loadDynamicModule` native actually accepts.
   ///
-  ///   * **iOS**: Dart kernel. Magic bytes: `90 AB CD EF`.
-  ///   * **Other platforms**: ELF. Magic bytes: `7F 45 4C 46`.
+  /// Earlier CLI versions (0.19.11, 0.19.12) shipped the wrong
+  /// payload for iOS:
   ///
-  /// This is a fast-fail guard before calling `fcp-tool package` —
-  /// it catches the wrong-format payload at upload time instead of
-  /// at device-load time, where a Mach-O passed to the Dart VM's
-  /// `loadDynamicModule` aborts the process with a `SIGABRT` that
-  /// users can't recover from without uninstalling the app.
+  ///   * **0.19.10 and older**: shipped `App.framework/App`
+  ///     (Mach-O). VM aborted.
+  ///   * **0.19.11 and 0.19.12**: shipped `app.dill` (raw kernel).
+  ///     VM still aborted — `loadDynamicModule` needs the compiled
+  ///     output of the kernel, not the kernel itself.
+  ///   * **0.19.13+**: runs `fcp-tool snapshot` on the kernel to
+  ///     produce the ELF dynamic-module blob, ships that. This
+  ///     check passes for the first time.
+  ///
+  /// Android / Linux / macOS / Windows always shipped ELF via
+  /// `flutter build`'s `libapp.so` / `app.so` output and are
+  /// unchanged.
   static String? validatePayloadMagic(
     List<int> payload,
     String platform,
@@ -294,52 +306,44 @@ class CodePushBuildService {
         .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
         .join(' ');
 
-    if (platform == 'ios') {
-      final isKernel = payload[0] == 0x90 &&
-          payload[1] == 0xAB &&
-          payload[2] == 0xCD &&
-          payload[3] == 0xEF;
-      if (isKernel) return null;
-
-      // Diagnose the two most likely wrong-format cases.
-      final isMachO = (payload[0] == 0xFE &&
-              payload[1] == 0xED &&
-              payload[2] == 0xFA &&
-              payload[3] == 0xCF) ||
-          (payload[0] == 0xCF &&
-              payload[1] == 0xFA &&
-              payload[2] == 0xED &&
-              payload[3] == 0xFE);
-      if (isMachO) {
-        return 'iOS payload is Mach-O (magic ${hex4()}), not a Dart '
-            'kernel file. iOS patches must be kernel (.dill) — the '
-            'custom code-push engine interprets bytecode because '
-            'Apple code-signing forbids loading unsigned native code '
-            'at runtime. This usually means `.dart_tool/flutter_build/'
-            '<hash>/app.dill` could not be found and the build service '
-            'fell back to App.framework/App.';
-      }
-      final isELF = payload[0] == 0x7F &&
-          payload[1] == 0x45 &&
-          payload[2] == 0x4C &&
-          payload[3] == 0x46;
-      if (isELF) {
-        return 'iOS payload is ELF (magic ${hex4()}), not a Dart '
-            'kernel file. Did you accidentally build for Android and '
-            'upload with --platform ios?';
-      }
-      return 'iOS payload has unknown magic bytes ${hex4()} (expected '
-          '90 AB CD EF for Dart kernel).';
-    }
-
-    // Non-iOS: expect ELF.
     final isELF = payload[0] == 0x7F &&
         payload[1] == 0x45 &&
         payload[2] == 0x4C &&
         payload[3] == 0x46;
     if (isELF) return null;
-    return '$platform payload is not ELF (magic ${hex4()}, expected '
-        '7F 45 4C 46).';
+
+    // Diagnose the two most common wrong-format cases with
+    // actionable error messages.
+    final isKernel = payload[0] == 0x90 &&
+        payload[1] == 0xAB &&
+        payload[2] == 0xCD &&
+        payload[3] == 0xEF;
+    if (isKernel) {
+      return '$platform payload is raw Dart kernel (magic ${hex4()}), '
+          'not a dynamic-module ELF. The kernel is the *input* to the '
+          'snapshot step — run `fcp-tool snapshot --platform '
+          '<host-platform> --dill <kernel> --output <elf>` (the '
+          'CLI should do this automatically; if you see this error, '
+          'flutter_compile is not running the snapshot step and '
+          'needs to be upgraded).';
+    }
+    final isMachO = (payload[0] == 0xFE &&
+            payload[1] == 0xED &&
+            payload[2] == 0xFA &&
+            payload[3] == 0xCF) ||
+        (payload[0] == 0xCF &&
+            payload[1] == 0xFA &&
+            payload[2] == 0xED &&
+            payload[3] == 0xFE);
+    if (isMachO) {
+      return '$platform payload is Mach-O (magic ${hex4()}), not an '
+          'ELF dynamic-module snapshot. This usually means the CLI '
+          'fell back to Runner.app/Frameworks/App.framework/App '
+          'instead of running `fcp-tool snapshot` on the kernel. '
+          'Upgrade flutter_compile to 0.19.13+.';
+    }
+    return '$platform payload has unknown magic bytes ${hex4()} '
+        '(expected 7F 45 4C 46 for ELF dynamic-module snapshot).';
   }
 
   /// Sign data with RSA-SHA256 using a PEM private key file.
@@ -447,6 +451,65 @@ class CodePushBuildService {
       _logger.err('Build preparation failed.');
     }
     return result.exitCode == 0;
+  }
+
+  /// Compile a Dart kernel (.dill) file into a deterministic AOT ELF
+  /// dynamic-module snapshot by invoking `fcp-tool snapshot`.
+  ///
+  /// This is the step the Dart VM's `loadDynamicModule` / the custom
+  /// engine's `ui.codePushLoadModule` actually expects as input. The
+  /// raw kernel that `fcp-tool prepare ios` produces is the *input*
+  /// to this step, not the final patch payload — shipping kernel
+  /// directly aborts the VM inside `DN_Internal_loadDynamicModule`.
+  ///
+  /// Android builds don't need this step because `flutter build apk`
+  /// already produces an ELF AOT snapshot at `libapp.so`; iOS builds
+  /// need this extra compile because the iOS `.app` bundle's
+  /// `Frameworks/App.framework/App` is a **Mach-O** (the baseline),
+  /// not the ELF dynamic module the runtime loader wants for
+  /// patches.
+  Future<BuildStepResult> snapshotFromKernel({
+    required String kernelPath,
+    required String platform,
+    required String flutterVersion,
+    required String outputPath,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) {
+      return const BuildStepResult(
+        success: false,
+        message: 'Build tool not available. '
+            'Run "fcp codepush setup" first to download it.',
+      );
+    }
+    // Ensure the output directory exists — gen_snapshot otherwise
+    // fails with an opaque "cannot open file" error.
+    final outputFile = File(outputPath);
+    outputFile.parent.createSync(recursive: true);
+
+    final args = <String>[
+      'snapshot',
+      '--platform',
+      platform,
+      '--flutter-version',
+      flutterVersion,
+      '--dill',
+      kernelPath,
+      '--output',
+      outputPath,
+    ];
+    final result = Process.runSync(tool, args);
+    return BuildStepResult(
+      success: result.exitCode == 0,
+      message: result.exitCode == 0
+          ? null
+          : 'Kernel → dynamic-module snapshot failed.',
+      command: [tool, ...args],
+      exitCode: result.exitCode,
+      stdout: result.stdout as String?,
+      stderr: result.stderr as String?,
+    );
   }
 
   /// Run the finalize step of the build tool.

@@ -154,22 +154,11 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      // Extract the patch payload from the build output.
-      //
-      // On iOS this is the Dart *kernel* file (.dill) produced by the
-      // `fcp-tool prepare ios` step — NOT the AOT Mach-O at
-      // `App.framework/App`. iOS patches are interpreted bytecode;
-      // the native Mach-O at the usual snapshot path is the baseline
-      // (the code the device already has) and cannot be loaded as a
-      // dynamic module because Apple code-signing forbids unsigned
-      // native code at runtime. Loading a Mach-O into
-      // `ui.codePushLoadModule` aborts the Dart VM inside
-      // `DN_Internal_loadDynamicModule` with no recoverable error.
-      //
-      // On other platforms (Android / Linux / macOS / Windows) this
-      // is the ELF AOT snapshot.
-      final snapshotPath = buildService.findSnapshotPath(platform);
-      if (snapshotPath == null) {
+      // Locate what `flutter build` / `fcp-tool prepare` produced.
+      // On iOS this is the Dart kernel (.dill); on other platforms
+      // it's already the ELF AOT snapshot.
+      var payloadPath = buildService.findSnapshotPath(platform);
+      if (payloadPath == null) {
         _logger.err(
           'Could not find patch payload in build output for $platform.\n'
           '  On iOS, expected .dart_tool/flutter_build/<hash>/app.dill — '
@@ -181,14 +170,50 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      _logger.detail('Using patch payload: $snapshotPath');
-      final snapshotData = File(snapshotPath).readAsBytesSync();
+      // iOS-specific: the Dart VM's `loadDynamicModule` native does
+      // not accept raw kernel — it needs the AOT-compiled
+      // dynamic-module ELF blob produced by `gen_snapshot` (exposed
+      // as `fcp-tool snapshot`). Run that step now so the final
+      // payload fed into the signing + diff + package pipeline is
+      // the ELF, not the kernel.
+      //
+      // 0.19.12 and older skipped this step and shipped raw kernel,
+      // which passed the CLI's magic-byte check (kernel magic
+      // 90 AB CD EF) but aborted the VM on the device at load time.
+      // See CHANGELOG for the full archaeology.
+      if (platform == 'ios') {
+        final snapshotProgress =
+            _logger.progress('Compiling kernel → dynamic-module snapshot');
+        const snapshotOutput = 'build/codepush/ios_snapshot.elf';
+        final artifactManagerForSnapshot =
+            CodePushArtifactManager(logger: _logger);
+        final snapResult = await buildService.snapshotFromKernel(
+          kernelPath: payloadPath,
+          platform: artifactManagerForSnapshot.currentPlatform,
+          flutterVersion: flutterVersion,
+          outputPath: snapshotOutput,
+          artifactManager: artifactManagerForSnapshot,
+        );
+        if (!snapResult.success) {
+          snapshotProgress
+              .fail(snapResult.message ?? 'Snapshot compilation failed');
+          final diag = snapResult.formatDiagnostics();
+          if (diag.isNotEmpty) _logger.err(diag);
+          return ExitCode.software.code;
+        }
+        snapshotProgress.complete(
+          'Snapshot ready → $snapshotOutput',
+        );
+        payloadPath = snapshotOutput;
+      }
+
+      _logger.detail('Using patch payload: $payloadPath');
+      final snapshotData = File(payloadPath).readAsBytesSync();
 
       // Fast-fail magic-byte validation: catch the wrong-format
       // payload here, before it reaches the server and the device.
-      // Loading a Mach-O into the Dart VM's dynamic module loader
-      // aborts the process on the device with no user-facing
-      // diagnostic — we refuse the upload instead.
+      // Loading the wrong format into the Dart VM's dynamic module
+      // loader aborts the process with no user-facing diagnostic.
       final magicError = CodePushBuildService.validatePayloadMagic(
         snapshotData,
         platform,

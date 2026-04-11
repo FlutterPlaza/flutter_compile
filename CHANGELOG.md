@@ -1,5 +1,13 @@
 # CHANGE LOG
 
+## 0.19.13
+
+- **critical fix**: `fcp codepush patch --build --platform ios` was still shipping the wrong payload format, even after the 0.19.11 Mach-O → kernel fix. Raw Dart kernel (`.dill`) is the *input* to the snapshot step, not the output that `DN_Internal_loadDynamicModule` accepts. The Dart VM's dynamic module loader expects an AOT-compiled **dynamic-module ELF** blob produced by `gen_snapshot` / `fcp-tool snapshot`. Shipping raw kernel aborted the VM on every iOS patch load.
+  - **Fix**: insert a new `snapshotFromKernel` step in the iOS patch pipeline. After `fcp-tool prepare ios` writes the kernel, the CLI now invokes `fcp-tool snapshot --platform <host> --flutter-version <ver> --dill <kernel> --output build/codepush/ios_snapshot.elf`, and that ELF output is what gets fed into the signing / diff / package / upload chain. The pipeline now matches the Dart VM's actual contract.
+  - **`validatePayloadMagic` rewrite**: the platform-specific dispatch is gone. Every supported platform now expects an ELF dynamic-module snapshot (magic `7F 45 4C 46`). The fast-fail check at upload time will refuse raw kernel, Mach-O, or anything else, with an actionable error message that names the wrong format and points at the upgrade.
+  - **10 updated unit tests** covering the new contract: accept ELF on iOS (was: accept kernel), reject raw kernel on iOS with the snapshot-step hint, reject both Mach-O endiannesses on iOS with the version-upgrade hint, unknown magic rejection, and parity across all non-iOS platforms (which were already ELF and are unchanged).
+- Pairs with `flutterplaza_code_push 0.1.9`, which rewrites its load-time format guard to expect ELF on iOS and emit the same structured diagnosis messages for Mach-O, kernel, and unknown magic for devices that still receive old-format patches.
+
 ## 0.19.12
 
 - **fix**: `fcp codepush patch --build` on iOS was failing at the upload step with `FormatException: Unexpected character (at line 2, character 1)` because the Dart kernel payload (proper fix for the Mach-O bug in 0.19.11) is ~5× larger than the old (wrong) AOT Mach-O we used to ship, and the base64+JSON envelope pushed the POST body past Cloud Run's hard 32 MiB request body limit. The server was returning an HTTP 413 HTML error page, and the CLI was trying to `jsonDecode` the `<html>` response and blowing up on the opening tag.
