@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
@@ -285,6 +286,33 @@ class CodePushPatchSubCommand extends Command<int> {
       );
     }
 
+    // Compute the baseline hash so the server can record it per-patch
+    // and the SDK can reject any device whose running baseline has a
+    // different App.framework/App (package-level Dart class layout
+    // drift — the engine ABI fingerprint doesn't catch it because
+    // both sides ship the same Flutter SDK version). Best-effort:
+    // if the file doesn't exist where we expect, the server stores
+    // null and the SDK's engine-ABI check remains the only guard.
+    String? baselineHash;
+    final candidateAppFrameworks = [
+      // iOS release build (the primary target of the crash this fixes).
+      'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+      // Android debug/profile — no App.framework, use libapp.so.
+      'build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libapp.so',
+    ];
+    for (final candidate in candidateAppFrameworks) {
+      final file = File(candidate);
+      if (file.existsSync()) {
+        final bytes = file.readAsBytesSync();
+        baselineHash = sha256.convert(bytes).toString();
+        _logger.detail(
+          'Baseline hash (sha256 of ${candidate.split('/').last}): '
+          '${baselineHash.substring(0, 16)}…',
+        );
+        break;
+      }
+    }
+
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
     final progress = _logger.progress(
@@ -299,6 +327,7 @@ class CodePushPatchSubCommand extends Command<int> {
         rolloutPercentage: rollout,
         channel: channel,
         signature: signature == null ? null : base64Encode(signature),
+        baselineHash: baselineHash,
       );
 
       final statusCode = result['status_code'] as int;

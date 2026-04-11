@@ -206,6 +206,13 @@ class CodePushClient {
   /// patch bytes. Required if the app has a public key registered on the
   /// server; ignored for grandfathered apps (but still recommended so
   /// that enabling enforcement later is painless).
+  ///
+  /// [baselineHash] is the hex-encoded SHA-256 of the `App.framework/App`
+  /// (iOS) or `libapp.so` (Android) file the patch was built against.
+  /// The server records it per-patch and the SDK compares it against the
+  /// running baseline's hash before loading, to reject patches whose
+  /// package-level Dart class layout doesn't match. Optional: omitting
+  /// it downgrades the SDK to its coarser engine-ABI check.
   Future<Map<String, dynamic>> createPatch({
     required String token,
     required String releaseId,
@@ -213,6 +220,7 @@ class CodePushClient {
     int rolloutPercentage = 100,
     String channel = 'production',
     String? signature,
+    String? baselineHash,
   }) async {
     return _post(
       '/api/v1/patches',
@@ -223,6 +231,7 @@ class CodePushClient {
         'rollout_percentage': rolloutPercentage,
         'channel': channel,
         if (signature != null) 'signature': signature,
+        if (baselineHash != null) 'baseline_hash': baselineHash,
       },
     );
   }

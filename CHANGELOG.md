@@ -1,5 +1,10 @@
 # CHANGE LOG
 
+## 0.19.10
+
+- feat: `fcp codepush patch --build` now computes a SHA-256 content hash of the freshly-built `App.framework/App` (iOS) or `libapp.so` (Android) and passes it to `POST /api/v1/patches` as the `baseline_hash` field. The server records it per-patch and the SDK (flutterplaza_code_push 0.1.7+) compares it against the running baseline's hash before loading, refusing patches whose package-level Dart class layout doesn't match the device's baseline. Fixes a crash-loop scenario where a device running a baseline built against an older plugin version would download and try to load a patch built against a newer plugin version, aborting the Dart VM inside `DN_Internal_loadDynamicModule` because class offsets don't match. See `flutterplaza_code_push` 0.1.7 CHANGELOG for the full explanation.
+- Best-effort: if the expected `App.framework/App` file isn't found (e.g. unusual build layout), `baseline_hash` is omitted from the upload and the SDK falls back to its engine-ABI fingerprint check.
+
 ## 0.19.9
 
 - docs: bundle the new Signing & Migration section in the `docs/code-push.html` page that ships with the package. Adds a version-keyed migration table (< 0.15.0, 0.15.0–0.19.7, 0.19.8+) with the exact commands for each cohort, expands the Security section to describe server-side signature verification + HTTP 403 rejection, adds rows for `fcp codepush keys generate` / `register` to the CLI Commands table, and links out to the full guide at [codepush.flutterplaza.com/docs#patch-signing](https://codepush.flutterplaza.com/docs#patch-signing). No code changes.
