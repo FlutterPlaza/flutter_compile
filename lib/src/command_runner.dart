@@ -150,19 +150,57 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
   /// Checks if the current version (set by the build runner on the
   /// version.dart file) is the most recent one. If not, show a prompt to the
   /// user.
+  ///
+  /// Skips the "Update available!" banner when the running version is
+  /// newer than (or equal to) what pub.dev reports as latest — e.g.
+  /// when the user is running a pre-release build installed from
+  /// `dart pub global activate --source git`, or when they're running
+  /// a version that hit the pub.dev daily-publish rate limit and is
+  /// not yet on the index.
   Future<void> _checkForUpdates() async {
     try {
       final latestVersion = await _pubUpdater.getLatestVersion(packageName);
-      final isUpToDate = packageVersion == latestVersion;
-      if (!isUpToDate) {
-        _logger
-          ..info('')
-          ..info(
-            '''
+      if (_compareSemver(packageVersion, latestVersion) >= 0) {
+        // Running version is same as or newer than pub.dev's latest.
+        // No banner.
+        return;
+      }
+      _logger
+        ..info('')
+        ..info(
+          '''
 ${lightYellow.wrap('Update available!')} ${lightCyan.wrap(packageVersion)} \u2192 ${lightCyan.wrap(latestVersion)}
 Run ${lightCyan.wrap('$executableName update')} to update''',
-          );
-      }
+        );
     } catch (_) {}
+  }
+
+  /// Compare two semver-like version strings. Returns a negative
+  /// number if [a] < [b], zero if equal, positive if [a] > [b].
+  /// Handles `major.minor.patch` components and ignores any
+  /// pre-release / build metadata suffixes (so `0.19.13-dev` is
+  /// treated as `0.19.13`).
+  static int _compareSemver(String a, String b) {
+    List<int> parse(String v) {
+      // Strip anything after `-` or `+` (pre-release / build metadata).
+      final main = v.split(RegExp('[-+]')).first;
+      final parts = main.split('.');
+      final out = <int>[];
+      for (final p in parts) {
+        out.add(int.tryParse(p) ?? 0);
+      }
+      while (out.length < 3) {
+        out.add(0);
+      }
+      return out;
+    }
+
+    final pa = parse(a);
+    final pb = parse(b);
+    for (var i = 0; i < 3; i++) {
+      final d = pa[i].compareTo(pb[i]);
+      if (d != 0) return d;
+    }
+    return 0;
   }
 }

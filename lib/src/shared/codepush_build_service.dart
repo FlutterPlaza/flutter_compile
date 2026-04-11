@@ -271,28 +271,30 @@ class CodePushBuildService {
   /// for [platform], returning `null` if the format is correct or a
   /// human-readable error message if it isn't.
   ///
-  /// Expected format on **every** supported platform is a Dart AOT
-  /// dynamic-module **ELF** blob (magic bytes `7F 45 4C 46`). The
-  /// ELF is the output of `gen_snapshot --snapshot-kind=app-aot-elf`
-  /// (or the equivalent `fcp-tool snapshot` subcommand) run on a
-  /// Dart kernel `.dill` file — which is what the Dart VM's
-  /// `loadDynamicModule` native actually accepts.
+  /// Expected formats differ by target:
   ///
-  /// Earlier CLI versions (0.19.11, 0.19.12) shipped the wrong
-  /// payload for iOS:
+  ///   * **iOS / macOS**: Mach-O 64-bit dylib. Magic bytes
+  ///     `CF FA ED FE` (little-endian on disk for arm64/x86_64).
+  ///     `gen_snapshot --snapshot_kind=app-aot-macho-dylib --macho=…`
+  ///     output. Apple's loader + the code-push engine's
+  ///     `loadDynamicModule` both accept this format on Darwin
+  ///     targets.
   ///
-  ///   * **0.19.10 and older**: shipped `App.framework/App`
-  ///     (Mach-O). VM aborted.
-  ///   * **0.19.11 and 0.19.12**: shipped `app.dill` (raw kernel).
-  ///     VM still aborted — `loadDynamicModule` needs the compiled
-  ///     output of the kernel, not the kernel itself.
-  ///   * **0.19.13+**: runs `fcp-tool snapshot` on the kernel to
-  ///     produce the ELF dynamic-module blob, ships that. This
-  ///     check passes for the first time.
+  ///   * **Android / Linux**: ELF. Magic bytes `7F 45 4C 46`.
+  ///     `gen_snapshot --snapshot_kind=app-aot-elf --elf=…` output.
   ///
-  /// Android / Linux / macOS / Windows always shipped ELF via
-  /// `flutter build`'s `libapp.so` / `app.so` output and are
-  /// unchanged.
+  /// History (for anyone grepping commits later):
+  ///
+  ///   * **0.19.10 and older**: shipped `App.framework/App` (the
+  ///     Mach-O of the baseline, not a dynamic module). VM aborted.
+  ///   * **0.19.11, 0.19.12**: shipped `app.dill` (raw kernel). VM
+  ///     still aborted — kernel is the *input* to the snapshot step.
+  ///   * **0.19.13**: added the snapshot step but targeted ELF for
+  ///     all platforms. iOS snapshots were ELF-on-a-Darwin-target,
+  ///     which the loader rejected.
+  ///   * **0.19.14+**: snapshot step dispatches on target —
+  ///     Mach-O for ios/macos, ELF for android/linux. This check
+  ///     passes for the first time.
   static String? validatePayloadMagic(
     List<int> payload,
     String platform,
@@ -306,28 +308,7 @@ class CodePushBuildService {
         .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
         .join(' ');
 
-    final isELF = payload[0] == 0x7F &&
-        payload[1] == 0x45 &&
-        payload[2] == 0x4C &&
-        payload[3] == 0x46;
-    if (isELF) return null;
-
-    // Diagnose the two most common wrong-format cases with
-    // actionable error messages.
-    final isKernel = payload[0] == 0x90 &&
-        payload[1] == 0xAB &&
-        payload[2] == 0xCD &&
-        payload[3] == 0xEF;
-    if (isKernel) {
-      return '$platform payload is raw Dart kernel (magic ${hex4()}), '
-          'not a dynamic-module ELF. The kernel is the *input* to the '
-          'snapshot step — run `fcp-tool snapshot --platform '
-          '<host-platform> --dill <kernel> --output <elf>` (the '
-          'CLI should do this automatically; if you see this error, '
-          'flutter_compile is not running the snapshot step and '
-          'needs to be upgraded).';
-    }
-    final isMachO = (payload[0] == 0xFE &&
+    final isMachO64 = (payload[0] == 0xFE &&
             payload[1] == 0xED &&
             payload[2] == 0xFA &&
             payload[3] == 0xCF) ||
@@ -335,15 +316,45 @@ class CodePushBuildService {
             payload[1] == 0xFA &&
             payload[2] == 0xED &&
             payload[3] == 0xFE);
-    if (isMachO) {
+    final isELF = payload[0] == 0x7F &&
+        payload[1] == 0x45 &&
+        payload[2] == 0x4C &&
+        payload[3] == 0x46;
+    final isKernel = payload[0] == 0x90 &&
+        payload[1] == 0xAB &&
+        payload[2] == 0xCD &&
+        payload[3] == 0xEF;
+
+    final expectMachO = platform == 'ios' || platform == 'macos';
+    if (expectMachO && isMachO64) return null;
+    if (!expectMachO && isELF) return null;
+
+    // Emit the most actionable diagnosis we can.
+    if (isKernel) {
+      return '$platform payload is raw Dart kernel (magic ${hex4()}), '
+          'not a compiled dynamic-module snapshot. The kernel is the '
+          '*input* to the snapshot step — upgrade flutter_compile to '
+          '0.19.14+ and ensure `fcp-tool snapshot` is being invoked.';
+    }
+    if (expectMachO && isELF) {
+      return 'iOS/macOS payload is ELF (magic ${hex4()}), not a '
+          'Mach-O dylib. The snapshot step is targeting the wrong '
+          'platform — `fcp-tool snapshot --target ios` (or `macos`) '
+          'should produce `app-aot-macho-dylib` output. Upgrade '
+          'flutter_compile to 0.19.14+.';
+    }
+    if (!expectMachO && isMachO64) {
       return '$platform payload is Mach-O (magic ${hex4()}), not an '
           'ELF dynamic-module snapshot. This usually means the CLI '
           'fell back to Runner.app/Frameworks/App.framework/App '
-          'instead of running `fcp-tool snapshot` on the kernel. '
-          'Upgrade flutter_compile to 0.19.13+.';
+          'instead of running `fcp-tool snapshot`. Upgrade '
+          'flutter_compile to 0.19.14+.';
     }
+    final expectHex = expectMachO
+        ? 'CF FA ED FE (Mach-O 64-bit dylib)'
+        : '7F 45 4C 46 (ELF dynamic-module snapshot)';
     return '$platform payload has unknown magic bytes ${hex4()} '
-        '(expected 7F 45 4C 46 for ELF dynamic-module snapshot).';
+        '(expected $expectHex).';
   }
 
   /// Sign data with RSA-SHA256 using a PEM private key file.
@@ -471,6 +482,7 @@ class CodePushBuildService {
   Future<BuildStepResult> snapshotFromKernel({
     required String kernelPath,
     required String platform,
+    required String target,
     required String flutterVersion,
     required String outputPath,
     required CodePushArtifactManager artifactManager,
@@ -488,10 +500,17 @@ class CodePushBuildService {
     final outputFile = File(outputPath);
     outputFile.parent.createSync(recursive: true);
 
+    // `--platform` is the host (which cached `gen_snapshot` to use);
+    // `--target` is the build target (which snapshot kind to emit:
+    // Mach-O dylib for ios/macos, ELF for android/linux). fcp-tool
+    // 0.0.2+ accepts the `--target` flag; older versions default
+    // target=platform and will still work for non-iOS builds.
     final args = <String>[
       'snapshot',
       '--platform',
       platform,
+      '--target',
+      target,
       '--flutter-version',
       flutterVersion,
       '--dill',

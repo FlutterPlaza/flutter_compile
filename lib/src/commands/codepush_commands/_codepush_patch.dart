@@ -190,6 +190,7 @@ class CodePushPatchSubCommand extends Command<int> {
         final snapResult = await buildService.snapshotFromKernel(
           kernelPath: payloadPath,
           platform: artifactManagerForSnapshot.currentPlatform,
+          target: 'ios',
           flutterVersion: flutterVersion,
           outputPath: snapshotOutput,
           artifactManager: artifactManagerForSnapshot,

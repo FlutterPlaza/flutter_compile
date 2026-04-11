@@ -12,7 +12,11 @@ import 'package:test/test.dart';
 
 import '../helpers/test_helpers.dart';
 
-const latestVersion = '0.0.0';
+// Intentionally far higher than anything `packageVersion` can realistically
+// be so the `Update available!` banner actually fires under the semver
+// comparison added in 0.19.14 (previously the check used `==`, so any
+// mismatch triggered the banner — including `local > pub.dev`).
+const latestVersion = '9999.0.0';
 
 final updatePrompt = '''
 ${lightYellow.wrap('Update available!')} ${lightCyan.wrap(packageVersion)} \u2192 ${lightCyan.wrap(latestVersion)}

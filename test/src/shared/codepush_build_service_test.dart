@@ -54,33 +54,45 @@ void main() {
       const machO64BeMagic = [0xFE, 0xED, 0xFA, 0xCF];
       const machO64LeMagic = [0xCF, 0xFA, 0xED, 0xFE];
 
-      test('accepts ELF on iOS (dynamic-module snapshot)', () {
+      test('accepts Mach-O little-endian on iOS', () {
         expect(
           CodePushBuildService.validatePayloadMagic(
-            mk(elfMagic),
+            mk(machO64LeMagic),
             'ios',
           ),
           isNull,
         );
       });
 
-      test('rejects Mach-O (big-endian) on iOS with actionable message', () {
-        final err = CodePushBuildService.validatePayloadMagic(
-          mk(machO64BeMagic),
-          'ios',
+      test('accepts Mach-O big-endian on iOS', () {
+        expect(
+          CodePushBuildService.validatePayloadMagic(
+            mk(machO64BeMagic),
+            'ios',
+          ),
+          isNull,
         );
-        expect(err, isNotNull);
-        expect(err, contains('Mach-O'));
-        expect(err, contains('0.19.13'));
       });
 
-      test('rejects Mach-O (little-endian) on iOS', () {
+      test('accepts Mach-O on macos', () {
+        expect(
+          CodePushBuildService.validatePayloadMagic(
+            mk(machO64LeMagic),
+            'macos',
+          ),
+          isNull,
+        );
+      });
+
+      test('rejects ELF on iOS with snapshot-kind diagnostic', () {
         final err = CodePushBuildService.validatePayloadMagic(
-          mk(machO64LeMagic),
+          mk(elfMagic),
           'ios',
         );
         expect(err, isNotNull);
+        expect(err, contains('ELF'));
         expect(err, contains('Mach-O'));
+        expect(err, contains('0.19.14'));
       });
 
       test('rejects raw Dart kernel on iOS with snapshot-step hint', () {
@@ -112,8 +124,10 @@ void main() {
         );
       });
 
-      test('accepts ELF on appbundle / linux / macos / windows', () {
-        for (final p in ['appbundle', 'linux', 'macos', 'windows']) {
+      test('accepts ELF on appbundle / linux / windows', () {
+        // macos is now a Darwin target — it wants Mach-O, not ELF.
+        // See the separate "accepts Mach-O on macos" case above.
+        for (final p in ['appbundle', 'linux', 'windows']) {
           expect(
             CodePushBuildService.validatePayloadMagic(mk(elfMagic), p),
             isNull,
