@@ -202,6 +202,15 @@ class CodePushClient {
 
   /// POST /api/v1/patches — upload a patch.
   ///
+  /// Sends the raw patch bytes as a gzipped `application/octet-stream`
+  /// body with metadata in query parameters. This avoids the ~33 %
+  /// base64 blow-up of the legacy JSON-body upload path, which was
+  /// hitting Cloud Run's hard 32 MiB request body limit on any
+  /// moderately-sized iOS patch (Dart kernel for a typical Flutter
+  /// app is ~37 MiB uncompressed, but ~11 MiB gzipped). Requires
+  /// code-push-server with the matching octet-stream handler; older
+  /// servers (pre-2026-04-10) only accept the JSON body path.
+  ///
   /// [signature] is the base64-encoded RSA-SHA256 signature over the raw
   /// patch bytes. Required if the app has a public key registered on the
   /// server; ignored for grandfathered apps (but still recommended so
@@ -222,13 +231,13 @@ class CodePushClient {
     String? signature,
     String? baselineHash,
   }) async {
-    return _post(
+    return _postBinary(
       '/api/v1/patches',
       token: token,
-      body: {
+      bytes: patchData,
+      queryParams: {
         'release_id': releaseId,
-        'patch': base64Encode(patchData),
-        'rollout_percentage': rolloutPercentage,
+        'rollout_percentage': rolloutPercentage.toString(),
         'channel': channel,
         if (signature != null) 'signature': signature,
         if (baselineHash != null) 'baseline_hash': baselineHash,
@@ -537,17 +546,85 @@ class CodePushClient {
     return _parseResponse(response);
   }
 
+  /// POST a binary body (no base64, no JSON envelope) with query
+  /// parameters for metadata. Gzips the body on the wire via
+  /// `Content-Encoding: gzip` so large payloads (e.g. iOS Dart
+  /// kernel files) fit under the upstream frontend's request body
+  /// limit — Cloud Run caps request bodies at 32 MiB, and a typical
+  /// Flutter app's `.dill` is around 37 MiB uncompressed but
+  /// ~11 MiB gzipped.
+  Future<Map<String, dynamic>> _postBinary(
+    String path, {
+    String? token,
+    required List<int> bytes,
+    Map<String, String>? queryParams,
+  }) async {
+    final qs = (queryParams == null || queryParams.isEmpty)
+        ? ''
+        : '?${queryParams.entries.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
+    final uri = Uri.parse('$_serverUrl$path$qs');
+    final request = await _http.postUrl(uri);
+    if (token != null) {
+      request.headers.set('Authorization', 'Bearer $token');
+    }
+    request.headers.set('Content-Type', 'application/octet-stream');
+    request.headers.set('Content-Encoding', 'gzip');
+    request.headers.set('Accept', 'application/json');
+    final gzipped = gzip.encode(bytes);
+    request.headers.contentLength = gzipped.length;
+    request.add(gzipped);
+    final response = await request.close();
+    return _parseResponse(response);
+  }
+
   Future<Map<String, dynamic>> _parseResponse(
       HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
+    final statusCode = response.statusCode;
     if (body.isEmpty) {
-      return {'status_code': response.statusCode};
+      return {'status_code': statusCode};
     }
-    final parsed = json.decode(body);
-    if (parsed is Map<String, dynamic>) {
-      return {'status_code': response.statusCode, ...parsed};
+
+    // Check Content-Type before trying to decode as JSON. Upstream
+    // HTTP errors (Cloud Run 413 "Request Entity Too Large", nginx
+    // 502, Google Frontend 500) return HTML or text bodies; calling
+    // json.decode on them throws FormatException and surfaces a
+    // cryptic `Unexpected character (at line 2, character 1)` to
+    // the user instead of the actual HTTP status. Fall back to a
+    // readable excerpt of the raw body when the response isn't JSON.
+    final contentType =
+        response.headers.contentType?.mimeType.toLowerCase() ?? '';
+    final looksLikeJson =
+        contentType.contains('json') || body.trimLeft().startsWith('{');
+    if (!looksLikeJson) {
+      // Trim and excerpt so a 60 KB HTML page doesn't drown the
+      // user's terminal.
+      final trimmed = body.trim();
+      final excerpt = trimmed.length > 200
+          ? '${trimmed.substring(0, 200).replaceAll(RegExp(r'\s+'), ' ')}…'
+          : trimmed.replaceAll(RegExp(r'\s+'), ' ');
+      return {
+        'status_code': statusCode,
+        'error': 'HTTP $statusCode (non-JSON response)',
+        'message': excerpt,
+      };
     }
-    return {'status_code': response.statusCode, 'data': parsed};
+
+    try {
+      final parsed = json.decode(body);
+      if (parsed is Map<String, dynamic>) {
+        return {'status_code': statusCode, ...parsed};
+      }
+      return {'status_code': statusCode, 'data': parsed};
+    } on FormatException catch (e) {
+      // Defensive: content-type said JSON but the body wasn't valid.
+      final excerpt = body.length > 200 ? '${body.substring(0, 200)}…' : body;
+      return {
+        'status_code': statusCode,
+        'error': 'HTTP $statusCode (malformed JSON)',
+        'message': '${e.message}: $excerpt',
+      };
+    }
   }
 
   void close() => _http.close();
