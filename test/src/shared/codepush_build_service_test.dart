@@ -43,6 +43,114 @@ void main() {
       });
     });
 
+    group('validatePayloadMagic', () {
+      // Helper: build a fake payload with the given magic bytes
+      // followed by some tail data.
+      List<int> mk(List<int> magic, [int tailLen = 32]) =>
+          [...magic, ...List.filled(tailLen, 0x00)];
+
+      const dartKernelMagic = [0x90, 0xAB, 0xCD, 0xEF];
+      const elfMagic = [0x7F, 0x45, 0x4C, 0x46];
+      const machO64BeMagic = [0xFE, 0xED, 0xFA, 0xCF];
+      const machO64LeMagic = [0xCF, 0xFA, 0xED, 0xFE];
+
+      test('accepts Dart kernel on iOS', () {
+        expect(
+          CodePushBuildService.validatePayloadMagic(
+            mk(dartKernelMagic),
+            'ios',
+          ),
+          isNull,
+        );
+      });
+
+      test('rejects Mach-O (big-endian) on iOS with actionable message', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk(machO64BeMagic),
+          'ios',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('Mach-O'));
+        expect(err, contains('App.framework/App'));
+        expect(err, contains('app.dill'));
+      });
+
+      test('rejects Mach-O (little-endian) on iOS', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk(machO64LeMagic),
+          'ios',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('Mach-O'));
+      });
+
+      test('rejects ELF on iOS with cross-platform hint', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk(elfMagic),
+          'ios',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('ELF'));
+        expect(err, contains('Android'));
+      });
+
+      test('rejects unknown magic on iOS', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk([0xDE, 0xAD, 0xBE, 0xEF]),
+          'ios',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('DE AD BE EF'));
+      });
+
+      test('accepts ELF on apk', () {
+        expect(
+          CodePushBuildService.validatePayloadMagic(
+            mk(elfMagic),
+            'apk',
+          ),
+          isNull,
+        );
+      });
+
+      test('accepts ELF on appbundle / linux / macos / windows', () {
+        for (final p in ['appbundle', 'linux', 'macos', 'windows']) {
+          expect(
+            CodePushBuildService.validatePayloadMagic(mk(elfMagic), p),
+            isNull,
+            reason: 'ELF should be valid on $p',
+          );
+        }
+      });
+
+      test('rejects Mach-O on apk', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk(machO64BeMagic),
+          'apk',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('not ELF'));
+      });
+
+      test('rejects Dart kernel on apk (wrong platform)', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          mk(dartKernelMagic),
+          'apk',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('not ELF'));
+      });
+
+      test('rejects short payloads', () {
+        final err = CodePushBuildService.validatePayloadMagic(
+          [0x90, 0xAB],
+          'ios',
+        );
+        expect(err, isNotNull);
+        expect(err, contains('too small'));
+      });
+    });
+
     group('parseFlutterVersionOutput', () {
       test('extracts stable channel version', () {
         const output = 'Flutter 3.41.2 • channel stable • https://github.com/'

@@ -181,8 +181,53 @@ class CodePushBuildService {
     return true;
   }
 
-  /// Find the AOT snapshot in the build output.
+  /// Find the code-push payload path for the given platform.
+  ///
+  /// Platform-specific output:
+  ///
+  ///   * **iOS**: the Dart **kernel** file (`.dart_tool/flutter_build/`
+  ///     `<hash>/app.dill`). iOS patches are bytecode-interpreted by
+  ///     the custom code-push engine, NOT loaded as native Mach-O —
+  ///     Apple's code-signing rules forbid loading unsigned native
+  ///     code at runtime. The AOT Mach-O at
+  ///     `Runner.app/Frameworks/App.framework/App` is the *baseline*
+  ///     (the initial app binary); it is not a valid patch payload
+  ///     and will crash the VM with `SIGABRT` inside
+  ///     `DN_Internal_loadDynamicModule` if passed to the engine's
+  ///     dynamic module loader. Flutter writes the kernel file to a
+  ///     content-hashed subdirectory under
+  ///     `.dart_tool/flutter_build/`; when multiple subdirectories
+  ///     exist (debug / profile / release), we return the most
+  ///     recently modified `app.dill`.
+  ///
+  ///   * **Android / Linux / macOS / Windows**: the ELF AOT snapshot
+  ///     (`libapp.so` / `app.so` / `App`). These platforms load the
+  ///     AOT blob as a native shared library.
   String? findSnapshotPath(String platform) {
+    // iOS: locate the kernel file under .dart_tool/flutter_build/.
+    if (platform == 'ios') {
+      final buildDir = Directory('.dart_tool/flutter_build');
+      if (!buildDir.existsSync()) return null;
+      File? newest;
+      DateTime? newestMtime;
+      try {
+        for (final entry in buildDir.listSync()) {
+          if (entry is! Directory) continue;
+          final dill = File('${entry.path}/app.dill');
+          if (!dill.existsSync()) continue;
+          final m = dill.statSync().modified;
+          if (newestMtime == null || m.isAfter(newestMtime)) {
+            newest = dill;
+            newestMtime = m;
+          }
+        }
+      } catch (_) {
+        return null;
+      }
+      return newest?.path;
+    }
+
+    // Other platforms: ELF AOT snapshot candidates.
     final Map<String, List<String>> platformPaths = {
       'apk': [
         'build/app/intermediates/flutter/release/app.so',
@@ -194,10 +239,6 @@ class CodePushBuildService {
       ],
       'appbundle': [
         'build/app/intermediates/flutter/release/app.so',
-      ],
-      'ios': [
-        'build/ios/Release-iphoneos/Runner.app/Frameworks/App.framework/App',
-        'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
       ],
       'linux': [
         'build/linux/x64/release/bundle/lib/libapp.so',
@@ -214,7 +255,6 @@ class CodePushBuildService {
     final candidates = platformPaths[platform] ?? [];
     candidates.addAll([
       'build/app/intermediates/flutter/release/app.so',
-      'build/ios/Release/App.framework/App',
       'build/linux/x64/release/bundle/lib/libapp.so',
     ]);
 
@@ -225,6 +265,81 @@ class CodePushBuildService {
     }
 
     return null;
+  }
+
+  /// Validates a payload's magic bytes against the expected format
+  /// for [platform], returning `null` if the format is correct or a
+  /// human-readable error message if it isn't.
+  ///
+  /// Expected formats:
+  ///
+  ///   * **iOS**: Dart kernel. Magic bytes: `90 AB CD EF`.
+  ///   * **Other platforms**: ELF. Magic bytes: `7F 45 4C 46`.
+  ///
+  /// This is a fast-fail guard before calling `fcp-tool package` —
+  /// it catches the wrong-format payload at upload time instead of
+  /// at device-load time, where a Mach-O passed to the Dart VM's
+  /// `loadDynamicModule` aborts the process with a `SIGABRT` that
+  /// users can't recover from without uninstalling the app.
+  static String? validatePayloadMagic(
+    List<int> payload,
+    String platform,
+  ) {
+    if (payload.length < 4) {
+      return 'Payload is too small to contain a valid magic number '
+          '(got ${payload.length} bytes, expected at least 4).';
+    }
+    String hex4() => payload
+        .take(4)
+        .map((b) => b.toRadixString(16).padLeft(2, '0').toUpperCase())
+        .join(' ');
+
+    if (platform == 'ios') {
+      final isKernel = payload[0] == 0x90 &&
+          payload[1] == 0xAB &&
+          payload[2] == 0xCD &&
+          payload[3] == 0xEF;
+      if (isKernel) return null;
+
+      // Diagnose the two most likely wrong-format cases.
+      final isMachO = (payload[0] == 0xFE &&
+              payload[1] == 0xED &&
+              payload[2] == 0xFA &&
+              payload[3] == 0xCF) ||
+          (payload[0] == 0xCF &&
+              payload[1] == 0xFA &&
+              payload[2] == 0xED &&
+              payload[3] == 0xFE);
+      if (isMachO) {
+        return 'iOS payload is Mach-O (magic ${hex4()}), not a Dart '
+            'kernel file. iOS patches must be kernel (.dill) — the '
+            'custom code-push engine interprets bytecode because '
+            'Apple code-signing forbids loading unsigned native code '
+            'at runtime. This usually means `.dart_tool/flutter_build/'
+            '<hash>/app.dill` could not be found and the build service '
+            'fell back to App.framework/App.';
+      }
+      final isELF = payload[0] == 0x7F &&
+          payload[1] == 0x45 &&
+          payload[2] == 0x4C &&
+          payload[3] == 0x46;
+      if (isELF) {
+        return 'iOS payload is ELF (magic ${hex4()}), not a Dart '
+            'kernel file. Did you accidentally build for Android and '
+            'upload with --platform ios?';
+      }
+      return 'iOS payload has unknown magic bytes ${hex4()} (expected '
+          '90 AB CD EF for Dart kernel).';
+    }
+
+    // Non-iOS: expect ELF.
+    final isELF = payload[0] == 0x7F &&
+        payload[1] == 0x45 &&
+        payload[2] == 0x4C &&
+        payload[3] == 0x46;
+    if (isELF) return null;
+    return '$platform payload is not ELF (magic ${hex4()}, expected '
+        '7F 45 4C 46).';
   }
 
   /// Sign data with RSA-SHA256 using a PEM private key file.

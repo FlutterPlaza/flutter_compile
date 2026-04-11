@@ -154,18 +154,49 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      // Extract the AOT snapshot from the build output.
+      // Extract the patch payload from the build output.
+      //
+      // On iOS this is the Dart *kernel* file (.dill) produced by the
+      // `fcp-tool prepare ios` step — NOT the AOT Mach-O at
+      // `App.framework/App`. iOS patches are interpreted bytecode;
+      // the native Mach-O at the usual snapshot path is the baseline
+      // (the code the device already has) and cannot be loaded as a
+      // dynamic module because Apple code-signing forbids unsigned
+      // native code at runtime. Loading a Mach-O into
+      // `ui.codePushLoadModule` aborts the Dart VM inside
+      // `DN_Internal_loadDynamicModule` with no recoverable error.
+      //
+      // On other platforms (Android / Linux / macOS / Windows) this
+      // is the ELF AOT snapshot.
       final snapshotPath = buildService.findSnapshotPath(platform);
       if (snapshotPath == null) {
         _logger.err(
-          'Could not find snapshot in build output. '
-          'Build succeeded but snapshot path is unknown for $platform.',
+          'Could not find patch payload in build output for $platform.\n'
+          '  On iOS, expected .dart_tool/flutter_build/<hash>/app.dill — '
+          'the Dart kernel file written by `fcp-tool prepare ios`.\n'
+          '  On other platforms, expected an ELF AOT snapshot '
+          '(libapp.so / app.so / App).\n'
+          '  Re-run `fcp codepush setup` if the build tools are stale.',
         );
         return ExitCode.software.code;
       }
 
-      _logger.detail('Using snapshot: $snapshotPath');
+      _logger.detail('Using patch payload: $snapshotPath');
       final snapshotData = File(snapshotPath).readAsBytesSync();
+
+      // Fast-fail magic-byte validation: catch the wrong-format
+      // payload here, before it reaches the server and the device.
+      // Loading a Mach-O into the Dart VM's dynamic module loader
+      // aborts the process on the device with no user-facing
+      // diagnostic — we refuse the upload instead.
+      final magicError = CodePushBuildService.validatePayloadMagic(
+        snapshotData,
+        platform,
+      );
+      if (magicError != null) {
+        _logger.err('Refusing to upload: $magicError');
+        return ExitCode.software.code;
+      }
 
       // If baseline is provided, compute a binary diff via the build tool
       // instead of uploading the full snapshot.

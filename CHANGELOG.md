@@ -1,5 +1,12 @@
 # CHANGE LOG
 
+## 0.19.11
+
+- **critical fix**: `fcp codepush patch --build --platform ios` was packaging the wrong file. `findSnapshotPath('ios')` returned `Runner.app/Frameworks/App.framework/App` — the baseline's AOT Mach-O binary — and fed it to `fcp-tool package` as the patch payload. But iOS patches are interpreted bytecode (Apple's code-signing rules forbid loading unsigned native code at runtime), so the custom code-push engine expects a **Dart kernel file** (`.dill`), not the Mach-O baseline. Every iOS patch shipped via `--build` was aborting the Dart VM inside `DN_Internal_loadDynamicModule` on the device.
+  - **Fix**: `findSnapshotPath('ios')` now returns the most recently modified `.dart_tool/flutter_build/<hash>/app.dill` — the Dart kernel written by the `fcp-tool prepare ios` step. Android / Linux / macOS / Windows still return their ELF AOT snapshots as before.
+  - **Magic-byte pre-upload guard**: new `CodePushBuildService.validatePayloadMagic(payload, platform)` static helper inspects the first four bytes of the payload before it reaches `fcp-tool package`. iOS payloads must start with `90 AB CD EF` (Dart kernel magic); all other platforms must start with `7F 45 4C 46` (ELF magic). A Mach-O or wrong-platform payload now fails fast at upload time with an actionable error message, instead of silently producing a `.fcppatch` that crashes every device that downloads it. The helper is public on the build service class so other tooling can reuse it (and is now covered by unit tests).
+  - Pairs with `flutterplaza_code_push 0.1.8`, which adds a defensive Mach-O rejection in the SDK's load path for devices stuck on older CLI versions.
+
 ## 0.19.10
 
 - feat: `fcp codepush patch --build` now computes a SHA-256 content hash of the freshly-built `App.framework/App` (iOS) or `libapp.so` (Android) and passes it to `POST /api/v1/patches` as the `baseline_hash` field. The server records it per-patch and the SDK (flutterplaza_code_push 0.1.7+) compares it against the running baseline's hash before loading, refusing patches whose package-level Dart class layout doesn't match the device's baseline. Fixes a crash-loop scenario where a device running a baseline built against an older plugin version would download and try to load a patch built against a newer plugin version, aborting the Dart VM inside `DN_Internal_loadDynamicModule` because class offsets don't match. See `flutterplaza_code_push` 0.1.7 CHANGELOG for the full explanation.
