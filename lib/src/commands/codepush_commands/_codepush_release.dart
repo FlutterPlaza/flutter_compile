@@ -4,6 +4,7 @@ import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
@@ -20,7 +21,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       )
       ..addOption(
         'snapshot',
-        help: 'Path to the AOT snapshot file (.so or .aot).',
+        help: 'Path to a pre-built release artifact.',
       )
       ..addOption(
         'platform',
@@ -31,6 +32,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         'build',
         help: 'Build the app in release mode before uploading.',
         defaultsTo: false,
+      )
+      ..addMultiOption(
+        'dart-define',
+        help: 'Additional --dart-define values to forward to flutter build '
+            'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
         'flutter-version',
@@ -89,6 +95,8 @@ class CodePushReleaseSubCommand extends Command<int> {
     // If --build is set, build the app first.
     final shouldBuild = argResults?['build'] as bool? ?? false;
     final buildService = CodePushBuildService(logger: _logger);
+    String? baselineId;
+    String? originalIosInfoPlist;
 
     if (shouldBuild) {
       var platform = argResults?['platform'] as String?;
@@ -115,46 +123,82 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       _logger.detail('Using Flutter version: $flutterVersion');
 
-      final prepProgress = _logger.progress('Preparing code push build');
-      final prepared = await buildService.prepareCodePushBuild(
-        buildPlatform: platform,
-        flutterVersion: flutterVersion,
-        artifactManager: artifactManager,
-      );
-      if (prepared) {
-        prepProgress.complete('Ready');
-      } else {
-        prepProgress.fail(
-          'Code push build preparation failed. '
-          'Run "fcp codepush setup" first.',
+      final dartDefines =
+          (argResults?['dart-define'] as List<String>? ?? const <String>[])
+              .where((value) => value.isNotEmpty)
+              .toList();
+      final extraBuildArgs = [
+        for (final value in dartDefines) '--dart-define=$value',
+      ];
+
+      try {
+        final prepProgress = _logger.progress('Preparing code push build');
+        final prepared = await buildService.prepareCodePushBuild(
+          buildPlatform: platform,
+          flutterVersion: flutterVersion,
+          artifactManager: artifactManager,
         );
-      }
-
-      final buildProgress = _logger.progress('Building release ($platform)');
-      final buildOk = await buildService.buildRelease(
-        platform: platform,
-      );
-      if (!buildOk) {
-        buildProgress.fail('Build failed');
-        return ExitCode.software.code;
-      }
-      buildProgress.complete('Build succeeded');
-
-      final finalizeProgress = _logger.progress('Finalizing build');
-      final finalized = await buildService.finalizeBuild(
-        buildPlatform: platform,
-        flutterVersion: flutterVersion,
-        artifactManager: artifactManager,
-      );
-      if (finalized.success) {
-        finalizeProgress.complete('Build finalized');
-      } else {
-        finalizeProgress.fail(finalized.message ?? 'Finalization failed');
-        final diagnostics = finalized.formatDiagnostics();
-        if (diagnostics.isNotEmpty) {
-          _logger.err(diagnostics);
+        if (prepared) {
+          prepProgress.complete('Ready');
+        } else {
+          prepProgress.fail(
+            'Code push build preparation failed. '
+            'Run "fcp codepush setup" first.',
+          );
+          return ExitCode.software.code;
         }
-        return ExitCode.software.code;
+
+        // Generate a UUID and write it into ios/Runner/Info.plist as
+        // FCPBaselineId BEFORE `flutter build`, so it's bundled into the
+        // .app. Restore the plist afterwards so `release --build` does
+        // not leave the app repo dirty.
+        if (platform == 'ios') {
+          final generatedBaselineId = generateBaselineId();
+          originalIosInfoPlist =
+              writeBaselineIdToIosInfoPlist(generatedBaselineId);
+          if (originalIosInfoPlist == null) {
+            _logger.warn(
+              'Warning: ios/Runner/Info.plist not found. '
+              'This build will not embed a baseline identity.',
+            );
+          } else {
+            baselineId = generatedBaselineId;
+            _logger.detail('Wrote FCPBaselineId=$baselineId to Info.plist');
+          }
+        }
+
+        final buildProgress = _logger.progress('Building release ($platform)');
+        final buildOk = await buildService.buildRelease(
+          platform: platform,
+          extraArgs: extraBuildArgs,
+        );
+        if (!buildOk) {
+          buildProgress.fail('Build failed');
+          return ExitCode.software.code;
+        }
+        buildProgress.complete('Build succeeded');
+
+        final finalizeProgress = _logger.progress('Finalizing build');
+        final finalized = await buildService.finalizeBuild(
+          buildPlatform: platform,
+          flutterVersion: flutterVersion,
+          artifactManager: artifactManager,
+        );
+        if (finalized.success) {
+          finalizeProgress.complete('Build finalized');
+        } else {
+          finalizeProgress.fail(finalized.message ?? 'Finalization failed');
+          final diagnostics = finalized.formatDiagnostics();
+          if (diagnostics.isNotEmpty) {
+            _logger.err(diagnostics);
+          }
+          return ExitCode.software.code;
+        }
+      } finally {
+        if (originalIosInfoPlist != null) {
+          restoreIosInfoPlist(originalIosInfoPlist);
+          _logger.detail('Restored ios/Runner/Info.plist');
+        }
       }
     }
 
@@ -231,6 +275,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         version: version,
         snapshotData: snapshotData,
         flutterVersion: flutterVersion,
+        baselineId: baselineId,
       );
 
       final statusCode = result['status_code'] as int;
@@ -264,6 +309,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         _logger.info('  Release ID:      ${release['id']}');
         _logger.info('  Version:         ${release['version']}');
         _logger.info('  Hash:            ${release['snapshot_hash']}');
+        if (release['baseline_id'] != null) {
+          _logger.info('  Baseline ID:     ${release['baseline_id']}');
+        }
         if (release['flutter_version'] != null) {
           _logger.info('  Flutter version: ${release['flutter_version']}');
         }

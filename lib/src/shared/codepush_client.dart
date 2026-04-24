@@ -168,28 +168,54 @@ class CodePushClient {
     return _get('/api/v1/releases?app_id=$appId', token: token);
   }
 
-  /// POST /api/v1/releases — create a release (upload baseline).
+  /// POST /api/v1/releases — upload a release baseline.
   ///
-  /// [flutterVersion] is the Flutter SDK version this release was built with.
-  /// Required for server-side patch compilation (determines which compiler
-  /// toolchain to use).
+  /// Sends the raw baseline bytes as a gzipped `application/octet-stream`
+  /// body with metadata in query parameters, matching the upload path
+  /// [createPatch] uses. Requires a server that supports the
+  /// octet-stream release handler; older servers only accept the legacy
+  /// JSON body path.
+  ///
+  /// [flutterVersion] is the Flutter SDK version this release was built
+  /// with — required for server-side patch compilation.
   Future<Map<String, dynamic>> createRelease({
     required String token,
     required String appId,
     required String version,
     required List<int> snapshotData,
     String? flutterVersion,
+    String? baselineId,
   }) async {
-    return _post(
+    return _postBinary(
       '/api/v1/releases',
       token: token,
-      body: {
+      bytes: snapshotData,
+      queryParams: {
         'app_id': appId,
         'version': version,
-        'snapshot': base64Encode(snapshotData),
         if (flutterVersion != null) 'flutter_version': flutterVersion,
+        if (baselineId != null) 'baseline_id': baselineId,
       },
     );
+  }
+
+  /// Get the stored hash for a release, if available.
+  Future<String?> getReleaseHash({
+    required String token,
+    required String releaseId,
+  }) async {
+    try {
+      final info = await _get(
+        '/api/v1/releases?release_id=$releaseId',
+        token: token,
+      );
+      final releases = info['releases'] as List?;
+      if (releases == null || releases.isEmpty) return null;
+      final release = releases.first as Map<String, dynamic>;
+      return release['snapshot_hash'] as String?;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// GET /api/v1/patches?release_id=...

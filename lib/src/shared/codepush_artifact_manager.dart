@@ -19,18 +19,21 @@ class CodePushArtifactManager {
     String? cacheRoot,
     HttpClient Function()? httpClientFactory,
   })  : _logger = logger,
-        _baseUrl = baseUrl ?? '',
+        _baseUrl = baseUrl ?? _defaultArtifactBucketBase,
         _cacheRoot = cacheRoot ??
             '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}',
         _httpClientFactory = httpClientFactory ?? HttpClient.new;
+
+  /// Artifact server base URL for engine binaries.
+  static const String _defaultArtifactBucketBase =
+      'https://storage.googleapis.com/flutterplaza-codepush-artifacts';
 
   final Logger _logger;
   final String _baseUrl;
   final String _cacheRoot;
   final HttpClient Function() _httpClientFactory;
 
-  /// Public URL the CLI downloads the build tool from. The tool is stored
-  /// in `gs://flutterplaza-codepush-artifacts/tools/<os>-<arch>/fcp-tool`.
+  /// Artifact server URL for the private build tool binary.
   static const String _toolBucketBase =
       'https://storage.googleapis.com/flutterplaza-codepush-artifacts/tools';
 
@@ -187,6 +190,293 @@ class CodePushArtifactManager {
       targetPlatform,
     ]);
     return result.exitCode == 0;
+  }
+
+  /// Finalize the code-push engine install into the active Flutter SDK.
+  /// On macOS hosts, installs the iOS target overlay so
+  /// `flutter build ios --release` produces a code-push-capable app.
+  /// Downloads the iOS target files on demand if the host-platform
+  /// [downloadArtifacts] step didn't already cache them.
+  Future<bool> installOverlaysIntoFlutterSdk({
+    required String flutterVersion,
+    required String platform,
+  }) async {
+    if (!Platform.isMacOS) {
+      _logger.detail(
+        'installOverlaysIntoFlutterSdk: iOS target install only runs on macOS',
+      );
+      return true;
+    }
+
+    const iosTarget = 'ios-arm64';
+    final overrideDirPath =
+        Platform.environment['FCP_CODEPUSH_IOS_ENGINE_DIR']?.trim();
+    final usingLocalOverride =
+        overrideDirPath != null && overrideDirPath.isNotEmpty;
+    final iosDir = Directory(platformDir(flutterVersion, iosTarget));
+    iosDir.createSync(recursive: true);
+
+    File platformStrong;
+    File vmOutline;
+    File genSnapshotSrc;
+    Directory? frameworkOverrideDir;
+    File? xcframeworkTar;
+
+    if (usingLocalOverride) {
+      final overrideDir = Directory(overrideDirPath);
+      if (!overrideDir.existsSync()) {
+        _logger.err(
+          'FCP_CODEPUSH_IOS_ENGINE_DIR does not exist: $overrideDirPath',
+        );
+        return false;
+      }
+
+      // Look for patched SDK dills in both flutter_patched_sdk/ (raw build
+      // output) and flutter_patched_sdk_product/ (some build configs).
+      platformStrong = File(
+        '${overrideDir.path}/flutter_patched_sdk/platform_strong.dill',
+      );
+      if (!platformStrong.existsSync()) {
+        platformStrong = File(
+          '${overrideDir.path}/flutter_patched_sdk_product/platform_strong.dill',
+        );
+      }
+      vmOutline = File(
+        '${overrideDir.path}/flutter_patched_sdk/vm_outline_strong.dill',
+      );
+      if (!vmOutline.existsSync()) {
+        vmOutline = File(
+          '${overrideDir.path}/flutter_patched_sdk_product/vm_outline_strong.dill',
+        );
+      }
+      // Look for gen_snapshot in multiple locations to support both
+      // the expected layout (gen_snapshot_arm64 at root) and the raw
+      // engine build output (clang_arm64/gen_snapshot or clang_x64/gen_snapshot).
+      genSnapshotSrc = File('${overrideDir.path}/gen_snapshot_arm64');
+      if (!genSnapshotSrc.existsSync()) {
+        genSnapshotSrc = File('${overrideDir.path}/clang_arm64/gen_snapshot');
+      }
+      if (!genSnapshotSrc.existsSync()) {
+        genSnapshotSrc = File('${overrideDir.path}/clang_x64/gen_snapshot');
+      }
+      if (!genSnapshotSrc.existsSync()) {
+        genSnapshotSrc = File('${overrideDir.path}/gen_snapshot');
+      }
+
+      final xcfwFramework = Directory(
+        '${overrideDir.path}/Flutter.xcframework/ios-arm64/Flutter.framework',
+      );
+      final flatFramework = Directory('${overrideDir.path}/Flutter.framework');
+      if (xcfwFramework.existsSync()) {
+        frameworkOverrideDir = xcfwFramework;
+      } else if (flatFramework.existsSync()) {
+        frameworkOverrideDir = flatFramework;
+      }
+
+      for (final file in <File>[platformStrong, vmOutline, genSnapshotSrc]) {
+        if (!file.existsSync()) {
+          _logger.err(
+            'Missing local iOS engine override artifact: ${file.path}',
+          );
+          return false;
+        }
+      }
+      if (frameworkOverrideDir == null) {
+        _logger.err(
+          'Missing local iOS engine override framework under $overrideDirPath',
+        );
+        return false;
+      }
+      _logger.detail(
+        'Using local iOS engine override from $overrideDirPath',
+      );
+    } else {
+      // Always re-download iOS target files from GCS. A previous
+      // `--force` run may have cached an older version and the
+      // exists-check would skip the update.
+      for (final name in const <String>[
+        'platform_strong.dill',
+        'vm_outline_strong.dill',
+        'Flutter.xcframework.tar.gz',
+        'gen_snapshot',
+      ]) {
+        final f = File('${iosDir.path}/$name');
+        final url = '$_baseUrl/flutter-$flutterVersion/$iosTarget/$name';
+        _logger.detail('Fetching $name from $url');
+        final ok = await _fetchToFile(url, f);
+        if (!ok) {
+          _logger.err('Could not download $name from $url');
+          return false;
+        }
+      }
+
+      platformStrong = File('${iosDir.path}/platform_strong.dill');
+      vmOutline = File('${iosDir.path}/vm_outline_strong.dill');
+      genSnapshotSrc = File('${iosDir.path}/gen_snapshot');
+      xcframeworkTar = File('${iosDir.path}/Flutter.xcframework.tar.gz');
+    }
+
+    final flutterRoot = _findActiveFlutterRoot();
+    if (flutterRoot == null) {
+      _logger.err(
+        'Could not locate the active Flutter install — is `flutter` on your PATH?',
+      );
+      return false;
+    }
+
+    final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
+    final productSdkDir =
+        Directory('$engineCache/common/flutter_patched_sdk_product');
+    final iosReleaseDir = Directory('$engineCache/ios-release');
+    final frameworkDir = Directory(
+      '$engineCache/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework',
+    );
+
+    if (!productSdkDir.existsSync() ||
+        !iosReleaseDir.existsSync() ||
+        !frameworkDir.existsSync()) {
+      _logger.err(
+        'Flutter SDK cache at $engineCache is missing expected subdirectories. '
+        'Run `flutter precache --ios` first, then re-run `fcp codepush setup`.',
+      );
+      return false;
+    }
+
+    if (!platformStrong.existsSync() ||
+        !vmOutline.existsSync() ||
+        !genSnapshotSrc.existsSync()) {
+      _logger.err('Missing one or more iOS overlay files.');
+      return false;
+    }
+    if (!usingLocalOverride && (xcframeworkTar == null || !xcframeworkTar.existsSync())) {
+      _logger.err('Missing overlay file: ${xcframeworkTar?.path ?? 'unknown'}');
+      return false;
+    }
+
+    // Backup stock files before overwriting.
+    final stamp = DateTime.now()
+        .toUtc()
+        .toIso8601String()
+        .replaceAll(RegExp('[^0-9]'), '')
+        .substring(0, 14);
+    final backupDir =
+        Directory('$engineCache/.fcp-stock-backup-$stamp');
+    backupDir.createSync(recursive: true);
+    Directory('${backupDir.path}/flutter_patched_sdk_product')
+        .createSync(recursive: true);
+    Directory('${backupDir.path}/ios-release/Flutter.framework')
+        .createSync(recursive: true);
+
+    void backup(File src, String destRel) {
+      if (!src.existsSync()) return;
+      final dest = File('${backupDir.path}/$destRel');
+      dest.parent.createSync(recursive: true);
+      dest.writeAsBytesSync(src.readAsBytesSync());
+    }
+
+    final stockPlatform =
+        File('${productSdkDir.path}/platform_strong.dill');
+    final stockVmOutline =
+        File('${productSdkDir.path}/vm_outline_strong.dill');
+    final stockFlutter = File('${frameworkDir.path}/Flutter');
+    final stockGenSnap = File('${iosReleaseDir.path}/gen_snapshot_arm64');
+
+    backup(stockPlatform, 'flutter_patched_sdk_product/platform_strong.dill');
+    backup(stockVmOutline,
+        'flutter_patched_sdk_product/vm_outline_strong.dill');
+    backup(stockFlutter, 'ios-release/Flutter.framework/Flutter');
+    backup(stockGenSnap, 'ios-release/gen_snapshot_arm64');
+    _logger.detail('Stock artifacts backed up to ${backupDir.path}');
+
+    stockPlatform.writeAsBytesSync(platformStrong.readAsBytesSync());
+    stockVmOutline.writeAsBytesSync(vmOutline.readAsBytesSync());
+    stockGenSnap.writeAsBytesSync(genSnapshotSrc.readAsBytesSync());
+
+    if (usingLocalOverride) {
+      final frameworkBinary = File('${frameworkOverrideDir!.path}/Flutter');
+      if (!frameworkBinary.existsSync()) {
+        _logger.err(
+          'Local iOS engine override is missing Flutter.framework/Flutter',
+        );
+        return false;
+      }
+      stockFlutter.writeAsBytesSync(frameworkBinary.readAsBytesSync());
+    } else {
+      // Extract xcframework to a temp dir and locate the ios-arm64 binary.
+      final tempXcf = Directory.systemTemp.createTempSync('fcp-xcf-');
+      try {
+        final tarResult = Process.runSync(
+          'tar',
+          ['-xzf', xcframeworkTar!.path, '-C', tempXcf.path],
+        );
+        if (tarResult.exitCode != 0) {
+          _logger.err(
+            'Failed to extract Flutter.xcframework.tar.gz: ${tarResult.stderr}',
+          );
+          return false;
+        }
+        final newFlutter = File(
+          '${tempXcf.path}/Flutter.xcframework/ios-arm64/Flutter.framework/Flutter',
+        );
+        if (!newFlutter.existsSync()) {
+          _logger.err('Extracted xcframework missing Flutter binary.');
+          return false;
+        }
+        stockFlutter.writeAsBytesSync(newFlutter.readAsBytesSync());
+      } finally {
+        try {
+          tempXcf.deleteSync(recursive: true);
+        } on Exception {
+          /* best-effort */
+        }
+      }
+    }
+
+    if (!Platform.isWindows) {
+      Process.runSync('chmod', ['+x', stockGenSnap.path]);
+      Process.runSync('chmod', ['+x', stockFlutter.path]);
+    }
+
+    _logger.detail('Overlays installed into $engineCache');
+    return true;
+  }
+
+  /// Absolute path of the cached platform directory for a Flutter version.
+  String platformDir(String flutterVersion, String platform) =>
+      '${versionDir(flutterVersion)}/$platform';
+
+  /// Resolve the root directory of the currently active Flutter install.
+  /// Follows the symlink chain that `fcp switch` uses.
+  String? _findActiveFlutterRoot() {
+    final bin = _findFlutterBin();
+    if (bin == null) return null;
+    try {
+      final resolved = File(bin).resolveSymbolicLinksSync();
+      return File(resolved).parent.parent.path;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Download [url] to [dest] via plain HTTP GET. Returns true on success.
+  Future<bool> _fetchToFile(String url, File dest) async {
+    final client = _httpClientFactory();
+    try {
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        _logger.err('HTTP ${response.statusCode} for $url');
+        return false;
+      }
+      dest.parent.createSync(recursive: true);
+      await response.pipe(dest.openWrite());
+      return true;
+    } on Exception catch (e) {
+      _logger.err('Download error: $e');
+      return false;
+    } finally {
+      client.close(force: true);
+    }
   }
 
   /// Download artifacts for the user's current Flutter version.

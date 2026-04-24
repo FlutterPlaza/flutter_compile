@@ -83,13 +83,15 @@ class CodePushLoginSubCommand extends Command<int> {
       // Step 2: Open browser.
       _logger.info('Your authorization code: $userCode');
       _logger.info('');
+      _logger.info('Authorization URL (click or copy to use a different browser):');
+      _logger.info('  $authorizeUrl');
+      _logger.info('');
 
       try {
         await _openBrowser(authorizeUrl);
         _logger.info('Browser opened. Authorize the CLI there.');
       } catch (_) {
-        _logger.info('Open this URL in your browser:');
-        _logger.info('  $authorizeUrl');
+        _logger.info('Could not open browser automatically — use the URL above.');
       }
 
       _logger.info('');
