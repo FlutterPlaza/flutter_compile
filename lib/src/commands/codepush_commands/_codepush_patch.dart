@@ -81,6 +81,18 @@ class CodePushPatchSubCommand extends Command<int> {
         help: 'iOS only. Path to the Dart file under `lib/` that defines '
             '`codePushPatch()`. If omitted, flutter_compile scans `lib/` '
             'and requires exactly one matching source file.',
+      )
+      ..addFlag(
+        'swap-mode',
+        help: 'iOS only. Alternative patch generation mode that '
+            'enables runtime function replacement. Default: off.',
+        negatable: false,
+      )
+      ..addMultiOption(
+        'include-uri',
+        help: 'iOS only. Additional library URI to include in the '
+            'bytecode module (repeatable). For patch-side helper '
+            'libraries not discovered automatically.',
       );
   }
 
@@ -147,6 +159,9 @@ class CodePushPatchSubCommand extends Command<int> {
         ];
         String? iosPackagePrefix;
         String? iosBuildTarget;
+        String? iosPatchSourceImport;
+        var iosSwapMode = false;
+        var iosHelperImports = <String>[];
 
         if (platform == 'ios') {
           iosPackagePrefix = argResults?['package-prefix'] as String?;
@@ -171,8 +186,10 @@ class CodePushPatchSubCommand extends Command<int> {
             return ExitCode.software.code;
           }
 
+          iosSwapMode = argResults?['swap-mode'] as bool? ?? false;
           final generated = _writeGeneratedIosPatchTarget(
             patchSourcePath: patchSource,
+            useImportWrapper: iosSwapMode,
           );
           if (generated == null) {
             _logger.err(
@@ -182,6 +199,12 @@ class CodePushPatchSubCommand extends Command<int> {
           }
           generatedIosTargetPath = generated;
           iosBuildTarget = generated;
+          iosPatchSourceImport = importPathForPatchSource(patchSource);
+          iosHelperImports = _discoverDirectHelpers(patchSource);
+          if (iosHelperImports.isNotEmpty) {
+            _logger.detail('Discovered ${iosHelperImports.length} '
+                'helper import(s) from patch source');
+          }
           _logger.detail('Using iOS patch source: $patchSource');
           _logger.detail('Generated iOS patch target: $generated');
         }
@@ -211,6 +234,8 @@ class CodePushPatchSubCommand extends Command<int> {
             if (platform == 'ios') '--no-codesign',
             ...extraBuildArgs,
           ],
+          artifactManager: artifactManager,
+          flutterVersion: flutterVersion,
         );
         if (!buildOk) {
           buildProgress.fail('Build failed');
@@ -268,6 +293,29 @@ class CodePushPatchSubCommand extends Command<int> {
             _logger.detail('Auto-detected --package-prefix: $packagePrefix');
           }
 
+          // Derive the entry URI so the bytecode compiler narrows its
+          // output to only patch-relevant libraries.
+          final entryUri = generatedIosTargetPath != null
+              ? '$packagePrefix$kGeneratedIosPatchEntryFilename'
+              : null;
+
+          // In swap mode, include the patch source library so the swap
+          // loop can replace its functions in the baseline AOT class.
+          // In inline mode, the source is absorbed into the wrapper and
+          // there's no separate library to include.
+          //
+          // In both modes, include any helper libraries discovered from
+          // the patch source's direct relative imports.
+          final explicitIncludes =
+              argResults?['include-uri'] as List<String>? ?? const [];
+          final includeUris = <String>{
+            if (iosSwapMode && iosPatchSourceImport != null)
+              '$packagePrefix$iosPatchSourceImport',
+            for (final helper in iosHelperImports)
+              '$packagePrefix$helper',
+            ...explicitIncludes.where((u) => u.isNotEmpty),
+          }.toList();
+
           final bcResult = await buildService.bytecodeFromKernel(
             inputDill: inputDill,
             packagePrefix: packagePrefix,
@@ -275,6 +323,8 @@ class CodePushPatchSubCommand extends Command<int> {
             flutterVersion: flutterVersion,
             outputPath: bytecodeOutput,
             artifactManager: artifactManager,
+            entryUri: entryUri,
+            includeUris: includeUris,
           );
           if (!bcResult.success) {
             bytecodeProgress.fail(bcResult.message ?? 'iOS patch build failed');
@@ -627,6 +677,7 @@ class CodePushPatchSubCommand extends Command<int> {
 
   String? _writeGeneratedIosPatchTarget({
     required String patchSourcePath,
+    bool useImportWrapper = false,
   }) {
     final importPath = importPathForPatchSource(patchSourcePath);
     if (importPath == null) return null;
@@ -637,9 +688,57 @@ class CodePushPatchSubCommand extends Command<int> {
       buildGeneratedIosPatchEntrypoint(
         importPath: importPath,
         patchSourcePath: patchSourcePath,
+        useImportWrapper: useImportWrapper,
       ),
       flush: true,
     );
     return targetFile.path;
+  }
+
+  /// Best-effort scan of the patch source file's direct relative
+  /// imports. Returns lib-relative paths (e.g. `models/prayer.dart`)
+  /// for each imported file that exists under `lib/`.
+  ///
+  /// Does NOT cover: `package:` self-imports, `export`, `part`, or
+  /// transitive helpers. Use `--include-uri` for those.
+  List<String> _discoverDirectHelpers(String patchSourcePath) {
+    final sourceFile = File(patchSourcePath);
+    if (!sourceFile.existsSync()) return const [];
+
+    final sourceDir = sourceFile.parent.path;
+    final libRoot = Directory('lib').absolute.path;
+    var source = sourceFile.readAsStringSync();
+
+    // Strip comments to avoid matching commented-out imports.
+    source = source.replaceAll(RegExp(r'//[^\n]*'), '');
+    source = source.replaceAll(RegExp(r'/\*.*?\*/', dotAll: true), '');
+
+    final helpers = <String>[];
+
+    // Match: import 'relative/path.dart'; or import "../path.dart";
+    // Exclude: dart: and package: imports.
+    final importPattern =
+        RegExp(r'''import\s+['"](?!dart:|package:)([^'"]+)['"]''');
+
+    for (final match in importPattern.allMatches(source)) {
+      final relativePath = match.group(1);
+      if (relativePath == null) continue;
+
+      // Resolve relative to the source file's directory.
+      final resolved = File('$sourceDir/$relativePath');
+      if (!resolved.existsSync()) continue;
+
+      // Convert to lib-relative path.
+      final absolute = resolved.absolute.path;
+      if (!absolute.startsWith(libRoot)) continue;
+      var libRelative = absolute.substring(libRoot.length);
+      if (libRelative.startsWith('/')) {
+        libRelative = libRelative.substring(1);
+      }
+
+      helpers.add(libRelative);
+    }
+
+    return helpers;
   }
 }

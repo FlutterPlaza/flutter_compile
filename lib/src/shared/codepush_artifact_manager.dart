@@ -5,13 +5,11 @@ import 'package:mason_logger/mason_logger.dart';
 
 import 'constants.dart';
 
-/// Manages downloading, caching, and verifying code-push-enabled build
-/// artifacts **per Flutter SDK version**.
+/// Manages downloading, caching, and verifying code-push build
+/// artifacts per Flutter SDK version.
 ///
-/// Everything that requires knowledge of the build pipeline layout is
-/// delegated to the private `fcp-tool` binary (downloaded on demand).
-/// This class keeps only high-level concerns: version detection, cache
-/// listing, on-disk version bookkeeping, and bootstrap of `fcp-tool`.
+/// High-level concerns: version detection, cache listing, on-disk
+/// version bookkeeping, and build tool bootstrap.
 class CodePushArtifactManager {
   CodePushArtifactManager({
     required Logger logger,

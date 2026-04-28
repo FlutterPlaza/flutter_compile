@@ -1,10 +1,12 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
+import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
@@ -97,6 +99,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final buildService = CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
+    String? builtPlatform;
 
     if (shouldBuild) {
       var platform = argResults?['platform'] as String?;
@@ -107,6 +110,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
         return ExitCode.usage.code;
       }
+      builtPlatform = platform;
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
@@ -171,6 +175,8 @@ class CodePushReleaseSubCommand extends Command<int> {
         final buildOk = await buildService.buildRelease(
           platform: platform,
           extraArgs: extraBuildArgs,
+          artifactManager: artifactManager,
+          flutterVersion: flutterVersion,
         );
         if (!buildOk) {
           buildProgress.fail('Build failed');
@@ -317,6 +323,24 @@ class CodePushReleaseSubCommand extends Command<int> {
         }
       }
 
+      // Save the iOS baseline app for later device install.
+      if (builtPlatform == 'ios' && baselineId != null) {
+        _saveIosBaselineApp(baselineId: baselineId);
+
+        // Archive the saved baseline app + dSYM into a per-release
+        // directory so a future device replay can reinstall the exact
+        // bundle that produced this release. Best-effort; never fails
+        // a successful release.
+        final releaseId = release?['id'] as String?;
+        if (releaseId != null) {
+          CodePushArchiveService(logger: _logger).archiveIosRelease(
+            releaseId: releaseId,
+            baselineId: baselineId,
+            fcpVersion: packageVersion,
+          );
+        }
+      }
+
       return ExitCode.success.code;
     } catch (e) {
       progress.fail('Failed: $e');
@@ -324,5 +348,38 @@ class CodePushReleaseSubCommand extends Command<int> {
     } finally {
       client.close();
     }
+  }
+
+  void _saveIosBaselineApp({required String baselineId}) {
+    const source = 'build/ios/iphoneos/Runner.app';
+    const dest = 'build/codepush/baseline/Runner.app';
+
+    final sourceDir = Directory(source);
+    if (!sourceDir.existsSync()) {
+      _logger.detail('No built Runner.app to save.');
+      return;
+    }
+
+    // Remove any previous saved baseline.
+    final destDir = Directory(dest);
+    if (destDir.existsSync()) {
+      destDir.deleteSync(recursive: true);
+    }
+    destDir.parent.createSync(recursive: true);
+
+    // Copy recursively.
+    final result = Process.runSync('cp', ['-R', source, dest]);
+    if (result.exitCode != 0) {
+      _logger.warn('Could not save baseline app to $dest');
+      return;
+    }
+
+    _logger.info('');
+    _logger.success('Saved baseline app: $dest');
+    _logger.info('  Embedded baseline ID: $baselineId');
+    _logger.info(
+      '  If installing manually on device, re-sign the saved '
+      'app bundle recursively after any framework repair.',
+    );
   }
 }

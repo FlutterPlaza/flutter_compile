@@ -45,14 +45,23 @@ List<String> findCodePushPatchSourceCandidates({
 String buildGeneratedIosPatchEntrypoint({
   required String importPath,
   String? patchSourcePath,
+  bool useImportWrapper = false,
 }) {
-  // On iOS, cross-library DirectCall from the wrapper to codePushPatch()
-  // fails because new functions in overlapping libraries can't be resolved
-  // in the bytecode constant pool at runtime.  Work around this by
-  // inlining the patch source directly into the wrapper — making main()
-  // and codePushPatch() part of the same library.
+  // When useImportWrapper is true (swap mode), emit a cross-library
+  // import wrapper so the patch source stays as its own library and
+  // overlaps with the baseline AOT class. This enables the swap loop
+  // to replace existing functions at runtime. Requires the engine's
+  // cross-library constant pool repair.
+  if (useImportWrapper) {
+    return "import '$importPath';\n\n"
+        "@pragma('dyn-module:entry-point')\n"
+        "Object? main() => codePushPatch();\n";
+  }
+  // Default: inline the patch source into the wrapper library.
+  // This avoids cross-library DirectCall entirely but produces a
+  // new library (no overlap, no function swap).
   if (patchSourcePath != null) {
-    final sourceFile = File(patchSourcePath);
+      final sourceFile = File(patchSourcePath);
     if (sourceFile.existsSync()) {
       var source = sourceFile.readAsStringSync();
 

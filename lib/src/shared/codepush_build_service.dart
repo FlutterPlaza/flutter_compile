@@ -153,10 +153,25 @@ class CodePushBuildService {
   }
 
   /// Build a Flutter app in release mode.
+  ///
+  /// On iOS, guarantees a matched custom engine pair in the built app:
+  ///
+  /// 1. Installs the custom overlay (Flutter.framework + gen_snapshot)
+  ///    into the Flutter SDK cache before the build.
+  /// 2. Records SHA-256 hashes of both custom artifacts.
+  /// 3. After the build, checks whether `flutter build` reset either
+  ///    artifact:
+  ///    - gen_snapshot drifted → the built snapshot is poisoned,
+  ///      framework-only repair cannot fix it. Re-overlay and rebuild.
+  ///    - Framework drifted but gen_snapshot stayed → copy the correct
+  ///      framework into the built Runner.app (repairable).
+  ///    - Both match → built app is valid.
   Future<bool> buildRelease({
     required String platform,
     List<String> extraArgs = const [],
     String? target,
+    CodePushArtifactManager? artifactManager,
+    String? flutterVersion,
   }) async {
     final flutter = findFlutterBin();
     if (flutter == null) {
@@ -164,6 +179,48 @@ class CodePushBuildService {
       return false;
     }
 
+    final isIos = platform == 'ios' &&
+        artifactManager != null &&
+        flutterVersion != null;
+
+    String? expectedGenSnapshotSha;
+    String? expectedFrameworkSha;
+    String? sdkGenSnapshotPath;
+    String? sdkFrameworkPath;
+
+    // --- iOS: overlay before build + record expected SHAs ---
+    if (isIos) {
+      _logger.detail('Ensuring iOS engine overlay before build...');
+      final overlayOk = await artifactManager.installOverlaysIntoFlutterSdk(
+        flutterVersion: flutterVersion,
+        platform: artifactManager.currentPlatform,
+      );
+      if (!overlayOk) {
+        _logger.err(
+          'Failed to install iOS engine overlay. '
+          'Run "fcp codepush setup --force" and retry.',
+        );
+        return false;
+      }
+
+      final flutterRoot = _findActiveFlutterRoot();
+      if (flutterRoot != null) {
+        final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
+        sdkGenSnapshotPath = '$engineCache/ios-release/gen_snapshot_arm64';
+        sdkFrameworkPath = '$engineCache/ios-release/'
+            'Flutter.xcframework/ios-arm64/Flutter.framework/Flutter';
+
+        expectedGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
+        expectedFrameworkSha = _sha256OfFile(File(sdkFrameworkPath));
+        _logger.detail(
+          'Recorded custom artifact SHAs before build:\n'
+          '  gen_snapshot: ${expectedGenSnapshotSha?.substring(0, 16)}...\n'
+          '  Framework:    ${expectedFrameworkSha?.substring(0, 16)}...',
+        );
+      }
+    }
+
+    // --- Run flutter build ---
     final args = [
       'build',
       platform,
@@ -185,7 +242,129 @@ class CodePushBuildService {
       return false;
     }
 
+    // --- iOS: validate + repair after build ---
+    if (isIos &&
+        expectedGenSnapshotSha != null &&
+        expectedFrameworkSha != null &&
+        sdkGenSnapshotPath != null &&
+        sdkFrameworkPath != null) {
+      final postBuildGenSnapshotSha =
+          _sha256OfFile(File(sdkGenSnapshotPath));
+      final genSnapshotDrifted =
+          postBuildGenSnapshotSha != expectedGenSnapshotSha;
+
+      if (genSnapshotDrifted) {
+        // gen_snapshot was reset to stock during the build. The built
+        // App.framework/App was compiled with the wrong gen_snapshot —
+        // framework-only repair cannot fix this. Must re-overlay and
+        // rebuild.
+        _logger.warn(
+          'flutter build reset gen_snapshot to stock. '
+          'Re-overlaying and rebuilding...',
+        );
+        final reOverlayOk =
+            await artifactManager.installOverlaysIntoFlutterSdk(
+          flutterVersion: flutterVersion,
+          platform: artifactManager.currentPlatform,
+        );
+        if (!reOverlayOk) {
+          _logger.err(
+            'Failed to re-install iOS engine overlay after drift. '
+            'Run "fcp codepush setup --force" and retry.',
+          );
+          return false;
+        }
+        // Rebuild with the restored overlay.
+        _logger.detail('Re-running flutter build with restored overlay...');
+        final retryProcess = await Process.start(
+          flutter,
+          args,
+          mode: ProcessStartMode.inheritStdio,
+        );
+        final retryExit = await retryProcess.exitCode;
+        if (retryExit != 0) {
+          _logger.err('Retry build failed with exit code $retryExit');
+          return false;
+        }
+        // Verify gen_snapshot stayed this time.
+        final retryGenSha = _sha256OfFile(File(sdkGenSnapshotPath));
+        if (retryGenSha != expectedGenSnapshotSha) {
+          _logger.err(
+            'gen_snapshot was reset again during rebuild. '
+            'flutter build is actively overwriting the custom engine. '
+            'Cannot produce a valid baseline app.\n'
+            'Workaround: set FCP_CODEPUSH_IOS_ENGINE_DIR to point at '
+            'your engine build output and rebuild.',
+          );
+          return false;
+        }
+      }
+
+      // Check if the framework in the built app matches.
+      final builtFramework = File(
+        'build/ios/iphoneos/Runner.app/Frameworks/Flutter.framework/Flutter',
+      );
+      if (builtFramework.existsSync()) {
+        final builtFrameworkSha = _sha256OfFile(builtFramework);
+        if (builtFrameworkSha != expectedFrameworkSha) {
+          // Framework drifted but gen_snapshot stayed — repairable.
+          _logger.warn(
+            'Built app framework does not match custom engine. '
+            'Copying correct framework into built app...',
+          );
+          // Re-overlay SDK cache if needed.
+          final sdkFrameworkSha = _sha256OfFile(File(sdkFrameworkPath));
+          if (sdkFrameworkSha != expectedFrameworkSha) {
+            await artifactManager.installOverlaysIntoFlutterSdk(
+              flutterVersion: flutterVersion,
+              platform: artifactManager.currentPlatform,
+            );
+          }
+          // Copy framework into built app.
+          final source = File(sdkFrameworkPath);
+          if (!source.existsSync()) {
+            _logger.err('Custom framework not found at $sdkFrameworkPath');
+            return false;
+          }
+          builtFramework.writeAsBytesSync(source.readAsBytesSync());
+
+          // Verify repair.
+          final repairedSha = _sha256OfFile(builtFramework);
+          if (repairedSha != expectedFrameworkSha) {
+            _logger.err('Framework repair failed — SHA mismatch after copy.');
+            return false;
+          }
+          _logger.detail('Built app framework repaired successfully.');
+        } else {
+          _logger.detail('Built app validated — custom engine pair matched.');
+        }
+      }
+    }
+
     return true;
+  }
+
+  /// Compute SHA-256 of a file, or return null if it doesn't exist.
+  static String? _sha256OfFile(File file) {
+    if (!file.existsSync()) return null;
+    final bytes = file.readAsBytesSync();
+    return sha256.convert(bytes).toString();
+  }
+
+  /// Locate the active Flutter SDK root directory by resolving the
+  /// `flutter` binary path and walking up to the SDK root.
+  static String? _findActiveFlutterRoot() {
+    final which = Process.runSync('which', ['flutter']);
+    if (which.exitCode != 0) return null;
+    final bin = (which.stdout as String).trim();
+    if (bin.isEmpty) return null;
+    try {
+      final resolved = File(bin).resolveSymbolicLinksSync();
+      // flutter binary lives at <sdk>/bin/flutter → parent.parent = sdk root
+      return File(resolved).parent.parent.path;
+    } on FileSystemException {
+      return null;
+    }
   }
 
   /// Return the path to the build input used by the patch pipeline
@@ -423,7 +602,9 @@ class CodePushBuildService {
 
   /// Produce the iOS patch payload for [inputDill] by invoking the
   /// private build tool. [packagePrefix] filters which libraries
-  /// from the input are included. iOS-only.
+  /// from the input are included. [entryUri], when provided, narrows
+  /// the output to only the entry library and patch-relevant
+  /// libraries. iOS-only.
   Future<BuildStepResult> bytecodeFromKernel({
     required String inputDill,
     required String packagePrefix,
@@ -432,6 +613,8 @@ class CodePushBuildService {
     required String outputPath,
     required CodePushArtifactManager artifactManager,
     String target = 'flutter',
+    String? entryUri,
+    List<String> includeUris = const [],
   }) async {
     final tool = await artifactManager.ensureBuildTool();
     if (tool == null) {
@@ -458,6 +641,9 @@ class CodePushBuildService {
       packagePrefix,
       '--output',
       outputPath,
+      if (entryUri != null && entryUri.isNotEmpty) ...['--entry-uri', entryUri],
+      for (final uri in includeUris)
+        if (uri.isNotEmpty) ...['--include-uri', uri],
     ];
     final result = Process.runSync(tool, args);
     return BuildStepResult(
