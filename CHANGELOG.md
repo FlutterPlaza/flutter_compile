@@ -2,7 +2,7 @@
 
 ## 0.19.15-rc.9
 
-- Fix: Android apps now pick up code push configuration changes shipped in an app update. Re-run `fcp codepush init` in existing projects to apply.
+- Fix: Android apps now pick up code push configuration changes shipped in an app update. Re-run `fcp codepush init` in existing projects to apply. If you integrated the copy step into a custom `Application` class manually, remove the exists-check around the copy so it runs on every launch.
 
 ## 0.19.15-rc.8
 
