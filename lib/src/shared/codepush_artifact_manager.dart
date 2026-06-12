@@ -16,11 +16,12 @@ class CodePushArtifactManager {
     String? baseUrl,
     String? cacheRoot,
     HttpClient Function()? httpClientFactory,
-  })  : _logger = logger,
-        _baseUrl = baseUrl ?? _defaultArtifactBucketBase,
-        _cacheRoot = cacheRoot ??
-            '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}',
-        _httpClientFactory = httpClientFactory ?? HttpClient.new;
+  }) : _logger = logger,
+       _baseUrl = baseUrl ?? _defaultArtifactBucketBase,
+       _cacheRoot =
+           cacheRoot ??
+           '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}',
+       _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
   /// Artifact server base URL for engine binaries.
   static const String _defaultArtifactBucketBase =
@@ -53,8 +54,9 @@ class CodePushArtifactManager {
       final request = await client.getUrl(Uri.parse(url));
       final response = await request.close();
       if (response.statusCode != 200) {
-        progress
-            .fail('Build tool download failed (HTTP ${response.statusCode})');
+        progress.fail(
+          'Build tool download failed (HTTP ${response.statusCode})',
+        );
         return null;
       }
       final sink = cached.openWrite();
@@ -77,10 +79,10 @@ class CodePushArtifactManager {
     final os = Platform.isMacOS
         ? 'darwin'
         : Platform.isLinux
-            ? 'linux'
-            : Platform.isWindows
-                ? 'windows'
-                : 'unknown';
+        ? 'linux'
+        : Platform.isWindows
+        ? 'windows'
+        : 'unknown';
     final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
     return '$os-$arch';
   }
@@ -207,8 +209,8 @@ class CodePushArtifactManager {
     }
 
     const iosTarget = 'ios-arm64';
-    final overrideDirPath =
-        Platform.environment['FCP_CODEPUSH_IOS_ENGINE_DIR']?.trim();
+    final overrideDirPath = Platform.environment['FCP_CODEPUSH_IOS_ENGINE_DIR']
+        ?.trim();
     final usingLocalOverride =
         overrideDirPath != null && overrideDirPath.isNotEmpty;
     final iosDir = Directory(platformDir(flutterVersion, iosTarget));
@@ -285,9 +287,7 @@ class CodePushArtifactManager {
         );
         return false;
       }
-      _logger.detail(
-        'Using local iOS engine override from $overrideDirPath',
-      );
+      _logger.detail('Using local iOS engine override from $overrideDirPath');
     } else {
       // Always re-download iOS target files from GCS. A previous
       // `--force` run may have cached an older version and the
@@ -323,8 +323,9 @@ class CodePushArtifactManager {
     }
 
     final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
-    final productSdkDir =
-        Directory('$engineCache/common/flutter_patched_sdk_product');
+    final productSdkDir = Directory(
+      '$engineCache/common/flutter_patched_sdk_product',
+    );
     final iosReleaseDir = Directory('$engineCache/ios-release');
     final frameworkDir = Directory(
       '$engineCache/ios-release/Flutter.xcframework/ios-arm64/Flutter.framework',
@@ -346,7 +347,8 @@ class CodePushArtifactManager {
       _logger.err('Missing one or more iOS overlay files.');
       return false;
     }
-    if (!usingLocalOverride && (xcframeworkTar == null || !xcframeworkTar.existsSync())) {
+    if (!usingLocalOverride &&
+        (xcframeworkTar == null || !xcframeworkTar.existsSync())) {
       _logger.err('Missing overlay file: ${xcframeworkTar?.path ?? 'unknown'}');
       return false;
     }
@@ -357,13 +359,14 @@ class CodePushArtifactManager {
         .toIso8601String()
         .replaceAll(RegExp('[^0-9]'), '')
         .substring(0, 14);
-    final backupDir =
-        Directory('$engineCache/.fcp-stock-backup-$stamp');
+    final backupDir = Directory('$engineCache/.fcp-stock-backup-$stamp');
     backupDir.createSync(recursive: true);
-    Directory('${backupDir.path}/flutter_patched_sdk_product')
-        .createSync(recursive: true);
-    Directory('${backupDir.path}/ios-release/Flutter.framework')
-        .createSync(recursive: true);
+    Directory(
+      '${backupDir.path}/flutter_patched_sdk_product',
+    ).createSync(recursive: true);
+    Directory(
+      '${backupDir.path}/ios-release/Flutter.framework',
+    ).createSync(recursive: true);
 
     void backup(File src, String destRel) {
       if (!src.existsSync()) return;
@@ -372,16 +375,16 @@ class CodePushArtifactManager {
       dest.writeAsBytesSync(src.readAsBytesSync());
     }
 
-    final stockPlatform =
-        File('${productSdkDir.path}/platform_strong.dill');
-    final stockVmOutline =
-        File('${productSdkDir.path}/vm_outline_strong.dill');
+    final stockPlatform = File('${productSdkDir.path}/platform_strong.dill');
+    final stockVmOutline = File('${productSdkDir.path}/vm_outline_strong.dill');
     final stockFlutter = File('${frameworkDir.path}/Flutter');
     final stockGenSnap = File('${iosReleaseDir.path}/gen_snapshot_arm64');
 
     backup(stockPlatform, 'flutter_patched_sdk_product/platform_strong.dill');
-    backup(stockVmOutline,
-        'flutter_patched_sdk_product/vm_outline_strong.dill');
+    backup(
+      stockVmOutline,
+      'flutter_patched_sdk_product/vm_outline_strong.dill',
+    );
     backup(stockFlutter, 'ios-release/Flutter.framework/Flutter');
     backup(stockGenSnap, 'ios-release/gen_snapshot_arm64');
     _logger.detail('Stock artifacts backed up to ${backupDir.path}');
@@ -403,10 +406,12 @@ class CodePushArtifactManager {
       // Extract xcframework to a temp dir and locate the ios-arm64 binary.
       final tempXcf = Directory.systemTemp.createTempSync('fcp-xcf-');
       try {
-        final tarResult = Process.runSync(
-          'tar',
-          ['-xzf', xcframeworkTar!.path, '-C', tempXcf.path],
-        );
+        final tarResult = Process.runSync('tar', [
+          '-xzf',
+          xcframeworkTar!.path,
+          '-C',
+          tempXcf.path,
+        ]);
         if (tarResult.exitCode != 0) {
           _logger.err(
             'Failed to extract Flutter.xcframework.tar.gz: ${tarResult.stderr}',
@@ -491,9 +496,7 @@ class CodePushArtifactManager {
     _logger.detail('Detected Flutter version: $flutterVersion');
 
     if (isVersionCached(flutterVersion)) {
-      _logger.info(
-        'Artifacts already cached for Flutter $flutterVersion.',
-      );
+      _logger.info('Artifacts already cached for Flutter $flutterVersion.');
       return flutterVersion;
     }
 
@@ -515,11 +518,12 @@ class CodePushArtifactManager {
         .whereType<Directory>()
         .where((d) => File('${d.path}/.stamp').existsSync())
         .map((d) {
-      final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
-      return name.startsWith('flutter-')
-          ? name.substring('flutter-'.length)
-          : name;
-    }).toList()
+          final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
+          return name.startsWith('flutter-')
+              ? name.substring('flutter-'.length)
+              : name;
+        })
+        .toList()
       ..sort();
   }
 
@@ -583,8 +587,11 @@ class CodePushArtifactManager {
       targetSdk.deleteSync(recursive: true);
     }
 
-    final result =
-        Process.runSync('cp', ['-R', sourceSdk.path, targetSdk.path]);
+    final result = Process.runSync('cp', [
+      '-R',
+      sourceSdk.path,
+      targetSdk.path,
+    ]);
     if (result.exitCode != 0) {
       _logger.err('Failed to copy Dart SDK: ${result.stderr}');
       return false;
@@ -593,8 +600,9 @@ class CodePushArtifactManager {
     final engineStamp = File('$targetFlutterRoot/bin/cache/engine.stamp');
     if (engineStamp.existsSync()) {
       final hash = engineStamp.readAsStringSync().trim();
-      File('$targetFlutterRoot/bin/cache/engine-dart-sdk.stamp')
-          .writeAsStringSync(hash);
+      File(
+        '$targetFlutterRoot/bin/cache/engine-dart-sdk.stamp',
+      ).writeAsStringSync(hash);
     }
 
     return true;

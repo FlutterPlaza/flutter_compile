@@ -13,10 +13,7 @@ import 'package:mason_logger/mason_logger.dart';
 class CodePushPatchSubCommand extends Command<int> {
   CodePushPatchSubCommand(this._logger) {
     argParser
-      ..addOption(
-        'release-id',
-        help: 'The release ID to patch against.',
-      )
+      ..addOption('release-id', help: 'The release ID to patch against.')
       ..addOption(
         'patch-file',
         help: 'Path to an existing patch file to upload.',
@@ -33,7 +30,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addMultiOption(
         'dart-define',
-        help: 'Additional --dart-define values to forward to flutter build '
+        help:
+            'Additional --dart-define values to forward to flutter build '
             'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
@@ -61,7 +59,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'flutter-version',
-        help: 'Flutter SDK version this patch was built with (e.g., 3.41.2). '
+        help:
+            'Flutter SDK version this patch was built with (e.g., 3.41.2). '
             'Auto-detected from "flutter --version" if not specified, '
             'then falls back to codepush_engine_flutter_version in '
             '~/.flutter_compilerc. Required by the finalize step to locate '
@@ -69,7 +68,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'package-prefix',
-        help: 'iOS only. Package URI prefix identifying the user\'s '
+        help:
+            'iOS only. Package URI prefix identifying the user\'s '
             'app code (e.g. `package:fcptest/`). Only libraries '
             'whose URIs start with this prefix get compiled into the '
             'patch; everything else (Flutter framework, pub deps) '
@@ -78,19 +78,22 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'patch-entry-file',
-        help: 'iOS only. Path to the Dart file under `lib/` that defines '
+        help:
+            'iOS only. Path to the Dart file under `lib/` that defines '
             '`codePushPatch()`. If omitted, flutter_compile scans `lib/` '
             'and requires exactly one matching source file.',
       )
       ..addFlag(
         'swap-mode',
-        help: 'iOS only. Alternative patch generation mode that '
+        help:
+            'iOS only. Alternative patch generation mode that '
             'enables runtime function replacement. Default: off.',
         negatable: false,
       )
       ..addMultiOption(
         'include-uri',
-        help: 'iOS only. Additional library URI to include in the '
+        help:
+            'iOS only. Additional library URI to include in the '
             'bytecode module (repeatable). For patch-side helper '
             'libraries not discovered automatically.',
       );
@@ -202,8 +205,10 @@ class CodePushPatchSubCommand extends Command<int> {
           iosPatchSourceImport = importPathForPatchSource(patchSource);
           iosHelperImports = _discoverDirectHelpers(patchSource);
           if (iosHelperImports.isNotEmpty) {
-            _logger.detail('Discovered ${iosHelperImports.length} '
-                'helper import(s) from patch source');
+            _logger.detail(
+              'Discovered ${iosHelperImports.length} '
+              'helper import(s) from patch source',
+            );
           }
           _logger.detail('Using iOS patch source: $patchSource');
           _logger.detail('Generated iOS patch target: $generated');
@@ -311,8 +316,7 @@ class CodePushPatchSubCommand extends Command<int> {
           final includeUris = <String>{
             if (iosSwapMode && iosPatchSourceImport != null)
               '$packagePrefix$iosPatchSourceImport',
-            for (final helper in iosHelperImports)
-              '$packagePrefix$helper',
+            for (final helper in iosHelperImports) '$packagePrefix$helper',
             ...explicitIncludes.where((u) => u.isNotEmpty),
           }.toList();
 
@@ -626,8 +630,9 @@ class CodePushPatchSubCommand extends Command<int> {
     if (!file.existsSync()) return null;
     try {
       for (final line in file.readAsLinesSync()) {
-        final match =
-            RegExp(r'^name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$').firstMatch(line);
+        final match = RegExp(
+          r'^name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$',
+        ).firstMatch(line);
         if (match != null) {
           return 'package:${match.group(1)}/';
         }
@@ -638,9 +643,7 @@ class CodePushPatchSubCommand extends Command<int> {
     return null;
   }
 
-  String? _resolveIosPatchSource({
-    String? explicitPath,
-  }) {
+  String? _resolveIosPatchSource({String? explicitPath}) {
     if (explicitPath != null && explicitPath.isNotEmpty) {
       if (!File(explicitPath).existsSync()) {
         _logger.err('Patch entry source not found: $explicitPath');
@@ -717,8 +720,9 @@ class CodePushPatchSubCommand extends Command<int> {
 
     // Match: import 'relative/path.dart'; or import "../path.dart";
     // Exclude: dart: and package: imports.
-    final importPattern =
-        RegExp(r'''import\s+['"](?!dart:|package:)([^'"]+)['"]''');
+    final importPattern = RegExp(
+      r'''import\s+['"](?!dart:|package:)([^'"]+)['"]''',
+    );
 
     for (final match in importPattern.allMatches(source)) {
       final relativePath = match.group(1);

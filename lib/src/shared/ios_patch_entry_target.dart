@@ -7,9 +7,7 @@ final RegExp _codePushPatchPattern = RegExp(
   multiLine: true,
 );
 
-List<String> findCodePushPatchSourceCandidates({
-  String libDirPath = 'lib',
-}) {
+List<String> findCodePushPatchSourceCandidates({String libDirPath = 'lib'}) {
   final libDir = Directory(libDirPath);
   if (!libDir.existsSync()) return const <String>[];
 
@@ -61,7 +59,7 @@ String buildGeneratedIosPatchEntrypoint({
   // This avoids cross-library DirectCall entirely but produces a
   // new library (no overlap, no function swap).
   if (patchSourcePath != null) {
-      final sourceFile = File(patchSourcePath);
+    final sourceFile = File(patchSourcePath);
     if (sourceFile.existsSync()) {
       var source = sourceFile.readAsStringSync();
 
@@ -70,7 +68,8 @@ String buildGeneratedIosPatchEntrypoint({
       // imports like `import 'foo.dart'` need to become
       // `import 'screens/foo.dart'` so they resolve from lib/.
       final sourceDir = _normalizePath(
-          sourceFile.parent.path.replaceFirst(RegExp(r'^lib/?'), ''));
+        sourceFile.parent.path.replaceFirst(RegExp(r'^lib/?'), ''),
+      );
       if (sourceDir.isNotEmpty) {
         source = source.replaceAllMapped(
           RegExp(r'''(import\s+['"])(?!dart:|package:)([^'"]+['"])'''),

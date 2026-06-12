@@ -179,9 +179,8 @@ class CodePushBuildService {
       return false;
     }
 
-    final isIos = platform == 'ios' &&
-        artifactManager != null &&
-        flutterVersion != null;
+    final isIos =
+        platform == 'ios' && artifactManager != null && flutterVersion != null;
 
     String? expectedGenSnapshotSha;
     String? expectedFrameworkSha;
@@ -207,7 +206,8 @@ class CodePushBuildService {
       if (flutterRoot != null) {
         final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
         sdkGenSnapshotPath = '$engineCache/ios-release/gen_snapshot_arm64';
-        sdkFrameworkPath = '$engineCache/ios-release/'
+        sdkFrameworkPath =
+            '$engineCache/ios-release/'
             'Flutter.xcframework/ios-arm64/Flutter.framework/Flutter';
 
         expectedGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
@@ -248,8 +248,7 @@ class CodePushBuildService {
         expectedFrameworkSha != null &&
         sdkGenSnapshotPath != null &&
         sdkFrameworkPath != null) {
-      final postBuildGenSnapshotSha =
-          _sha256OfFile(File(sdkGenSnapshotPath));
+      final postBuildGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
       final genSnapshotDrifted =
           postBuildGenSnapshotSha != expectedGenSnapshotSha;
 
@@ -262,8 +261,7 @@ class CodePushBuildService {
           'flutter build reset gen_snapshot to stock. '
           'Re-overlaying and rebuilding...',
         );
-        final reOverlayOk =
-            await artifactManager.installOverlaysIntoFlutterSdk(
+        final reOverlayOk = await artifactManager.installOverlaysIntoFlutterSdk(
           flutterVersion: flutterVersion,
           platform: artifactManager.currentPlatform,
         );
@@ -401,9 +399,7 @@ class CodePushBuildService {
         'build/app/intermediates/flutter/release/armeabi-v7a/app.so',
         'build/app/outputs/flutter-apk/app-release.apk',
       ],
-      'appbundle': [
-        'build/app/intermediates/flutter/release/app.so',
-      ],
+      'appbundle': ['build/app/intermediates/flutter/release/app.so'],
       'linux': [
         'build/linux/x64/release/bundle/lib/libapp.so',
         'build/linux/arm64/release/bundle/lib/libapp.so',
@@ -411,9 +407,7 @@ class CodePushBuildService {
       'macos': [
         'build/macos/Build/Products/Release/Runner.app/Contents/Frameworks/App.framework/App',
       ],
-      'windows': [
-        'build/windows/x64/runner/Release/app.so',
-      ],
+      'windows': ['build/windows/x64/runner/Release/app.so'],
     };
 
     final candidates = platformPaths[platform] ?? [];
@@ -434,10 +428,7 @@ class CodePushBuildService {
   /// Verify the first bytes of a patch payload match the expected
   /// format for [platform]. Returns `null` on pass; a short error
   /// string on fail.
-  static String? validatePayloadMagic(
-    List<int> payload,
-    String platform,
-  ) {
+  static String? validatePayloadMagic(List<int> payload, String platform) {
     if (payload.length < 4) {
       return 'Patch payload is too small to be valid '
           '(got ${payload.length} bytes).';
@@ -567,16 +558,14 @@ class CodePushBuildService {
   }) async {
     if (buildPlatform == 'ios') {
       if (flutterVersion == null || flutterVersion.isEmpty) {
-        _logger.err(
-          'Flutter version is required to prepare an iOS fcp build.',
-        );
+        _logger.err('Flutter version is required to prepare an iOS fcp build.');
         return false;
       }
-      final overlaysInstalled =
-          await artifactManager.installOverlaysIntoFlutterSdk(
-        flutterVersion: flutterVersion,
-        platform: buildPlatform,
-      );
+      final overlaysInstalled = await artifactManager
+          .installOverlaysIntoFlutterSdk(
+            flutterVersion: flutterVersion,
+            platform: buildPlatform,
+          );
       if (!overlaysInstalled) {
         _logger.err(
           'Failed to install the iOS fcp engine overlays into the active Flutter SDK.',
@@ -620,7 +609,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -670,7 +660,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -725,7 +716,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
