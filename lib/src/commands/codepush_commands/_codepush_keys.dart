@@ -242,6 +242,8 @@ class _KeysRegisterCommand extends Command<int> {
           'be rejected with HTTP 403.',
         );
 
+      _maybeAddPublicKeyToAndroidConfig(publicKeyPem);
+
       return ExitCode.success.code;
     } catch (e) {
       progress.fail('Failed: $e');
@@ -249,6 +251,25 @@ class _KeysRegisterCommand extends Command<int> {
     } finally {
       client.close();
     }
+  }
+
+  /// Adds the public key to android/app/src/main/assets/codepush.yaml when
+  /// the project has Android code push set up and no key is present yet,
+  /// so devices verify patch signatures (parity with FLTCodePushPublicKey
+  /// on iOS). Migration path for projects initialized before key delivery.
+  void _maybeAddPublicKeyToAndroidConfig(String publicKeyPem) {
+    final yamlFile = File('android/app/src/main/assets/codepush.yaml');
+    if (!yamlFile.existsSync()) return;
+    var content = yamlFile.readAsStringSync();
+    if (content.contains('public_key:')) return;
+    final indented =
+        publicKeyPem.split('\n').map((line) => '  ${line.trim()}').join('\n');
+    if (content.isNotEmpty && !content.endsWith('\n')) content += '\n';
+    yamlFile.writeAsStringSync('${content}public_key: |\n$indented\n');
+    _logger.info(
+      'Added the public key to android/app/src/main/assets/codepush.yaml. '
+      'Devices will verify patch signatures from your next release build.',
+    );
   }
 }
 

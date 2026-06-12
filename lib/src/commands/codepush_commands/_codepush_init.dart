@@ -237,12 +237,14 @@ class CodePushInitSubCommand extends Command<int> {
 
     final progress = _logger.progress('Setting up Android');
 
-    // 1. Create codepush.yaml in assets
+    // 1. Create codepush.yaml in assets. Include the signing public key
+    // when one exists so devices verify patch signatures (parity with the
+    // FLTCodePushPublicKey Info.plist entry on iOS).
     final assetsDir = Directory('${androidDir.path}/assets');
     if (!assetsDir.existsSync()) assetsDir.createSync(recursive: true);
     final configFile = File('${assetsDir.path}/codepush.yaml');
     configFile.writeAsStringSync(
-      'enabled: true\nrelease_version: "$version"\n',
+      'enabled: true\nrelease_version: "$version"\n${_publicKeyYamlBlock()}',
     );
 
     // 2. Find the package name and source directory
@@ -371,6 +373,21 @@ $newCopyBlock
     _logger.info('  Created: assets/codepush.yaml');
     _logger.info('  Created: CodePushApp.kt');
     _logger.info('  Updated: AndroidManifest.xml');
+  }
+
+  /// Returns a `public_key: |` YAML block for codepush.yaml when a local
+  /// signing public key exists, or an empty string otherwise. With a key
+  /// in the config, devices require a valid patch signature; without one,
+  /// only integrity checks run.
+  String _publicKeyYamlBlock() {
+    final home = Platform.environment['HOME'] ?? '/tmp';
+    final publicKeyFile = File('$home/.flutter_codepush/codepush_public.pem');
+    if (!publicKeyFile.existsSync()) return '';
+    final pem = publicKeyFile.readAsStringSync().trim();
+    if (pem.isEmpty) return '';
+    final indented =
+        pem.split('\n').map((line) => '  ${line.trim()}').join('\n');
+    return 'public_key: |\n$indented\n';
   }
 
   // ── iOS setup ─────────────────────────────────────────────────
