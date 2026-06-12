@@ -11,7 +11,7 @@ String? writeReleaseVersionToAndroidYaml(
   String releaseVersion, {
   String yamlPath = kDefaultAndroidCodePushYamlPath,
 }) {
-  if (releaseVersion.contains('"') || releaseVersion.contains('\n')) {
+  if (!RegExp(r'^[A-Za-z0-9._+\-]+$').hasMatch(releaseVersion)) {
     throw ArgumentError.value(
       releaseVersion,
       'releaseVersion',
@@ -36,12 +36,19 @@ String? writeReleaseVersionToAndroidYaml(
     content += '$versionLine\n';
   }
 
+  // Write to a temp file and rename over the original: a failed write
+  // (disk full, permissions) can then never corrupt the config, and the
+  // original error propagates without a doomed in-place rescue attempt.
+  final tempFile = File('$yamlPath.tmp');
   try {
-    yamlFile.writeAsStringSync(content);
+    tempFile.writeAsStringSync(content);
+    tempFile.renameSync(yamlPath);
   } on FileSystemException {
-    // Restore the original before propagating so the caller is never left
-    // with a stamped file it has no backup of.
-    yamlFile.writeAsStringSync(originalContent);
+    try {
+      tempFile.deleteSync();
+    } on FileSystemException {
+      // Best-effort cleanup; the original config is untouched either way.
+    }
     rethrow;
   }
   return originalContent;
