@@ -206,8 +206,7 @@ class CodePushBuildService {
       if (flutterRoot != null) {
         final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
         sdkGenSnapshotPath = '$engineCache/ios-release/gen_snapshot_arm64';
-        sdkFrameworkPath =
-            '$engineCache/ios-release/'
+        sdkFrameworkPath = '$engineCache/ios-release/'
             'Flutter.xcframework/ios-arm64/Flutter.framework/Flutter';
 
         expectedGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
@@ -561,11 +560,11 @@ class CodePushBuildService {
         _logger.err('Flutter version is required to prepare an iOS fcp build.');
         return false;
       }
-      final overlaysInstalled = await artifactManager
-          .installOverlaysIntoFlutterSdk(
-            flutterVersion: flutterVersion,
-            platform: buildPlatform,
-          );
+      final overlaysInstalled =
+          await artifactManager.installOverlaysIntoFlutterSdk(
+        flutterVersion: flutterVersion,
+        platform: buildPlatform,
+      );
       if (!overlaysInstalled) {
         _logger.err(
           'Failed to install the iOS fcp engine overlays into the active Flutter SDK.',
@@ -609,8 +608,7 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message:
-            'Build tool not available. '
+        message: 'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -660,8 +658,7 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message:
-            'Build tool not available. '
+        message: 'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -716,8 +713,7 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message:
-            'Build tool not available. '
+        message: 'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }

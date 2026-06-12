@@ -105,11 +105,9 @@ void main() {
         isTrue,
       );
 
-      final manifest =
-          jsonDecode(
-                File('${releaseDir.path}/manifest.json').readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(manifest['archive_format_version'], 1);
       expect(manifest['release_id'], 'rel-2');
       expect(manifest['baseline_id'], 'base-2');
@@ -138,11 +136,9 @@ void main() {
         Directory('${releaseDir.path}/Runner.app.dSYM').existsSync(),
         isTrue,
       );
-      final manifest =
-          jsonDecode(
-                File('${releaseDir.path}/manifest.json').readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
       expect(manifest['has_dsym'], isTrue);
     });
 
@@ -253,13 +249,11 @@ void main() {
         fcpVersion: '0.0.0',
       );
 
-      final manifest =
-          jsonDecode(
-                File(
-                  '${projectDir.path}/.fcp-archive/rel-9/manifest.json',
-                ).readAsStringSync(),
-              )
-              as Map<String, dynamic>;
+      final manifest = jsonDecode(
+        File(
+          '${projectDir.path}/.fcp-archive/rel-9/manifest.json',
+        ).readAsStringSync(),
+      ) as Map<String, dynamic>;
       // Pre-computed sha256 of the literal bytes.
       expect(
         manifest['framework_sha256'],

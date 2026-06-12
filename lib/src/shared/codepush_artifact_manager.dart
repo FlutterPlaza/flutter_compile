@@ -16,12 +16,11 @@ class CodePushArtifactManager {
     String? baseUrl,
     String? cacheRoot,
     HttpClient Function()? httpClientFactory,
-  }) : _logger = logger,
-       _baseUrl = baseUrl ?? _defaultArtifactBucketBase,
-       _cacheRoot =
-           cacheRoot ??
-           '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}',
-       _httpClientFactory = httpClientFactory ?? HttpClient.new;
+  })  : _logger = logger,
+        _baseUrl = baseUrl ?? _defaultArtifactBucketBase,
+        _cacheRoot = cacheRoot ??
+            '${Platform.environment['HOME'] ?? '/tmp'}/.flutter_compile/cache/${Constants.codePushCacheDir}',
+        _httpClientFactory = httpClientFactory ?? HttpClient.new;
 
   /// Artifact server base URL for engine binaries.
   static const String _defaultArtifactBucketBase =
@@ -79,10 +78,10 @@ class CodePushArtifactManager {
     final os = Platform.isMacOS
         ? 'darwin'
         : Platform.isLinux
-        ? 'linux'
-        : Platform.isWindows
-        ? 'windows'
-        : 'unknown';
+            ? 'linux'
+            : Platform.isWindows
+                ? 'windows'
+                : 'unknown';
     final arch = Platform.version.contains('arm64') ? 'arm64' : 'x64';
     return '$os-$arch';
   }
@@ -209,8 +208,8 @@ class CodePushArtifactManager {
     }
 
     const iosTarget = 'ios-arm64';
-    final overrideDirPath = Platform.environment['FCP_CODEPUSH_IOS_ENGINE_DIR']
-        ?.trim();
+    final overrideDirPath =
+        Platform.environment['FCP_CODEPUSH_IOS_ENGINE_DIR']?.trim();
     final usingLocalOverride =
         overrideDirPath != null && overrideDirPath.isNotEmpty;
     final iosDir = Directory(platformDir(flutterVersion, iosTarget));
@@ -518,12 +517,11 @@ class CodePushArtifactManager {
         .whereType<Directory>()
         .where((d) => File('${d.path}/.stamp').existsSync())
         .map((d) {
-          final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
-          return name.startsWith('flutter-')
-              ? name.substring('flutter-'.length)
-              : name;
-        })
-        .toList()
+      final name = d.uri.pathSegments.where((s) => s.isNotEmpty).last;
+      return name.startsWith('flutter-')
+          ? name.substring('flutter-'.length)
+          : name;
+    }).toList()
       ..sort();
   }
 
