@@ -18,8 +18,7 @@ import '../helpers/test_helpers.dart';
 // mismatch triggered the banner — including `local > pub.dev`).
 const latestVersion = '9999.0.0';
 
-final updatePrompt =
-    '''
+final updatePrompt = '''
 ${lightYellow.wrap('Update available!')} ${lightCyan.wrap(packageVersion)} \u2192 ${lightCyan.wrap(latestVersion)}
 Run ${lightCyan.wrap('$executableName update')} to update''';
 
@@ -46,16 +45,19 @@ void main() {
       verify(() => logger.info(updatePrompt)).called(1);
     });
 
-    test('Does not show update message when the shell calls the '
-        'completion command', () async {
-      when(
-        () => pubUpdater.getLatestVersion(any()),
-      ).thenAnswer((_) async => latestVersion);
+    test(
+      'Does not show update message when the shell calls the '
+      'completion command',
+      () async {
+        when(
+          () => pubUpdater.getLatestVersion(any()),
+        ).thenAnswer((_) async => latestVersion);
 
-      final result = await commandRunner.run(['completion']);
-      expect(result, equals(ExitCode.success.code));
-      verifyNever(() => logger.info(updatePrompt));
-    });
+        final result = await commandRunner.run(['completion']);
+        expect(result, equals(ExitCode.success.code));
+        verifyNever(() => logger.info(updatePrompt));
+      },
+    );
 
     test('does not show update message when using update command', () async {
       when(
@@ -89,14 +91,12 @@ void main() {
       verifyNever(() => logger.info(updatePrompt));
     });
 
-    test(
-      'can be instantiated without an explicit analytics/logger instance',
-      () {
-        final commandRunner = FlutterCompileCommandRunner();
-        expect(commandRunner, isNotNull);
-        expect(commandRunner, isA<CompletionCommandRunner<int>>());
-      },
-    );
+    test('can be instantiated without an explicit analytics/logger instance',
+        () {
+      final commandRunner = FlutterCompileCommandRunner();
+      expect(commandRunner, isNotNull);
+      expect(commandRunner, isA<CompletionCommandRunner<int>>());
+    });
 
     test('handles FormatException', () async {
       const exception = FormatException('oops!');

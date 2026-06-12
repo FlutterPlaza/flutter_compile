@@ -53,14 +53,10 @@ class SyncCommand extends Command<int> {
       _logger.info('');
     }
 
-    final succeeded = results.entries
-        .where((e) => e.value)
-        .map((e) => e.key)
-        .toList();
-    final failed = results.entries
-        .where((e) => !e.value)
-        .map((e) => e.key)
-        .toList();
+    final succeeded =
+        results.entries.where((e) => e.value).map((e) => e.key).toList();
+    final failed =
+        results.entries.where((e) => !e.value).map((e) => e.key).toList();
 
     if (succeeded.isNotEmpty) {
       _logger.success('Synced: ${succeeded.join(', ')}');

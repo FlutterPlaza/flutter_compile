@@ -46,19 +46,23 @@ class SyncFlutterSubCommand extends Command<int> {
       return ExitCode.config.code;
     }
 
-    await F.runCommand('git', [
-      'fetch',
-      'upstream',
-    ], workingDirectory: flutterDir);
-    await F.runCommand('git', [
-      'rebase',
-      'upstream/master',
-    ], workingDirectory: flutterDir);
+    await F.runCommand(
+      'git',
+      ['fetch', 'upstream'],
+      workingDirectory: flutterDir,
+    );
+    await F.runCommand(
+      'git',
+      ['rebase', 'upstream/master'],
+      workingDirectory: flutterDir,
+    );
 
     _logger.info('Running flutter update-packages...');
-    await F.runCommand('$flutterPath/flutter', [
-      'update-packages',
-    ], workingDirectory: flutterDir);
+    await F.runCommand(
+      '$flutterPath/flutter',
+      ['update-packages'],
+      workingDirectory: flutterDir,
+    );
 
     _logger.success('Flutter framework synced successfully.');
     return ExitCode.success.code;

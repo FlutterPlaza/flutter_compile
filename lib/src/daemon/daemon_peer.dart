@@ -17,7 +17,7 @@ import 'package:stream_channel/stream_channel.dart';
 
 class DaemonPeer {
   DaemonPeer({required Logger logger, StreamChannel<String>? channel})
-    : _channel = channel;
+      : _channel = channel;
 
   final StreamChannel<String>? _channel;
   late rpc.Peer _peer;

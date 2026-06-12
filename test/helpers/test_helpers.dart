@@ -14,19 +14,21 @@ class MockProgress extends Mock implements Progress {}
   Logger logger,
   PubUpdater pubUpdater,
   FlutterCompileCommandRunner commandRunner,
-})
-createTestCommandRunner() {
+}) createTestCommandRunner() {
   final logger = MockLogger();
   final pubUpdater = MockPubUpdater();
 
-  when(
-    () => pubUpdater.getLatestVersion(any()),
-  ).thenAnswer((_) async => packageVersion);
+  when(() => pubUpdater.getLatestVersion(any()))
+      .thenAnswer((_) async => packageVersion);
 
   final commandRunner = FlutterCompileCommandRunner(
     logger: logger,
     pubUpdater: pubUpdater,
   );
 
-  return (logger: logger, pubUpdater: pubUpdater, commandRunner: commandRunner);
+  return (
+    logger: logger,
+    pubUpdater: pubUpdater,
+    commandRunner: commandRunner,
+  );
 }

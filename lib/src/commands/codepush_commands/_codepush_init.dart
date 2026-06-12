@@ -13,7 +13,10 @@ class CodePushInitSubCommand extends Command<int> {
         'name',
         help: 'App name (defaults to pubspec name or directory name).',
       )
-      ..addOption('platform', help: 'Target platform (android, ios).');
+      ..addOption(
+        'platform',
+        help: 'Target platform (android, ios).',
+      );
   }
 
   final Logger _logger;
@@ -38,10 +41,8 @@ class CodePushInitSubCommand extends Command<int> {
       final pubspec = File('pubspec.yaml');
       if (pubspec.existsSync()) {
         final content = pubspec.readAsStringSync();
-        final match = RegExp(
-          r'^name:\s*(.+)$',
-          multiLine: true,
-        ).firstMatch(content);
+        final match =
+            RegExp(r'^name:\s*(.+)$', multiLine: true).firstMatch(content);
         if (match != null) appName = match.group(1)?.trim();
       }
       appName ??= Directory.current.path.split('/').last;
@@ -67,20 +68,16 @@ class CodePushInitSubCommand extends Command<int> {
 
     final httpClient = HttpClient();
     try {
-      final request = await httpClient.postUrl(
-        Uri.parse('$serverUrl/api/v1/apps'),
-      );
+      final request =
+          await httpClient.postUrl(Uri.parse('$serverUrl/api/v1/apps'));
       request.headers.set('Authorization', 'Bearer $token');
       request.headers.set('Content-Type', 'application/json');
       request.headers.set('Accept', 'application/json');
-      request.write(
-        json.encode({
-          'name': appName,
-          if (platform != null) 'platform': platform,
-          if (publicKeyPemForCreate != null)
-            'public_key': publicKeyPemForCreate,
-        }),
-      );
+      request.write(json.encode({
+        'name': appName,
+        if (platform != null) 'platform': platform,
+        if (publicKeyPemForCreate != null) 'public_key': publicKeyPemForCreate,
+      }));
 
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
@@ -123,9 +120,8 @@ class CodePushInitSubCommand extends Command<int> {
             'verification.',
           );
         } else {
-          keyProgress.fail(
-            'Could not generate signing keys (openssl missing?)',
-          );
+          keyProgress
+              .fail('Could not generate signing keys (openssl missing?)');
           _logger.warn(
             'Patches will not be signed. Install openssl and re-run '
             '`fcp codepush keys generate`.',
@@ -154,8 +150,7 @@ class CodePushInitSubCommand extends Command<int> {
       _logger.info('  1. Wrap your app with CodePushOverlay in main.dart:');
       _logger.info('');
       _logger.info(
-        '     import \'package:flutterplaza_code_push/flutterplaza_code_push.dart\';',
-      );
+          '     import \'package:flutterplaza_code_push/flutterplaza_code_push.dart\';');
       _logger.info('');
       _logger.info('     runApp(');
       _logger.info('       CodePushOverlay(');
@@ -228,10 +223,8 @@ class CodePushInitSubCommand extends Command<int> {
   String? _readPubspecVersion() {
     final pubspec = File('pubspec.yaml');
     if (!pubspec.existsSync()) return null;
-    final match = RegExp(
-      r'^version:\s*(.+)$',
-      multiLine: true,
-    ).firstMatch(pubspec.readAsStringSync());
+    final match = RegExp(r'^version:\s*(.+)$', multiLine: true)
+        .firstMatch(pubspec.readAsStringSync());
     return match?.group(1)?.trim();
   }
 
@@ -263,9 +256,8 @@ class CodePushInitSubCommand extends Command<int> {
     final manifestContent = manifest.readAsStringSync();
 
     // Find package name from manifest, build.gradle.kts, or build.gradle
-    var packageName = RegExp(
-      r'package="([^"]+)"',
-    ).firstMatch(manifestContent)?.group(1);
+    var packageName =
+        RegExp(r'package="([^"]+)"').firstMatch(manifestContent)?.group(1);
     if (packageName == null) {
       // Try build.gradle.kts
       for (final gradleFile in [
@@ -274,16 +266,16 @@ class CodePushInitSubCommand extends Command<int> {
       ]) {
         if (gradleFile.existsSync()) {
           final gradleContent = gradleFile.readAsStringSync();
-          final nsMatch = RegExp(
-            r'namespace\s*[=:]\s*["\x27]([^"\x27]+)["\x27]',
-          ).firstMatch(gradleContent);
+          final nsMatch =
+              RegExp(r'namespace\s*[=:]\s*["\x27]([^"\x27]+)["\x27]')
+                  .firstMatch(gradleContent);
           if (nsMatch != null) {
             packageName = nsMatch.group(1);
             break;
           }
-          final appIdMatch = RegExp(
-            r'applicationId\s*[=:]\s*["\x27]([^"\x27]+)["\x27]',
-          ).firstMatch(gradleContent);
+          final appIdMatch =
+              RegExp(r'applicationId\s*[=:]\s*["\x27]([^"\x27]+)["\x27]')
+                  .firstMatch(gradleContent);
           if (appIdMatch != null) {
             packageName = appIdMatch.group(1);
             break;
@@ -339,9 +331,8 @@ class CodePushApp : FlutterApplication() {
       );
     } else if (!manifestContent.contains('CodePushApp')) {
       // App has a custom Application class (possibly per-flavor).
-      final existingMatch = RegExp(
-        r'android:name="([^"]+)"',
-      ).firstMatch(manifestContent);
+      final existingMatch =
+          RegExp(r'android:name="([^"]+)"').firstMatch(manifestContent);
       final existingClass = existingMatch?.group(1);
       _logger.warn(
         'AndroidManifest.xml already has a custom Application class: '
@@ -384,8 +375,7 @@ class CodePushApp : FlutterApplication() {
       final publicKeyFile = File('$home/.flutter_codepush/codepush_public.pem');
       if (publicKeyFile.existsSync()) {
         final pem = publicKeyFile.readAsStringSync().trim();
-        publicKeyBlock =
-            '\t<key>FLTCodePushPublicKey</key>\n'
+        publicKeyBlock = '\t<key>FLTCodePushPublicKey</key>\n'
             '\t<string>$pem</string>\n';
       }
 
@@ -413,8 +403,7 @@ class CodePushApp : FlutterApplication() {
 
     progress.complete('iOS configured');
     _logger.info(
-      '  Updated: Info.plist (FLTCodePushEnabled, release version, public key)',
-    );
+        '  Updated: Info.plist (FLTCodePushEnabled, release version, public key)');
   }
 
   // ── pubspec.yaml setup ────────────────────────────────────────

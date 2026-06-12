@@ -26,9 +26,8 @@ class FlutterSwitchCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final mode = argResults?.rest.isNotEmpty == true
-        ? argResults?.rest[0]
-        : null;
+    final mode =
+        argResults?.rest.isNotEmpty == true ? argResults?.rest[0] : null;
     if (mode == null) {
       _logger.info('Switching to other flutter installation');
       await F.switchFlutterEnvironment();

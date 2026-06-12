@@ -14,8 +14,8 @@ import 'package:flutter_compile/src/shared/functions.dart';
 /// even if a rogue CA issues a certificate for the server domain.
 class CodePushClient {
   CodePushClient({String? serverUrl, String? pinnedCertificatePath})
-    : _serverUrl = serverUrl ?? Constants.codePushDefaultServer,
-      _http = _createHttpClient(pinnedCertificatePath);
+      : _serverUrl = serverUrl ?? Constants.codePushDefaultServer,
+        _http = _createHttpClient(pinnedCertificatePath);
 
   final String _serverUrl;
   final HttpClient _http;
@@ -149,10 +149,10 @@ class CodePushClient {
     required String email,
     String? name,
   }) async {
-    return _post(
-      '/api/v1/auth/register',
-      body: {'email': email, if (name != null) 'name': name},
-    );
+    return _post('/api/v1/auth/register', body: {
+      'email': email,
+      if (name != null) 'name': name,
+    });
   }
 
   /// GET /api/v1/account — get user profile and subscription status.
@@ -307,7 +307,10 @@ class CodePushClient {
     return _patch(
       '/api/v1/apps',
       token: token,
-      body: {'app_id': appId, 'public_key': publicKeyPem},
+      body: {
+        'app_id': appId,
+        'public_key': publicKeyPem,
+      },
     );
   }
 
@@ -329,10 +332,8 @@ class CodePushClient {
     required String releaseId,
   }) async {
     // First get the release info to find the snapshot URL.
-    final info = await _get(
-      '/api/v1/releases?release_id=$releaseId',
-      token: token,
-    );
+    final info =
+        await _get('/api/v1/releases?release_id=$releaseId', token: token);
     final releases = info['releases'] as List?;
     if (releases == null || releases.isEmpty) return null;
 
@@ -425,16 +426,13 @@ class CodePushClient {
     try {
       // 1. Generate random AES-256 key (32 bytes) and IV (16 bytes).
       final random = Random.secure();
-      final aesKey = Uint8List.fromList(
-        List.generate(32, (_) => random.nextInt(256)),
-      );
-      final iv = Uint8List.fromList(
-        List.generate(16, (_) => random.nextInt(256)),
-      );
+      final aesKey =
+          Uint8List.fromList(List.generate(32, (_) => random.nextInt(256)));
+      final iv =
+          Uint8List.fromList(List.generate(16, (_) => random.nextInt(256)));
 
-      final aesKeyHex = aesKey
-          .map((b) => b.toRadixString(16).padLeft(2, '0'))
-          .join();
+      final aesKeyHex =
+          aesKey.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
       final ivHex = iv.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
 
       // 2. Write source to temp file and encrypt with AES-256-CBC.
@@ -522,7 +520,10 @@ class CodePushClient {
 
   // --- HTTP helpers ---
 
-  Future<Map<String, dynamic>> _get(String path, {String? token}) async {
+  Future<Map<String, dynamic>> _get(
+    String path, {
+    String? token,
+  }) async {
     final uri = Uri.parse('$_serverUrl$path');
     final request = await _http.getUrl(uri);
     if (token != null) {
@@ -603,8 +604,7 @@ class CodePushClient {
   }
 
   Future<Map<String, dynamic>> _parseResponse(
-    HttpClientResponse response,
-  ) async {
+      HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
     final statusCode = response.statusCode;
     if (body.isEmpty) {

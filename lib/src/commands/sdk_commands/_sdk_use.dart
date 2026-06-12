@@ -37,7 +37,9 @@ class SdkUseSubCommand extends Command<int> {
         'No project SDK version set '
         '(no ${Constants.flutterVersionFile} found).',
       );
-      _logger.info('\nRun "flutter_compile sdk use <version>" to pin one.');
+      _logger.info(
+        '\nRun "flutter_compile sdk use <version>" to pin one.',
+      );
     } else {
       _logger.info('Project SDK version: $projectVersion');
     }
@@ -53,9 +55,8 @@ class SdkUseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final file = File(
-      '${Directory.current.path}/${Constants.flutterVersionFile}',
-    );
+    final file =
+        File('${Directory.current.path}/${Constants.flutterVersionFile}');
     await file.writeAsString('$version\n');
 
     _logger.success(

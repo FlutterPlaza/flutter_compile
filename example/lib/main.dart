@@ -5,6 +5,9 @@ void main() async {
   final result = await Process.run('flutter_compile', ['--help']);
   print(result.stdout);
 
-  await Future.wait([stdout.close(), stderr.close()]);
+  await Future.wait([
+    stdout.close(),
+    stderr.close(),
+  ]);
   exit(0);
 }

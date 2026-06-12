@@ -23,9 +23,11 @@ import 'package:mason_logger/mason_logger.dart';
 /// `.fcp-archive/` to the repo's local-only `.git/info/exclude` on
 /// first use.  No project-level `.gitignore` is touched.
 class CodePushArchiveService {
-  CodePushArchiveService({required Logger logger, Directory? projectDir})
-    : _logger = logger,
-      _projectDir = projectDir ?? Directory.current;
+  CodePushArchiveService({
+    required Logger logger,
+    Directory? projectDir,
+  })  : _logger = logger,
+        _projectDir = projectDir ?? Directory.current;
 
   static const int _archiveFormatVersion = 1;
   static const String _archiveDirName = '.fcp-archive';
@@ -74,11 +76,8 @@ class CodePushArchiveService {
       releaseDir.createSync(recursive: true);
 
       final runnerCopy = '${releaseDir.path}/Runner.app';
-      final cpRunner = Process.runSync('cp', [
-        '-R',
-        runnerApp.path,
-        runnerCopy,
-      ]);
+      final cpRunner =
+          Process.runSync('cp', ['-R', runnerApp.path, runnerCopy]);
       if (cpRunner.exitCode != 0) {
         _logger.warn('Could not archive Runner.app: ${cpRunner.stderr}');
         return false;
@@ -90,7 +89,10 @@ class CodePushArchiveService {
       var archivedDsym = false;
       if (dsymSource.existsSync()) {
         final dsymCopy = '${releaseDir.path}/Runner.app.dSYM';
-        final cpDsym = Process.runSync('cp', ['-R', dsymSource.path, dsymCopy]);
+        final cpDsym = Process.runSync(
+          'cp',
+          ['-R', dsymSource.path, dsymCopy],
+        );
         if (cpDsym.exitCode == 0) {
           archivedDsym = true;
         } else {
@@ -149,9 +151,8 @@ class CodePushArchiveService {
         infoDir.createSync(recursive: true);
       }
       final excludeFile = File('${infoDir.path}/exclude');
-      final existing = excludeFile.existsSync()
-          ? excludeFile.readAsStringSync()
-          : '';
+      final existing =
+          excludeFile.existsSync() ? excludeFile.readAsStringSync() : '';
       final present = existing.split('\n').any((line) {
         final trimmed = line.trim();
         return trimmed == _excludeRule ||
@@ -173,12 +174,10 @@ class CodePushArchiveService {
 
   String? _findGitDir() {
     try {
-      final result = Process.runSync('git', [
-        '-C',
-        _projectDir.path,
-        'rev-parse',
-        '--git-dir',
-      ]);
+      final result = Process.runSync(
+        'git',
+        ['-C', _projectDir.path, 'rev-parse', '--git-dir'],
+      );
       if (result.exitCode != 0) return null;
       final raw = (result.stdout as String).trim();
       if (raw.isEmpty) return null;

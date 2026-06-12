@@ -9,11 +9,14 @@ import 'package:mason_logger/mason_logger.dart';
 class FlutterSubCommand extends Command<int> {
   FlutterSubCommand(this._logger) {
     argParser
-      ..addFlag('flutter', abbr: 'f', help: 'Install Flutter environment')
+      ..addFlag(
+        'flutter',
+        abbr: 'f',
+        help: 'Install Flutter environment',
+      )
       ..addOption(
         'ide',
-        help:
-            'Calling IDE (vscode, intellij). '
+        help: 'Calling IDE (vscode, intellij). '
             'Skips or auto-accepts IDE-specific prompts.',
         allowed: ['vscode', 'intellij'],
       );
@@ -110,8 +113,12 @@ Future<int> setupFlutterEnvironment(Logger l, {String? ide}) async {
           .green,
     )
     ..info('\nRun\n')
-    ..info('flutter_compile switch compiled'.blue)
-    ..info('\nto switch to the compiled Flutter installation.');
+    ..info(
+      'flutter_compile switch compiled'.blue,
+    )
+    ..info(
+      '\nto switch to the compiled Flutter installation.',
+    );
 
   return ExitCode.success.code;
 }
@@ -119,36 +126,24 @@ Future<int> setupFlutterEnvironment(Logger l, {String? ide}) async {
 /// Ensure a git remote exists with the given URL.
 /// If it already exists, update its URL. If not, add it.
 Future<void> _ensureRemote(
-  Logger l,
-  String name,
-  String url,
-  String workingDirectory,
-) async {
-  final result = await Process.run('git', [
-    'remote',
-    'get-url',
-    name,
-  ], workingDirectory: workingDirectory);
+    Logger l, String name, String url, String workingDirectory) async {
+  final result = await Process.run(
+    'git',
+    ['remote', 'get-url', name],
+    workingDirectory: workingDirectory,
+  );
   if (result.exitCode == 0) {
     final currentUrl = (result.stdout as String).trim();
     if (currentUrl != url) {
-      await F.runCommand('git', [
-        'remote',
-        'set-url',
-        name,
-        url,
-      ], workingDirectory: workingDirectory);
+      await F.runCommand('git', ['remote', 'set-url', name, url],
+          workingDirectory: workingDirectory);
       l.info('Updated remote "$name" to $url'.green);
     } else {
       l.info('Remote "$name" already set to $url'.green);
     }
   } else {
-    await F.runCommand('git', [
-      'remote',
-      'add',
-      name,
-      url,
-    ], workingDirectory: workingDirectory);
+    await F.runCommand('git', ['remote', 'add', name, url],
+        workingDirectory: workingDirectory);
     l.info('Added remote "$name" → $url'.green);
   }
 }

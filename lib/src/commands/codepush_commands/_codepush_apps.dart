@@ -135,21 +135,18 @@ class _AppsCreateCommand extends Command<int> {
       final request = await httpClient.postUrl(uri);
       request.headers.set('Authorization', 'Bearer $token');
       request.headers.set('Content-Type', 'application/json');
-      request.write(
-        json.encode({
-          'name': appName,
-          if (platform != null) 'platform': platform,
-        }),
-      );
+      request.write(json.encode({
+        'name': appName,
+        if (platform != null) 'platform': platform,
+      }));
 
       final response = await request.close();
       final body = await response.transform(utf8.decoder).join();
       final data = json.decode(body) as Map<String, dynamic>;
 
       if (response.statusCode == 403) {
-        progress.fail(
-          data['message'] ?? 'App limit reached. Upgrade your plan.',
-        );
+        progress
+            .fail(data['message'] ?? 'App limit reached. Upgrade your plan.');
         return ExitCode.software.code;
       }
 

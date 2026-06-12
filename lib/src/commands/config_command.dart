@@ -64,7 +64,11 @@ class ConfigCommand extends Command<int> {
 
 class _ConfigListSubCommand extends Command<int> {
   _ConfigListSubCommand(this._logger) {
-    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
   }
 
   final Logger _logger;
@@ -115,8 +119,7 @@ class _ConfigGetSubCommand extends Command<int> {
   final String name = 'get';
 
   @override
-  final String description =
-      'Get a configuration value. '
+  final String description = 'Get a configuration value. '
       'Usage: config get <key>';
 
   @override
@@ -151,8 +154,7 @@ class _ConfigSetSubCommand extends Command<int> {
   final String name = 'set';
 
   @override
-  final String description =
-      'Set a configuration value. '
+  final String description = 'Set a configuration value. '
       'Usage: config set <key> <value>';
 
   @override

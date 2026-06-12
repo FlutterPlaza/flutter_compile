@@ -55,10 +55,8 @@ class F {
       }
 
       if (await rcConfigFile.exists()) {
-        final persistedPath = await readValueForKeyFromRcConfig(
-          rcConfigFile,
-          key.key,
-        );
+        final persistedPath =
+            await readValueForKeyFromRcConfig(rcConfigFile, key.key);
         if (persistedPath != null) {
           return persistedPath;
         }
@@ -190,9 +188,8 @@ class F {
     if (extractedBlocks.isEmpty) {
       // No legacy blocks found — just ensure source line.
       await ensureSourceLineInShellRc();
-      final hadSourceLine = Constants.platformSourceLinePattern.hasMatch(
-        rcContents,
-      );
+      final hadSourceLine =
+          Constants.platformSourceLinePattern.hasMatch(rcContents);
       return MigrateResult(
         blocksMoved: 0,
         sourceLineAdded: !hadSourceLine,
@@ -222,9 +219,8 @@ class F {
     await envFile.writeAsString(envContents);
 
     // Strip blocks from the shell RC and add source line.
-    final hadSourceLine = Constants.platformSourceLinePattern.hasMatch(
-      rcContents,
-    );
+    final hadSourceLine =
+        Constants.platformSourceLinePattern.hasMatch(rcContents);
     await ensureSourceLineInShellRc();
 
     // Rewrite the SDK manager block with the new guarded template so
@@ -259,8 +255,8 @@ class F {
     final shellConfig = shell.contains('bash')
         ? '.bashrc'
         : shell.contains('zsh')
-        ? '.zshrc'
-        : '.profile';
+            ? '.zshrc'
+            : '.profile';
     return '$home/$shellConfig';
   }
 
@@ -345,12 +341,10 @@ class F {
       await runCommand('brew', ['install', '--cask', 'android-platform-tools']);
     } else if (os == 'linux') {
       await runCommand('sudo', ['apt-get', 'update']);
-      await runCommand('sudo', [
-        'apt-get',
-        'install',
-        '-y',
-        'android-tools-adb',
-      ]);
+      await runCommand(
+        'sudo',
+        ['apt-get', 'install', '-y', 'android-tools-adb'],
+      );
     } else if (os == 'windows') {
       logger.info(
         'On Windows, install Android platform tools manually or via Android Studio.',
@@ -460,9 +454,8 @@ class F {
           .platformFlutterCompilePATHExport
           .replaceAll('{{path}}', flutterCompilePath);
 
-      final isUsingCompiledVersion = _flutterCompileBlockPattern.hasMatch(
-        contents,
-      );
+      final isUsingCompiledVersion =
+          _flutterCompileBlockPattern.hasMatch(contents);
 
       if (mode == FlutterMode.compiled && !isUsingCompiledVersion) {
         contents += flutterCompilePATHExport;
@@ -509,9 +502,8 @@ class F {
   /// Flutter repo so `fcp switch` doesn't fail with a broken Dart SDK download.
   static void _ensureDartSdkForCompiled(String compiledFlutterPath) {
     try {
-      final targetDart = File(
-        '$compiledFlutterPath/bin/cache/dart-sdk/bin/dart',
-      );
+      final targetDart =
+          File('$compiledFlutterPath/bin/cache/dart-sdk/bin/dart');
       if (targetDart.existsSync()) return; // Already has a Dart SDK.
 
       // Find the source Dart SDK.
@@ -539,9 +531,8 @@ class F {
       final engineStamp = File('$compiledFlutterPath/bin/cache/engine.stamp');
       if (engineStamp.existsSync()) {
         final hash = engineStamp.readAsStringSync().trim();
-        File(
-          '$compiledFlutterPath/bin/cache/engine-dart-sdk.stamp',
-        ).writeAsStringSync(hash);
+        File('$compiledFlutterPath/bin/cache/engine-dart-sdk.stamp')
+            .writeAsStringSync(hash);
       }
     } catch (_) {
       // Best effort — don't break switch if this fails.
@@ -578,7 +569,10 @@ class F {
       }
     }
     try {
-      await runCommand('git', ['clone', url, directory]);
+      await runCommand(
+        'git',
+        ['clone', url, directory],
+      );
     } catch (e) {
       // Clean up partial clone on failure
       if (dir.existsSync()) {
@@ -600,9 +594,8 @@ class F {
       for (var line in lines) {
         final colonIndex = line.indexOf(':');
         if (colonIndex != -1) {
-          keyValuePairs[line.substring(0, colonIndex)] = line.substring(
-            colonIndex + 1,
-          );
+          keyValuePairs[line.substring(0, colonIndex)] =
+              line.substring(colonIndex + 1);
         }
       }
     }
@@ -637,9 +630,8 @@ class F {
 
   static String sdkPubCachePath(String sdkPath) => '$sdkPath/.pub-cache';
 
-  static Map<String, String> sdkEnvironment(String sdkPath) => {
-    'PUB_CACHE': sdkPubCachePath(sdkPath),
-  };
+  static Map<String, String> sdkEnvironment(String sdkPath) =>
+      {'PUB_CACHE': sdkPubCachePath(sdkPath)};
 
   static String sdkVersionPath(String version) {
     final home = homeDir();

@@ -70,11 +70,9 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   l.info('Fetching upstream...');
   await F.runCommand('git', ['fetch', 'upstream'], workingDirectory: cloneDir);
   try {
-    await F.runCommand('git', [
-      'branch',
-      '--set-upstream-to=upstream/master',
-      'master',
-    ], workingDirectory: cloneDir);
+    await F.runCommand(
+        'git', ['branch', '--set-upstream-to=upstream/master', 'master'],
+        workingDirectory: cloneDir);
   } catch (_) {
     // May fail if already set or branch name differs — non-fatal
     l.warn('Could not set upstream tracking branch (may already be set).');
@@ -88,7 +86,10 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
   }
 
   // Run Flutter pub get for the tool directory
-  await F.runCommand('flutter', ['pub', 'get', '--directory', toolDir.path]);
+  await F.runCommand(
+    'flutter',
+    ['pub', 'get', '--directory', toolDir.path],
+  );
 
   // Save devtools path to .flutter_compilerc
   final home = F.homeDir();
@@ -109,10 +110,8 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
     envContents = await envFile.readAsString();
   }
 
-  final devtoolsToolBinPath = Constants.platformDevToolsPATHExport.replaceAll(
-    '{{path}}',
-    cloneDir,
-  );
+  final devtoolsToolBinPath =
+      Constants.platformDevToolsPATHExport.replaceAll('{{path}}', cloneDir);
   if (!envContents.contains(devtoolsToolBinPath.trim())) {
     envContents += devtoolsToolBinPath;
     await envFile.parent.create(recursive: true);
@@ -122,26 +121,21 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
 
   // Optional step: Check and update the DevTools Flutter SDK
   try {
-    await F.runCommand('devtools_tool', [
-      'update-flutter-sdk',
-      '--update-on-path',
-    ]);
+    await F.runCommand(
+        'devtools_tool', ['update-flutter-sdk', '--update-on-path']);
   } catch (e) {
     l.warn(
-      'devtools_tool update-flutter-sdk failed (may need terminal restart): $e',
-    );
+        'devtools_tool update-flutter-sdk failed (may need terminal restart): $e');
   }
 
   // Inform the user to restart their terminal
   l
     ..info(
-      '\nSetup complete! Please restart your terminal or source your shell configuration to apply PATH changes.\n'
-          .green,
-    )
+        '\nSetup complete! Please restart your terminal or source your shell configuration to apply PATH changes.\n'
+            .green)
     ..info('To verify the setup, run the following command:')
     ..info(
-      '`flutter run` on a sample Flutter project and connect it to DevTools.',
-    );
+        '`flutter run` on a sample Flutter project and connect it to DevTools.');
   await displayIncrementalInfo();
 
   return ExitCode.success.code;
@@ -150,38 +144,26 @@ Future<int> setupDevToolsEnvironment(Logger l) async {
 /// Ensure a git remote exists with the given URL.
 /// If it already exists, update its URL. If not, add it.
 Future<void> _ensureRemote(
-  Logger l,
-  String name,
-  String url,
-  String workingDirectory,
-) async {
-  final result = await Process.run('git', [
-    'remote',
-    'get-url',
-    name,
-  ], workingDirectory: workingDirectory);
+    Logger l, String name, String url, String workingDirectory) async {
+  final result = await Process.run(
+    'git',
+    ['remote', 'get-url', name],
+    workingDirectory: workingDirectory,
+  );
   if (result.exitCode == 0) {
     // Remote exists — update URL if different
     final currentUrl = (result.stdout as String).trim();
     if (currentUrl != url) {
-      await F.runCommand('git', [
-        'remote',
-        'set-url',
-        name,
-        url,
-      ], workingDirectory: workingDirectory);
+      await F.runCommand('git', ['remote', 'set-url', name, url],
+          workingDirectory: workingDirectory);
       l.info('Updated remote "$name" to $url'.green);
     } else {
       l.info('Remote "$name" already set to $url'.green);
     }
   } else {
     // Remote doesn't exist — add it
-    await F.runCommand('git', [
-      'remote',
-      'add',
-      name,
-      url,
-    ], workingDirectory: workingDirectory);
+    await F.runCommand('git', ['remote', 'add', name, url],
+        workingDirectory: workingDirectory);
     l.info('Added remote "$name" → $url'.green);
   }
 }

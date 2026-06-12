@@ -43,51 +43,45 @@ void main() {
       expect(F.isSdkInstalled('3.19.0'), isTrue);
     });
 
-    test(
-      'cloneRepository skips when valid git repo exists and force=false',
-      () async {
-        final dir = Directory('${tempHome.path}/repo');
-        Directory('${dir.path}/.git').createSync(recursive: true);
-        File(
-          '${dir.path}/.git/HEAD',
-        ).writeAsStringSync('ref: refs/heads/main\n');
+    test('cloneRepository skips when valid git repo exists and force=false',
+        () async {
+      final dir = Directory('${tempHome.path}/repo');
+      Directory('${dir.path}/.git').createSync(recursive: true);
+      File('${dir.path}/.git/HEAD').writeAsStringSync('ref: refs/heads/main\n');
 
-        await F.cloneRepository('https://example.com/repo.git', dir.path);
-        // Should have skipped — verify the info message
-        verify(
-          () => logger.info(
-            'Directory ${dir.path} already exists. Skipping clone.',
-          ),
-        ).called(1);
-      },
-    );
+      await F.cloneRepository('https://example.com/repo.git', dir.path);
+      // Should have skipped — verify the info message
+      verify(
+        () => logger.info(
+          'Directory ${dir.path} already exists. Skipping clone.',
+        ),
+      ).called(1);
+    });
 
-    test(
-      'cloneRepository cleans up invalid repo directory and re-clones',
-      () async {
-        final dir = Directory('${tempHome.path}/repo');
-        dir.createSync();
-        // No .git/HEAD — invalid repo
+    test('cloneRepository cleans up invalid repo directory and re-clones',
+        () async {
+      final dir = Directory('${tempHome.path}/repo');
+      dir.createSync();
+      // No .git/HEAD — invalid repo
 
-        // The actual clone will fail because the URL is fake,
-        // but we verify the cleanup-and-reclone path was taken
-        try {
-          await F.cloneRepository(
-            'https://invalid.example.com/repo.git',
-            dir.path,
-          );
-        } catch (_) {
-          // Expected: git clone fails for invalid URL
-        }
+      // The actual clone will fail because the URL is fake,
+      // but we verify the cleanup-and-reclone path was taken
+      try {
+        await F.cloneRepository(
+          'https://invalid.example.com/repo.git',
+          dir.path,
+        );
+      } catch (_) {
+        // Expected: git clone fails for invalid URL
+      }
 
-        // The invalid directory should have been cleaned up by the catch block
-        verify(
-          () => logger.info(
-            'Directory ${dir.path} exists but is not a valid git repo. '
-            'Cleaning up and re-cloning...',
-          ),
-        ).called(1);
-      },
-    );
+      // The invalid directory should have been cleaned up by the catch block
+      verify(
+        () => logger.info(
+          'Directory ${dir.path} exists but is not a valid git repo. '
+          'Cleaning up and re-cloning...',
+        ),
+      ).called(1);
+    });
   });
 }

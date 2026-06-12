@@ -106,12 +106,15 @@ class CleanCommand extends Command<int> {
 
   Future<String> _dirSize(String path) async {
     if (Platform.isWindows) {
-      final result = await Process.run('powershell', [
-        '-Command',
-        '(Get-ChildItem -Recurse -File "$path" '
-            '| Measure-Object -Property Length -Sum).Sum / 1MB '
-            '| ForEach-Object { "{0:N1}M" -f \$_ }',
-      ]);
+      final result = await Process.run(
+        'powershell',
+        [
+          '-Command',
+          '(Get-ChildItem -Recurse -File "$path" '
+              '| Measure-Object -Property Length -Sum).Sum / 1MB '
+              '| ForEach-Object { "{0:N1}M" -f \$_ }',
+        ],
+      );
       return (result.stdout as String).trim();
     }
     final result = await Process.run('du', ['-sh', path]);

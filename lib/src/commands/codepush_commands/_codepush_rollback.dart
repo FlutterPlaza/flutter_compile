@@ -37,7 +37,10 @@ class CodePushRollbackSubCommand extends Command<int> {
     final progress = _logger.progress('Rolling back patch $patchId');
 
     try {
-      final result = await client.rollbackPatch(token: token, patchId: patchId);
+      final result = await client.rollbackPatch(
+        token: token,
+        patchId: patchId,
+      );
 
       final statusCode = result['status_code'] as int;
 

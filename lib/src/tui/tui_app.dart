@@ -182,10 +182,8 @@ class TuiApp {
       await F.cloneRepository(Constants.flutterGitUrl, sdkPath);
 
       // Checkout the specific version
-      await Process.run('git', [
-        'checkout',
-        version,
-      ], workingDirectory: sdkPath);
+      await Process.run('git', ['checkout', version],
+          workingDirectory: sdkPath);
 
       _state.statusMessage = 'SDK "$version" installed.';
       _state.sdkList = await gatherSdkList();

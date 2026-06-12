@@ -8,7 +8,11 @@ import 'package:mason_logger/mason_logger.dart';
 
 class SdkListSubCommand extends Command<int> {
   SdkListSubCommand(this._logger) {
-    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
   }
 
   final Logger _logger;
@@ -36,13 +40,12 @@ Future<List<Map<String, dynamic>>> gatherSdkList() async {
     return <Map<String, dynamic>>[];
   }
 
-  final entries =
-      versionsDir
-          .listSync()
-          .whereType<Directory>()
-          .where((d) => d.path.split('/').last != Constants.defaultSdkLink)
-          .toList()
-        ..sort((a, b) => a.path.compareTo(b.path));
+  final entries = versionsDir
+      .listSync()
+      .whereType<Directory>()
+      .where((d) => d.path.split('/').last != Constants.defaultSdkLink)
+      .toList()
+    ..sort((a, b) => a.path.compareTo(b.path));
 
   final globalVersion = await F.readGlobalSdkVersion();
   final projectVersion = await F.readProjectSdkVersion();
@@ -58,9 +61,8 @@ Future<List<Map<String, dynamic>>> gatherSdkList() async {
     });
   }
 
-  final compiledFlutterDir = Directory(
-    '$home${Constants.flutterCompileInstallPath}',
-  );
+  final compiledFlutterDir =
+      Directory('$home${Constants.flutterCompileInstallPath}');
   if (compiledFlutterDir.existsSync()) {
     sdks.add({
       'version': 'compiled',
@@ -82,7 +84,9 @@ Future<int> listSdks(Logger l, {bool asJson = false}) async {
       l.info(json.encode(<Map<String, dynamic>>[]));
     } else {
       l.info('No Flutter SDKs installed.');
-      l.info('\nRun "flutter_compile sdk install <version>" to install one.');
+      l.info(
+        '\nRun "flutter_compile sdk install <version>" to install one.',
+      );
     }
     return ExitCode.success.code;
   }
@@ -109,7 +113,9 @@ Future<int> listSdks(Logger l, {bool asJson = false}) async {
   if (contributor.isNotEmpty) {
     l.info('\nContributor environments:');
     for (final sdk in contributor) {
-      l.info('  ${sdk['version']}  ${sdk['path']}    (via install flutter)');
+      l.info(
+        '  ${sdk['version']}  ${sdk['path']}    (via install flutter)',
+      );
     }
   }
 

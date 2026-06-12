@@ -76,9 +76,8 @@ void main() {
 
     test('returns true for directory with .git/HEAD', () {
       Directory('${tempDir.path}/.git').createSync();
-      File(
-        '${tempDir.path}/.git/HEAD',
-      ).writeAsStringSync('ref: refs/heads/main\n');
+      File('${tempDir.path}/.git/HEAD')
+          .writeAsStringSync('ref: refs/heads/main\n');
       expect(F.isValidGitRepo(tempDir.path), isTrue);
     });
   });

@@ -55,12 +55,9 @@ void main() {
     tearDown(tempHome.tearDown);
 
     test('config set writes value and config get reads it back', () async {
-      var result = await commandRunner.run([
-        'config',
-        'set',
-        'engine',
-        '/tmp/engine',
-      ]);
+      var result = await commandRunner.run(
+        ['config', 'set', 'engine', '/tmp/engine'],
+      );
       expect(result, equals(ExitCode.success.code));
       verify(() => logger.info('Set engine_path:/tmp/engine')).called(1);
 
@@ -90,7 +87,9 @@ void main() {
     test('config list --json outputs JSON', () async {
       await commandRunner.run(['config', 'set', 'flutter', '/tmp/flutter']);
       await commandRunner.run(['config', 'list', '--json']);
-      verify(() => logger.info('{"flutter_path":"/tmp/flutter"}')).called(1);
+      verify(
+        () => logger.info('{"flutter_path":"/tmp/flutter"}'),
+      ).called(1);
     });
 
     test('config set with no args returns usage', () async {

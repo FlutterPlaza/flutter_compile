@@ -79,7 +79,9 @@ void main() {
       final result = await commandRunner.run(['status']);
       expect(result, equals(ExitCode.success.code));
       verify(() => logger.info('Engine path: $enginePath')).called(1);
-      verify(() => logger.info('Available builds: (none)')).called(1);
+      verify(
+        () => logger.info('Available builds: (none)'),
+      ).called(1);
     });
   });
 }

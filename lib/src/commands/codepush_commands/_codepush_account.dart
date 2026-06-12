@@ -6,7 +6,11 @@ import 'package:mason_logger/mason_logger.dart';
 
 class CodePushAccountSubCommand extends Command<int> {
   CodePushAccountSubCommand(this._logger) {
-    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
   }
 
   final Logger _logger;
@@ -51,12 +55,10 @@ class CodePushAccountSubCommand extends Command<int> {
         if (asJson) {
           // --json contract: structured output exits 0, callers inspect the
           // `error` field instead of the process status.
-          _logger.info(
-            json.encode({
-              'logged_in': false,
-              'error': result['error'] ?? 'Unknown',
-            }),
-          );
+          _logger.info(json.encode({
+            'logged_in': false,
+            'error': result['error'] ?? 'Unknown',
+          }));
           return ExitCode.success.code;
         }
         progress?.fail('Error: ${result['error'] ?? 'Unknown'}');
@@ -67,17 +69,14 @@ class CodePushAccountSubCommand extends Command<int> {
       final apps = result['apps'] as List<dynamic>?;
 
       if (asJson) {
-        _logger.info(
-          json.encode({
-            'logged_in': true,
-            'email': user?['email'],
-            'name': user?['name'],
-            'tier': user?['tier'],
-            'has_active_subscription':
-                user?['has_active_subscription'] ?? false,
-            'apps': apps ?? [],
-          }),
-        );
+        _logger.info(json.encode({
+          'logged_in': true,
+          'email': user?['email'],
+          'name': user?['name'],
+          'tier': user?['tier'],
+          'has_active_subscription': user?['has_active_subscription'] ?? false,
+          'apps': apps ?? [],
+        }));
         return ExitCode.success.code;
       }
 

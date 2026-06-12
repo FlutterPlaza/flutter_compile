@@ -22,14 +22,16 @@ const description =
 /// {@endtemplate}
 class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
   /// {@macro flutter_compile_command_runner}
-  FlutterCompileCommandRunner({Logger? logger, PubUpdater? pubUpdater})
-    : _logger = logger ?? Logger(),
-      // Wrap PubUpdater's HTTP client with a cache-busting shim so that
-      // back-to-back version checks (e.g. `update` then `--version`)
-      // can't disagree because pub.dev's CDN served one a stale edge
-      // node. See pub_cache_busting_client.dart and issue #17.
-      _pubUpdater = pubUpdater ?? PubUpdater(PubCacheBustingClient()),
-      super(executableName, description) {
+  FlutterCompileCommandRunner({
+    Logger? logger,
+    PubUpdater? pubUpdater,
+  })  : _logger = logger ?? Logger(),
+        // Wrap PubUpdater's HTTP client with a cache-busting shim so that
+        // back-to-back version checks (e.g. `update` then `--version`)
+        // can't disagree because pub.dev's CDN served one a stale edge
+        // node. See pub_cache_busting_client.dart and issue #17.
+        _pubUpdater = pubUpdater ?? PubUpdater(PubCacheBustingClient()),
+        super(executableName, description) {
     // Add root options and flags
     argParser
       ..addFlag(
@@ -165,9 +167,11 @@ class FlutterCompileCommandRunner extends CompletionCommandRunner<int> {
       }
       _logger
         ..info('')
-        ..info('''
+        ..info(
+          '''
 ${lightYellow.wrap('Update available!')} ${lightCyan.wrap(packageVersion)} \u2192 ${lightCyan.wrap(latestVersion)}
-Run ${lightCyan.wrap('$executableName update')} to update''');
+Run ${lightCyan.wrap('$executableName update')} to update''',
+        );
     } catch (_) {}
   }
 

@@ -34,9 +34,8 @@ void main() {
 
       watchedFile.writeAsStringSync('changed');
 
-      final result = await completer.future.timeout(
-        const Duration(seconds: 15),
-      );
+      final result =
+          await completer.future.timeout(const Duration(seconds: 15));
       expect(result, equals(watchedFile.path));
 
       watcher.stop();

@@ -15,7 +15,11 @@ import 'package:mason_logger/mason_logger.dart';
 /// code push Flutter version (project-pinned wins over global).
 class CodePushVersionsSubCommand extends Command<int> {
   CodePushVersionsSubCommand(this._logger) {
-    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
+    argParser.addFlag(
+      'json',
+      help: 'Output as JSON.',
+      negatable: false,
+    );
   }
 
   final Logger _logger;
@@ -31,10 +35,8 @@ class CodePushVersionsSubCommand extends Command<int> {
     final asJson = argResults?['json'] == true;
 
     final serverUrl = await CodePushClient.getServerUrl();
-    final manager = CodePushArtifactManager(
-      logger: _logger,
-      baseUrl: serverUrl,
-    );
+    final manager =
+        CodePushArtifactManager(logger: _logger, baseUrl: serverUrl);
 
     final progress = asJson ? null : _logger.progress('Fetching versions');
     final manifest = await manager.fetchSupportedVersions();
@@ -45,13 +47,11 @@ class CodePushVersionsSubCommand extends Command<int> {
         // explicit error field and return success so callers (VS Code /
         // IntelliJ tree providers) can parse the payload and render a
         // warning row instead of treating the process as a hard failure.
-        _logger.info(
-          json.encode({
-            'selected': null,
-            'versions': <Map<String, dynamic>>[],
-            'error': 'Failed to fetch version manifest from server.',
-          }),
-        );
+        _logger.info(json.encode({
+          'selected': null,
+          'versions': <Map<String, dynamic>>[],
+          'error': 'Failed to fetch version manifest from server.',
+        }));
         return ExitCode.success.code;
       }
       return ExitCode.software.code;
@@ -85,7 +85,10 @@ class CodePushVersionsSubCommand extends Command<int> {
     }
 
     if (asJson) {
-      _logger.info(json.encode({'selected': selected, 'versions': versions}));
+      _logger.info(json.encode({
+        'selected': selected,
+        'versions': versions,
+      }));
       return ExitCode.success.code;
     }
 
@@ -99,9 +102,8 @@ class CodePushVersionsSubCommand extends Command<int> {
       if (v['global'] == true) markers.add('global');
       if (v['project_pinned'] == true) markers.add('pinned');
       final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
-      final marker = name == selected
-          ? '*'
-          : (v['installed'] == true ? ' ' : '-');
+      final marker =
+          name == selected ? '*' : (v['installed'] == true ? ' ' : '-');
       _logger.info('  $marker $name$suffix');
     }
     if (selected == null) {

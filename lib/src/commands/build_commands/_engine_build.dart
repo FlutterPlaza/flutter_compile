@@ -35,7 +35,11 @@ class EngineBuildSubCommand extends Command<int> {
         help: 'Build with --unoptimized (faster dev builds)',
         defaultsTo: true,
       )
-      ..addFlag('simulator', help: 'Build for iOS simulator', defaultsTo: false)
+      ..addFlag(
+        'simulator',
+        help: 'Build for iOS simulator',
+        defaultsTo: false,
+      )
       ..addFlag(
         'clean',
         help: 'Clean output directory before building',
@@ -174,9 +178,8 @@ Future<int> buildEngine(
   }
 
   // Decide whether to run GN
-  final buildNinjaExists = await File(
-    '$srcDir/out/$outputDir/build.ninja',
-  ).exists();
+  final buildNinjaExists =
+      await File('$srcDir/out/$outputDir/build.ninja').exists();
   final runGn = shouldRunGn(
     forceGn: forceGn,
     skipGn: skipGn,

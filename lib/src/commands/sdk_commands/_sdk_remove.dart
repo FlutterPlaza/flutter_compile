@@ -13,8 +13,7 @@ class SdkRemoveSubCommand extends Command<int> {
   @override
   final String name = 'remove';
   @override
-  final String description =
-      'Remove an installed Flutter SDK version.\n\n'
+  final String description = 'Remove an installed Flutter SDK version.\n\n'
       'Usage: flutter_compile sdk remove <version>\n'
       'Example: flutter_compile sdk remove 3.19.0';
 
