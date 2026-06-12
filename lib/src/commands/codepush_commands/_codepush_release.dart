@@ -177,22 +177,19 @@ class CodePushReleaseSubCommand extends Command<int> {
         // asset BEFORE `flutter build`, so the shipped APK carries the
         // version it is released as. Restored afterwards so the app repo
         // stays clean (same pattern as the iOS Info.plist stamp above).
-        if (platform == 'apk' || platform == 'appbundle') {
-          final releaseVersion = version;
-          if (releaseVersion.isNotEmpty) {
-            originalAndroidYaml =
-                writeReleaseVersionToAndroidYaml(releaseVersion);
-            if (originalAndroidYaml == null) {
-              _logger.warn(
-                'Warning: $kDefaultAndroidCodePushYamlPath not found. '
-                'This build will not embed a release version. '
-                'Run "fcp codepush init" to set up Android.',
-              );
-            } else {
-              _logger.detail(
-                'Stamped release_version=$releaseVersion into codepush.yaml',
-              );
-            }
+        if ((platform == 'apk' || platform == 'appbundle') &&
+            version.isNotEmpty) {
+          originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
+          if (originalAndroidYaml == null) {
+            _logger.warn(
+              'Warning: $kDefaultAndroidCodePushYamlPath not found. '
+              'This build will not embed a release version. '
+              'Run "fcp codepush init" to set up Android.',
+            );
+          } else {
+            _logger.detail(
+              'Stamped release_version=$version into codepush.yaml',
+            );
           }
         }
 
@@ -231,8 +228,19 @@ class CodePushReleaseSubCommand extends Command<int> {
           _logger.detail('Restored ios/Runner/Info.plist');
         }
         if (originalAndroidYaml != null) {
-          restoreAndroidYaml(originalAndroidYaml);
-          _logger.detail('Restored android assets/codepush.yaml');
+          try {
+            restoreAndroidYaml(originalAndroidYaml);
+            _logger.detail('Restored android assets/codepush.yaml');
+          } on FileSystemException catch (e) {
+            // Don't mask an in-flight build error with a restore failure;
+            // tell the user the repo is dirty and how to fix it.
+            _logger.err(
+              'Failed to restore $kDefaultAndroidCodePushYamlPath after the '
+              'build: $e\nThe file still contains the stamped release '
+              'version — restore it manually (e.g. git checkout -- '
+              '$kDefaultAndroidCodePushYamlPath).',
+            );
+          }
         }
       }
     }

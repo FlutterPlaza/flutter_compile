@@ -11,6 +11,14 @@ String? writeReleaseVersionToAndroidYaml(
   String releaseVersion, {
   String yamlPath = kDefaultAndroidCodePushYamlPath,
 }) {
+  if (releaseVersion.contains('"') || releaseVersion.contains('\n')) {
+    throw ArgumentError.value(
+      releaseVersion,
+      'releaseVersion',
+      'contains characters that would break the YAML config',
+    );
+  }
+
   final yamlFile = File(yamlPath);
   if (!yamlFile.existsSync()) return null;
 
@@ -28,7 +36,14 @@ String? writeReleaseVersionToAndroidYaml(
     content += '$versionLine\n';
   }
 
-  yamlFile.writeAsStringSync(content);
+  try {
+    yamlFile.writeAsStringSync(content);
+  } on FileSystemException {
+    // Restore the original before propagating so the caller is never left
+    // with a stamped file it has no backup of.
+    yamlFile.writeAsStringSync(originalContent);
+    rethrow;
+  }
   return originalContent;
 }
 
