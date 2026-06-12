@@ -63,11 +63,7 @@ Future<Map<String, dynamic>> gatherStatus() async {
 
 class StatusCommand extends Command<int> {
   StatusCommand(this._logger) {
-    argParser.addFlag(
-      'json',
-      help: 'Output as JSON.',
-      negatable: false,
-    );
+    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
   }
 
   final Logger _logger;
@@ -125,9 +121,7 @@ class StatusCommand extends Command<int> {
         for (final b in builds) {
           final name = b['name']!;
           final size = b['size']!;
-          _logger.info(
-            '  $name${' ' * (30 - name.length).clamp(0, 30)}$size',
-          );
+          _logger.info('  $name${' ' * (30 - name.length).clamp(0, 30)}$size');
         }
       }
     }

@@ -39,8 +39,11 @@ class EngineSubCommand extends Command<int> {
   }
 }
 
-Future<int> setupEngineEnvironment(Logger l, String platform,
-    {bool force = false}) async {
+Future<int> setupEngineEnvironment(
+  Logger l,
+  String platform, {
+  bool force = false,
+}) async {
   l.info('Flutter Engine Development Environment Setup for $platform'.blue);
 
   final os = Platform.operatingSystem;
@@ -95,11 +98,11 @@ Future<int> setupEngineEnvironment(Logger l, String platform,
   }
 
   // Verify it's a git repo with an origin remote
-  final originResult = await Process.run(
-    'git',
-    ['remote', 'get-url', 'origin'],
-    workingDirectory: flutterDir,
-  );
+  final originResult = await Process.run('git', [
+    'remote',
+    'get-url',
+    'origin',
+  ], workingDirectory: flutterDir);
   if (originResult.exitCode != 0) {
     l.err(
       'Could not read git origin URL from $flutterDir.\n'
@@ -119,8 +122,10 @@ Future<int> setupEngineEnvironment(Logger l, String platform,
   if (await gclientFile.exists()) {
     l.info('.gclient already exists, skipping generation.'.green);
   } else {
-    final gclientContent =
-        Constants.gclientFileTemplate.replaceAll('{{flutter_url}}', originUrl);
+    final gclientContent = Constants.gclientFileTemplate.replaceAll(
+      '{{flutter_url}}',
+      originUrl,
+    );
     await F.writeFile('$flutterDir/.gclient', gclientContent);
     l.info('Generated .gclient file.'.green);
   }
@@ -201,8 +206,10 @@ Future<String> _ensureDepotTools(Logger l) async {
   if (await envFile.exists()) {
     envContents = await envFile.readAsString();
   }
-  final depotToolsExport = Constants.platformDepotToolsPATHExport
-      .replaceAll('{{path}}', depotToolsPath);
+  final depotToolsExport = Constants.platformDepotToolsPATHExport.replaceAll(
+    '{{path}}',
+    depotToolsPath,
+  );
   if (!envContents.contains(depotToolsExport.trim())) {
     envContents += depotToolsExport;
     await envFile.parent.create(recursive: true);

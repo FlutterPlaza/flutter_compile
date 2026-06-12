@@ -47,23 +47,25 @@ Object? codePushPatch() => 1;
       );
     });
 
-    test('findCodePushPatchSourceCandidates ignores invocation-only wrappers',
-        () {
-      File('lib/code_push_local_patch.dart').writeAsStringSync('''
+    test(
+      'findCodePushPatchSourceCandidates ignores invocation-only wrappers',
+      () {
+        File('lib/code_push_local_patch.dart').writeAsStringSync('''
 import 'screens/home_screen.dart';
 
 @pragma('dyn-module:entry-point')
 Object? main() => codePushPatch();
 ''');
-      File('lib/screens/home_screen.dart').writeAsStringSync('''
+        File('lib/screens/home_screen.dart').writeAsStringSync('''
 Object? codePushPatch() => 1;
 ''');
 
-      expect(
-        findCodePushPatchSourceCandidates(),
-        equals(['lib/screens/home_screen.dart']),
-      );
-    });
+        expect(
+          findCodePushPatchSourceCandidates(),
+          equals(['lib/screens/home_screen.dart']),
+        );
+      },
+    );
 
     test('findCodePushPatchSourceCandidates returns sorted matches', () {
       File('lib/b.dart').writeAsStringSync('Object? codePushPatch() => 1;');

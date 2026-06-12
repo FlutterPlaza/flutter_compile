@@ -111,8 +111,10 @@ Future<bool> _isGclientAvailable() async {
 
   // Check depot_tools_path from .flutter_compilerc
   final rcFile = File('$home/.flutter_compilerc');
-  final depotPath =
-      await F.readValueForKeyFromRcConfig(rcFile, RunCommandKey.depotTools.key);
+  final depotPath = await F.readValueForKeyFromRcConfig(
+    rcFile,
+    RunCommandKey.depotTools.key,
+  );
   if (depotPath != null && depotPath.isNotEmpty) {
     final gclient = File('$depotPath/$bin');
     if (await gclient.exists()) return true;
@@ -170,11 +172,9 @@ Future<void> _checkEnvironmentForGather({
 
   // Check for upstream and origin git remotes
   try {
-    final result = await Process.run(
-      'git',
-      ['remote'],
-      workingDirectory: gitDir,
-    );
+    final result = await Process.run('git', [
+      'remote',
+    ], workingDirectory: gitDir);
     if (result.exitCode == 0) {
       final remotes = (result.stdout as String).trim().split('\n');
       final hasUpstream = remotes.contains('upstream');
@@ -219,11 +219,7 @@ Future<void> _checkEnvironmentForGather({
 
 class DoctorCommand extends Command<int> {
   DoctorCommand(this._logger) {
-    argParser.addFlag(
-      'json',
-      help: 'Output as JSON.',
-      negatable: false,
-    );
+    argParser.addFlag('json', help: 'Output as JSON.', negatable: false);
   }
 
   final Logger _logger;
@@ -256,9 +252,11 @@ class DoctorCommand extends Command<int> {
       final status = check['status'] as String;
 
       if (category == 'tools') {
-        _logger.info(status == 'ok'
-            ? '  [+] $name is installed'
-            : '  [X] $name is NOT installed');
+        _logger.info(
+          status == 'ok'
+              ? '  [+] $name is installed'
+              : '  [X] $name is NOT installed',
+        );
       } else if (category == 'engine_tools') {
         final displayName = switch (name) {
           'gclient' => 'depot_tools (gclient)',
@@ -266,9 +264,11 @@ class DoctorCommand extends Command<int> {
           'visual_studio' => 'Visual Studio (cl.exe)',
           _ => name,
         };
-        _logger.info(status == 'ok'
-            ? '  [+] $displayName is installed'
-            : '  [X] $displayName is NOT installed');
+        _logger.info(
+          status == 'ok'
+              ? '  [+] $displayName is installed'
+              : '  [X] $displayName is NOT installed',
+        );
       } else if (category == 'config') {
         if (status == 'ok') {
           _logger.info('  [+] .flutter_compilerc is valid');

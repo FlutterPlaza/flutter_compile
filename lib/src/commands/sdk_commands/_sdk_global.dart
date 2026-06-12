@@ -34,9 +34,7 @@ class SdkGlobalSubCommand extends Command<int> {
     final globalVersion = await F.readGlobalSdkVersion();
     if (globalVersion == null) {
       _logger.info('No global SDK version set.');
-      _logger.info(
-        '\nRun "flutter_compile sdk global <version>" to set one.',
-      );
+      _logger.info('\nRun "flutter_compile sdk global <version>" to set one.');
     } else {
       _logger.info('Global SDK version: $globalVersion');
     }

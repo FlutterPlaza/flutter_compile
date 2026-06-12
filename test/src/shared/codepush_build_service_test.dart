@@ -45,8 +45,10 @@ void main() {
     });
 
     group('validatePayloadMagic', () {
-      List<int> mk(List<int> header, [int tailLen = 32]) =>
-          [...header, ...List.filled(tailLen, 0x00)];
+      List<int> mk(List<int> header, [int tailLen = 32]) => [
+        ...header,
+        ...List.filled(tailLen, 0x00),
+      ];
 
       const iosHeader = [0x33, 0x43, 0x42, 0x44];
       const macHeaderLe = [0xCF, 0xFA, 0xED, 0xFE];
@@ -101,10 +103,10 @@ void main() {
       });
 
       test('rejects short payloads', () {
-        final err = CodePushBuildService.validatePayloadMagic(
-          [0x90, 0xAB],
-          'ios',
-        );
+        final err = CodePushBuildService.validatePayloadMagic([
+          0x90,
+          0xAB,
+        ], 'ios');
         expect(err, isNotNull);
         expect(err, contains('too small'));
       });
@@ -112,7 +114,8 @@ void main() {
 
     group('parseFlutterVersionOutput', () {
       test('extracts stable channel version', () {
-        const output = 'Flutter 3.41.2 • channel stable • https://github.com/'
+        const output =
+            'Flutter 3.41.2 • channel stable • https://github.com/'
             'flutter/flutter.git\n'
             'Framework • revision abc123 (3 days ago)\n';
         expect(
@@ -134,31 +137,28 @@ void main() {
       });
 
       test('returns null when first line does not start with Flutter', () {
-        const output = 'Downloading Flutter SDK...\n'
+        const output =
+            'Downloading Flutter SDK...\n'
             'Flutter 3.41.2 • channel stable\n';
-        expect(
-          CodePushBuildService.parseFlutterVersionOutput(output),
-          isNull,
-        );
+        expect(CodePushBuildService.parseFlutterVersionOutput(output), isNull);
       });
 
       test('tolerates trailing whitespace on the first line', () {
         const output = 'Flutter 3.5.0   \n';
-        expect(
-          CodePushBuildService.parseFlutterVersionOutput(output),
-          '3.5.0',
-        );
+        expect(CodePushBuildService.parseFlutterVersionOutput(output), '3.5.0');
       });
     });
 
     group('resolveFlutterVersion', () {
-      test('explicit value short-circuits detection and stored config',
-          () async {
-        final resolved = await service.resolveFlutterVersion(
-          explicit: '3.29.1',
-        );
-        expect(resolved, '3.29.1');
-      });
+      test(
+        'explicit value short-circuits detection and stored config',
+        () async {
+          final resolved = await service.resolveFlutterVersion(
+            explicit: '3.29.1',
+          );
+          expect(resolved, '3.29.1');
+        },
+      );
 
       test('empty explicit is treated as absent and falls through', () async {
         // We cannot assert the downstream result without mocking
@@ -171,21 +171,19 @@ void main() {
 
     group('finalizeBuild', () {
       test(
-          'ios is a no-op because the patched engine must be present at build time',
-          () async {
-        final result = await service.finalizeBuild(
-          buildPlatform: 'ios',
-          flutterVersion: '3.41.2',
-          artifactManager: CodePushArtifactManager(logger: logger),
-        );
+        'ios is a no-op because the patched engine must be present at build time',
+        () async {
+          final result = await service.finalizeBuild(
+            buildPlatform: 'ios',
+            flutterVersion: '3.41.2',
+            artifactManager: CodePushArtifactManager(logger: logger),
+          );
 
-        expect(result.success, isTrue);
-        expect(
-          result.message,
-          'iOS build already finalized during prepare.',
-        );
-        expect(result.command, isNull);
-      });
+          expect(result.success, isTrue);
+          expect(result.message, 'iOS build already finalized during prepare.');
+          expect(result.command, isNull);
+        },
+      );
     });
   });
 

@@ -29,9 +29,7 @@ void main() {
     test('no args returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'exec']);
       expect(result, equals(ExitCode.usage.code));
-      verify(
-        () => logger.err('Please specify a command to run.'),
-      ).called(1);
+      verify(() => logger.err('Please specify a command to run.')).called(1);
     });
 
     test('no SDK configured returns usage exit code', () async {

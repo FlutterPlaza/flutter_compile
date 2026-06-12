@@ -26,7 +26,7 @@ $env:PATH = "{{path}}\cache\dart-sdk\bin;$env:PATH"
 
 ''';
 
-// Engine Constants
+  // Engine Constants
   // Engine lives inside the Flutter contributor checkout
   static const engineInstallPath = '$flutterCompileInstallPath/engine';
   static const depotToolsInstallPath = '$baseCliPath/depot_tools';
@@ -62,7 +62,7 @@ solutions = [
   static const engineUpstreamSSH = 'git@github.com:flutter/flutter.git';
   static const engineUpstreamHTTPS = 'https://github.com/flutter/flutter.git';
 
-// DevTools Constants
+  // DevTools Constants
   static const devToolsInstallPath = '$baseCliPath/devtools';
   static const devToolsPATHExport = r'''
 
@@ -289,15 +289,11 @@ enum RunCommandKey {
   flutterCompile('flutter_path'), // key for the path to the flutter compile
   devTools('devtools_path'), // key for the path to the devtools
   engine('engine_path'), // key for the path to the engine
-  depotTools('depot_tools_path'), // key for the path to depot_tools
-
+  depotTools('depot_tools_path') // key for the path to depot_tools
   ;
 
   final String key;
   const RunCommandKey(this.key);
 }
 
-enum FlutterMode {
-  normal,
-  compiled,
-}
+enum FlutterMode { normal, compiled }

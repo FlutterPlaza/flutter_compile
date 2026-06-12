@@ -33,8 +33,11 @@ void main() {
     });
 
     test('non-installed version returns usage exit code', () async {
-      final result =
-          await commandRunner.run(['sdk', 'use', 'non_existent_version']);
+      final result = await commandRunner.run([
+        'sdk',
+        'use',
+        'non_existent_version',
+      ]);
       expect(result, equals(ExitCode.usage.code));
       verify(
         () => logger.err(

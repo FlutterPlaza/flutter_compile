@@ -49,9 +49,7 @@ class CodePushKeysSubCommand extends Command<int> {
       '  register   Upload the public key to the server for the current app',
     );
     _logger.info('');
-    _logger.info(
-      'Typical migration flow for pre-0.15.0 users:',
-    );
+    _logger.info('Typical migration flow for pre-0.15.0 users:');
     _logger.info('  1. fcp codepush keys generate');
     _logger.info('  2. fcp codepush keys register');
     _logger.info(
@@ -109,9 +107,7 @@ class _KeysGenerateCommand extends Command<int> {
     final progress = _logger.progress('Generating RSA-2048 keypair');
     final result = await buildService.generateSigningKey(outputDir);
     if (result == null) {
-      progress.fail(
-        'Key generation failed. Is openssl installed and on PATH?',
-      );
+      progress.fail('Key generation failed. Is openssl installed and on PATH?');
       return ExitCode.software.code;
     }
     progress.complete('Keypair generated');
@@ -137,12 +133,14 @@ class _KeysRegisterCommand extends Command<int> {
     argParser
       ..addOption(
         'app-id',
-        help: 'App ID to register the public key against. Defaults to the '
+        help:
+            'App ID to register the public key against. Defaults to the '
             'stored codepush_app_id from ~/.flutter_compilerc.',
       )
       ..addOption(
         'public-key',
-        help: 'Path to the PEM-encoded public key file. Defaults to '
+        help:
+            'Path to the PEM-encoded public key file. Defaults to '
             '~/.flutter_codepush/codepush_public.pem, which is written '
             'by `fcp codepush keys generate`.',
       );
@@ -202,9 +200,7 @@ class _KeysRegisterCommand extends Command<int> {
 
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
-    final progress = _logger.progress(
-      'Registering public key with $serverUrl',
-    );
+    final progress = _logger.progress('Registering public key with $serverUrl');
 
     try {
       final result = await client.registerAppPublicKey(

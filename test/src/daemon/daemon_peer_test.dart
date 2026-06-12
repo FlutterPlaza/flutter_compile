@@ -28,10 +28,8 @@ void main() {
     /// Returns (clientChannel, daemonChannel) where:
     /// - clientChannel is used by the test to send/receive JSON-RPC
     /// - daemonChannel is used by the DaemonPeer
-    ({
-      StreamChannel<String> client,
-      StreamChannel<String> daemon,
-    }) createChannelPair() {
+    ({StreamChannel<String> client, StreamChannel<String> daemon})
+    createChannelPair() {
       final clientToServer = StreamController<String>();
       final serverToClient = StreamController<String>();
 
@@ -50,21 +48,14 @@ void main() {
 
     test('version returns current package version', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       // Start peer in background
       unawaited(peer.start());
 
       // Skip the daemon.connected notification
       // Read until we get a proper response
-      final request = {
-        'jsonrpc': '2.0',
-        'method': 'version',
-        'id': 1,
-      };
+      final request = {'jsonrpc': '2.0', 'method': 'version', 'id': 1};
       channels.client.sink.add(json.encode(request));
 
       await for (final line in channels.client.stream) {
@@ -76,28 +67,17 @@ void main() {
       }
 
       // Shutdown
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
 
     test('sdk.list returns list shape', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       unawaited(peer.start());
 
-      final request = {
-        'jsonrpc': '2.0',
-        'method': 'sdk.list',
-        'id': 1,
-      };
+      final request = {'jsonrpc': '2.0', 'method': 'sdk.list', 'id': 1};
       channels.client.sink.add(json.encode(request));
 
       await for (final line in channels.client.stream) {
@@ -108,28 +88,17 @@ void main() {
         }
       }
 
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
 
     test('sdk.global.get returns null with no config', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       unawaited(peer.start());
 
-      final request = {
-        'jsonrpc': '2.0',
-        'method': 'sdk.global.get',
-        'id': 1,
-      };
+      final request = {'jsonrpc': '2.0', 'method': 'sdk.global.get', 'id': 1};
       channels.client.sink.add(json.encode(request));
 
       await for (final line in channels.client.stream) {
@@ -140,28 +109,17 @@ void main() {
         }
       }
 
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
 
     test('config.list returns empty map with no config', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       unawaited(peer.start());
 
-      final request = {
-        'jsonrpc': '2.0',
-        'method': 'config.list',
-        'id': 1,
-      };
+      final request = {'jsonrpc': '2.0', 'method': 'config.list', 'id': 1};
       channels.client.sink.add(json.encode(request));
 
       await for (final line in channels.client.stream) {
@@ -173,20 +131,13 @@ void main() {
         }
       }
 
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
 
     test('config.set writes to rc file', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       unawaited(peer.start());
 
@@ -209,28 +160,17 @@ void main() {
         }
       }
 
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
 
     test('shutdown closes peer', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       final peerFuture = peer.start();
 
-      final request = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 1,
-      };
+      final request = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 1};
       channels.client.sink.add(json.encode(request));
 
       await for (final line in channels.client.stream) {
@@ -247,10 +187,7 @@ void main() {
 
     test('invalid method returns JSON-RPC error', () async {
       final channels = createChannelPair();
-      final peer = DaemonPeer(
-        logger: logger,
-        channel: channels.daemon,
-      );
+      final peer = DaemonPeer(logger: logger, channel: channels.daemon);
 
       unawaited(peer.start());
 
@@ -269,11 +206,7 @@ void main() {
         }
       }
 
-      final shutdownReq = {
-        'jsonrpc': '2.0',
-        'method': 'shutdown',
-        'id': 2,
-      };
+      final shutdownReq = {'jsonrpc': '2.0', 'method': 'shutdown', 'id': 2};
       channels.client.sink.add(json.encode(shutdownReq));
     });
   });

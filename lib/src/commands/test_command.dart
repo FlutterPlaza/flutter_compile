@@ -50,7 +50,8 @@ class TestCommand extends Command<int> {
   final List<String> aliases = ['t'];
 
   @override
-  final String description = 'Run Flutter tests with a local engine build.\n\n'
+  final String description =
+      'Run Flutter tests with a local engine build.\n\n'
       'Extra arguments after -- are forwarded to flutter test '
       '(e.g. -- test/my_test.dart).';
 
@@ -119,15 +120,12 @@ class TestCommand extends Command<int> {
 
     _logger.info('Running tests with local engine: $outputDir');
 
-    await F.runCommand(
-      'flutter',
-      [
-        'test',
-        '--local-engine=$outputDir',
-        '--local-engine-src-path=$srcDir',
-        ...extraArgs,
-      ],
-    );
+    await F.runCommand('flutter', [
+      'test',
+      '--local-engine=$outputDir',
+      '--local-engine-src-path=$srcDir',
+      ...extraArgs,
+    ]);
 
     return ExitCode.success.code;
   }

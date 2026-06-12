@@ -58,11 +58,7 @@ class TuiRenderer {
     buf.writeln(parts.join('  '));
   }
 
-  static void _renderContent(
-    StringBuffer buf,
-    TuiState state,
-    int width,
-  ) {
+  static void _renderContent(StringBuffer buf, TuiState state, int width) {
     if (state.loading) {
       buf.writeln(' Loading...');
       return;
@@ -119,8 +115,8 @@ class TuiRenderer {
       final icon = status == 'ok'
           ? '+'
           : status == 'not_configured'
-              ? '-'
-              : 'X';
+          ? '-'
+          : 'X';
       buf.writeln(' [$icon] $name: $status');
     }
   }
@@ -157,8 +153,8 @@ class TuiRenderer {
       final icon = status == 'ok'
           ? '+'
           : status == 'not_found' || status == 'not_configured'
-              ? '-'
-              : 'X';
+          ? '-'
+          : 'X';
 
       String displayName;
       if (category == 'engine_tools' && name == 'gclient') {
@@ -187,9 +183,7 @@ class TuiRenderer {
     }
 
     if (state.currentTab == 0) {
-      buf.write(
-        ' [Enter] Set global  [i] Install  [r] Refresh  [q] Quit',
-      );
+      buf.write(' [Enter] Set global  [i] Install  [r] Refresh  [q] Quit');
     } else if (state.currentTab == 3) {
       buf.write(' [r] Refresh  [q] Quit');
     } else {

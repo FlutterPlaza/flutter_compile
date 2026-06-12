@@ -39,8 +39,11 @@ class UninstallCommand extends Command<int> {
 
 class FlutterUninstallSubCommand extends Command<int> {
   FlutterUninstallSubCommand(this._logger) {
-    argParser.addFlag('flutter',
-        abbr: 'f', help: 'Uninstall Flutter environment');
+    argParser.addFlag(
+      'flutter',
+      abbr: 'f',
+      help: 'Uninstall Flutter environment',
+    );
   }
   final Logger _logger;
 
@@ -58,8 +61,11 @@ class FlutterUninstallSubCommand extends Command<int> {
 
 class DevToolsUninstallSubCommand extends Command<int> {
   DevToolsUninstallSubCommand(this._logger) {
-    argParser.addFlag('devtools',
-        abbr: 'd', help: 'Uninstall DevTools environment');
+    argParser.addFlag(
+      'devtools',
+      abbr: 'd',
+      help: 'Uninstall DevTools environment',
+    );
   }
   final Logger _logger;
 
@@ -177,7 +183,9 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
 
   // Read devtools path from config, fall back to default
   var devtoolsPath = await F.readValueForKeyFromRcConfig(
-      rcConfigFile, RunCommandKey.devTools.key);
+    rcConfigFile,
+    RunCommandKey.devTools.key,
+  );
   devtoolsPath ??= '$home${Constants.devToolsInstallPath}';
 
   // Delete the directory if it exists
@@ -194,8 +202,10 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
   final envFile = File(envPath);
   if (await envFile.exists()) {
     var envContents = await envFile.readAsString();
-    final devtoolsExport = Constants.platformDevToolsPATHExport
-        .replaceAll('{{path}}', devtoolsPath);
+    final devtoolsExport = Constants.platformDevToolsPATHExport.replaceAll(
+      '{{path}}',
+      devtoolsPath,
+    );
     if (envContents.contains(devtoolsExport)) {
       envContents = envContents.replaceAll(devtoolsExport, '');
       await envFile.writeAsString(envContents);
@@ -208,8 +218,10 @@ Future<void> uninstallDevToolsEnvironment(Logger l) async {
   final configFile = File(configPath);
   if (await configFile.exists()) {
     var contents = await configFile.readAsString();
-    final devtoolsExport = Constants.platformDevToolsPATHExport
-        .replaceAll('{{path}}', devtoolsPath);
+    final devtoolsExport = Constants.platformDevToolsPATHExport.replaceAll(
+      '{{path}}',
+      devtoolsPath,
+    );
     if (contents.contains(devtoolsExport)) {
       contents = contents.replaceAll(devtoolsExport, '');
       await configFile.writeAsString(contents);
@@ -278,8 +290,9 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
       if (_depotToolsBlockPattern.hasMatch(envContents)) {
         envContents = envContents.replaceAll(_depotToolsBlockPattern, '');
         await envFile.writeAsString(envContents);
-        l.info('Removed depot_tools PATH export from .${Constants.envFile}.'
-            .green);
+        l.info(
+          'Removed depot_tools PATH export from .${Constants.envFile}.'.green,
+        );
       }
     }
 
@@ -298,9 +311,7 @@ Future<void> uninstallEngineEnvironment(Logger l) async {
     if (await rcConfigFile.exists()) {
       final lines = await rcConfigFile.readAsLines();
       final filtered = lines
-          .where(
-            (line) => !line.startsWith('${RunCommandKey.depotTools.key}:'),
-          )
+          .where((line) => !line.startsWith('${RunCommandKey.depotTools.key}:'))
           .toList();
       await rcConfigFile.writeAsString('${filtered.join('\n')}\n');
       l.info('Removed depot_tools_path from .flutter_compilerc.'.green);

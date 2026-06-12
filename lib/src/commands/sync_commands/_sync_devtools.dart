@@ -43,16 +43,14 @@ class SyncDevtoolsSubCommand extends Command<int> {
       return ExitCode.config.code;
     }
 
-    await F.runCommand(
-      'git',
-      ['fetch', 'upstream'],
-      workingDirectory: devtoolsPath,
-    );
-    await F.runCommand(
-      'git',
-      ['rebase', 'upstream/master'],
-      workingDirectory: devtoolsPath,
-    );
+    await F.runCommand('git', [
+      'fetch',
+      'upstream',
+    ], workingDirectory: devtoolsPath);
+    await F.runCommand('git', [
+      'rebase',
+      'upstream/master',
+    ], workingDirectory: devtoolsPath);
 
     _logger.success('DevTools synced successfully.');
     return ExitCode.success.code;

@@ -9,12 +9,14 @@ class CodePushSetupSubCommand extends Command<int> {
     argParser
       ..addOption(
         'flutter-version',
-        help: 'Flutter SDK version to download artifacts for '
+        help:
+            'Flutter SDK version to download artifacts for '
             '(e.g., 3.24.0). Auto-detected if omitted.',
       )
       ..addOption(
         'platform',
-        help: 'Target platform (e.g., darwin-arm64, linux-x64). '
+        help:
+            'Target platform (e.g., darwin-arm64, linux-x64). '
             'Defaults to current platform.',
       )
       ..addFlag(
@@ -119,8 +121,10 @@ class CodePushSetupSubCommand extends Command<int> {
         'Flutter $flutterVersion is not yet supported for code push.',
       );
       _logger.info('');
-      _logger.info('Run `fcp codepush setup --list-versions` to see '
-          'available Flutter versions.');
+      _logger.info(
+        'Run `fcp codepush setup --list-versions` to see '
+        'available Flutter versions.',
+      );
       return ExitCode.software.code;
     }
     checkProgress.complete('Flutter $flutterVersion is supported');
@@ -157,9 +161,7 @@ class CodePushSetupSubCommand extends Command<int> {
       platform: resolvedPlatform,
     );
     if (!installed) {
-      installProgress.fail(
-        'Failed to install overlays into Flutter SDK cache',
-      );
+      installProgress.fail('Failed to install overlays into Flutter SDK cache');
       return ExitCode.software.code;
     }
     installProgress.complete('Overlays installed into Flutter SDK cache');
@@ -194,9 +196,7 @@ class CodePushSetupSubCommand extends Command<int> {
       manager.cleanupOldVersions(keepVersion: flutterVersion);
     }
 
-    _logger.success(
-      'Code push is ready for Flutter $flutterVersion.',
-    );
+    _logger.success('Code push is ready for Flutter $flutterVersion.');
     return ExitCode.success.code;
   }
 
@@ -218,8 +218,8 @@ class CodePushSetupSubCommand extends Command<int> {
 
     _logger.info('Supported Flutter versions for code push:');
     _logger.info('');
-    for (final entry in versions.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key))) {
+    for (final entry
+        in versions.entries.toList()..sort((a, b) => a.key.compareTo(b.key))) {
       final ver = entry.key;
       final markers = <String>[];
       if (ver == current) markers.add('current');

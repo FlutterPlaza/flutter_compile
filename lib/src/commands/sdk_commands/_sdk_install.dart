@@ -18,7 +18,8 @@ class SdkInstallSubCommand extends Command<int> {
   @override
   final String name = 'install';
   @override
-  final String description = 'Install a Flutter SDK version or channel.\n\n'
+  final String description =
+      'Install a Flutter SDK version or channel.\n\n'
       'Usage: flutter_compile sdk install [--force] <version|channel>\n'
       'Examples:\n'
       '  flutter_compile sdk install 3.19.0\n'
@@ -56,17 +57,12 @@ Future<int> installSdk(Logger l, String version, {bool force = false}) async {
 
   await Directory('$home${Constants.sdkVersionsPath}').create(recursive: true);
 
-  await F.cloneRepository(
-    Constants.flutterGitUrl,
-    targetPath,
-    force: force,
-  );
+  await F.cloneRepository(Constants.flutterGitUrl, targetPath, force: force);
 
-  await F.runCommand(
-    'git',
-    ['checkout', version],
-    workingDirectory: targetPath,
-  );
+  await F.runCommand('git', [
+    'checkout',
+    version,
+  ], workingDirectory: targetPath);
 
   l.info('Caching Flutter SDK artifacts...');
   await F.runCommand(

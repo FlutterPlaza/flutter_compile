@@ -50,7 +50,8 @@ class RunCommand extends Command<int> {
   final List<String> aliases = ['r'];
 
   @override
-  final String description = 'Run a Flutter app with a local engine build.\n\n'
+  final String description =
+      'Run a Flutter app with a local engine build.\n\n'
       'Extra arguments after -- are forwarded to flutter run '
       '(e.g. -- -d chrome).';
 
@@ -119,15 +120,12 @@ class RunCommand extends Command<int> {
 
     _logger.info('Running with local engine: $outputDir');
 
-    await F.runCommand(
-      'flutter',
-      [
-        'run',
-        '--local-engine=$outputDir',
-        '--local-engine-src-path=$srcDir',
-        ...extraArgs,
-      ],
-    );
+    await F.runCommand('flutter', [
+      'run',
+      '--local-engine=$outputDir',
+      '--local-engine-src-path=$srcDir',
+      ...extraArgs,
+    ]);
 
     return ExitCode.success.code;
   }

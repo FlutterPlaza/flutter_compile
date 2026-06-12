@@ -103,10 +103,7 @@ void main() {
           Constants.platformSdkPATHExport,
           equals(Constants.sdkPATHExport),
         );
-        expect(
-          Constants.platformRestartShell,
-          equals(Constants.restartShell),
-        );
+        expect(Constants.platformRestartShell, equals(Constants.restartShell));
       }
     });
   });
@@ -120,8 +117,10 @@ void main() {
     });
 
     test('FlutterMode has normal and compiled', () {
-      expect(FlutterMode.values,
-          containsAll([FlutterMode.normal, FlutterMode.compiled]));
+      expect(
+        FlutterMode.values,
+        containsAll([FlutterMode.normal, FlutterMode.compiled]),
+      );
     });
   });
 

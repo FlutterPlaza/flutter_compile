@@ -9,9 +9,11 @@ void main() {
       final baselineId = generateBaselineId();
       expect(
         baselineId,
-        matches(RegExp(
-          r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
-        )),
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+          ),
+        ),
       );
     });
 
@@ -45,9 +47,10 @@ void main() {
       );
     });
 
-    test('inserts a new FCPBaselineId key and can restore original content',
-        () {
-      const originalContent = '''
+    test(
+      'inserts a new FCPBaselineId key and can restore original content',
+      () {
+        const originalContent = '''
 <?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0">
 <dict>
@@ -56,24 +59,25 @@ void main() {
 </dict>
 </plist>
 ''';
-      File(plistPath).writeAsStringSync(originalContent);
+        File(plistPath).writeAsStringSync(originalContent);
 
-      final original = writeBaselineIdToIosInfoPlist(
-        '12345678-1234-4234-8234-123456789abc',
-        plistPath: plistPath,
-      );
+        final original = writeBaselineIdToIosInfoPlist(
+          '12345678-1234-4234-8234-123456789abc',
+          plistPath: plistPath,
+        );
 
-      expect(original, originalContent);
-      final updated = File(plistPath).readAsStringSync();
-      expect(updated, contains('<key>FCPBaselineId</key>'));
-      expect(
-        updated,
-        contains('<string>12345678-1234-4234-8234-123456789abc</string>'),
-      );
+        expect(original, originalContent);
+        final updated = File(plistPath).readAsStringSync();
+        expect(updated, contains('<key>FCPBaselineId</key>'));
+        expect(
+          updated,
+          contains('<string>12345678-1234-4234-8234-123456789abc</string>'),
+        );
 
-      restoreIosInfoPlist(original!, plistPath: plistPath);
-      expect(File(plistPath).readAsStringSync(), originalContent);
-    });
+        restoreIosInfoPlist(original!, plistPath: plistPath);
+        expect(File(plistPath).readAsStringSync(), originalContent);
+      },
+    );
 
     test('replaces an existing FCPBaselineId value', () {
       const originalContent = '''

@@ -74,9 +74,7 @@ void main() {
     test('sdk remove with no version arg returns usage exit code', () async {
       final result = await commandRunner.run(['sdk', 'remove']);
       expect(result, equals(ExitCode.usage.code));
-      verify(
-        () => logger.err('Please specify a version to remove.'),
-      ).called(1);
+      verify(() => logger.err('Please specify a version to remove.')).called(1);
     });
   });
 }

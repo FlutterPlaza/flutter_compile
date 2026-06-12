@@ -76,16 +76,14 @@ class SyncEngineSubCommand extends Command<int> {
 
     // Git remotes are on the Flutter repo root (parent of engine dir)
     try {
-      await F.runCommand(
-        'git',
-        ['fetch', 'upstream'],
-        workingDirectory: flutterRoot,
-      );
-      await F.runCommand(
-        'git',
-        ['rebase', 'upstream/master'],
-        workingDirectory: flutterRoot,
-      );
+      await F.runCommand('git', [
+        'fetch',
+        'upstream',
+      ], workingDirectory: flutterRoot);
+      await F.runCommand('git', [
+        'rebase',
+        'upstream/master',
+      ], workingDirectory: flutterRoot);
     } on Exception catch (e) {
       _logger.err(
         'Git sync failed: $e\n'

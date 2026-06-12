@@ -7,20 +7,13 @@ import 'package:mason_logger/mason_logger.dart';
 class CodePushStatusSubCommand extends Command<int> {
   CodePushStatusSubCommand(this._logger) {
     argParser
-      ..addOption(
-        'app-id',
-        help: 'The app ID to check status for.',
-      )
+      ..addOption('app-id', help: 'The app ID to check status for.')
       ..addOption(
         'release-id',
         help:
             'If set, output only the patches for this release (ignored without --json).',
       )
-      ..addFlag(
-        'json',
-        help: 'Output as JSON.',
-        negatable: false,
-      );
+      ..addFlag('json', help: 'Output as JSON.', negatable: false);
   }
 
   final Logger _logger;
@@ -73,18 +66,19 @@ class CodePushStatusSubCommand extends Command<int> {
         if (statusCode != 200) {
           // --json is a structured-output contract: emit valid JSON with an
           // explicit error field and exit 0 so callers can parse it.
-          _logger.info(json.encode({
-            'release_id': releaseId,
-            'patches': <Map<String, dynamic>>[],
-            'error': patchesResult['error'] ?? 'Unknown',
-          }));
+          _logger.info(
+            json.encode({
+              'release_id': releaseId,
+              'patches': <Map<String, dynamic>>[],
+              'error': patchesResult['error'] ?? 'Unknown',
+            }),
+          );
           return ExitCode.success.code;
         }
         final patches = patchesResult['patches'] as List<dynamic>? ?? [];
-        _logger.info(json.encode({
-          'release_id': releaseId,
-          'patches': patches,
-        }));
+        _logger.info(
+          json.encode({'release_id': releaseId, 'patches': patches}),
+        );
         return ExitCode.success.code;
       }
 
@@ -97,11 +91,13 @@ class CodePushStatusSubCommand extends Command<int> {
 
       if (statusCode == 401) {
         if (asJson) {
-          _logger.info(json.encode({
-            'configured': false,
-            'logged_in': false,
-            'app_id': appId,
-          }));
+          _logger.info(
+            json.encode({
+              'configured': false,
+              'logged_in': false,
+              'app_id': appId,
+            }),
+          );
           return ExitCode.success.code;
         }
         progress?.fail('Session expired. Run "fcp codepush login" again.');
@@ -110,14 +106,16 @@ class CodePushStatusSubCommand extends Command<int> {
 
       if (statusCode != 200) {
         if (asJson) {
-          _logger.info(json.encode({
-            'configured': true,
-            'logged_in': true,
-            'app_id': appId,
-            'releases': <Map<String, dynamic>>[],
-            'total_patches': 0,
-            'error': releasesResult['error'] ?? 'Unknown',
-          }));
+          _logger.info(
+            json.encode({
+              'configured': true,
+              'logged_in': true,
+              'app_id': appId,
+              'releases': <Map<String, dynamic>>[],
+              'total_patches': 0,
+              'error': releasesResult['error'] ?? 'Unknown',
+            }),
+          );
           return ExitCode.success.code;
         }
         progress?.fail('Error: ${releasesResult['error'] ?? 'Unknown'}');
@@ -151,14 +149,16 @@ class CodePushStatusSubCommand extends Command<int> {
           totalPatches += count;
           enrichedReleases.add(release);
         }
-        _logger.info(json.encode({
-          'configured': true,
-          'logged_in': true,
-          'app_id': appId,
-          'app_name': appName,
-          'releases': enrichedReleases,
-          'total_patches': totalPatches,
-        }));
+        _logger.info(
+          json.encode({
+            'configured': true,
+            'logged_in': true,
+            'app_id': appId,
+            'app_name': appName,
+            'releases': enrichedReleases,
+            'total_patches': totalPatches,
+          }),
+        );
         return ExitCode.success.code;
       }
 
@@ -166,7 +166,8 @@ class CodePushStatusSubCommand extends Command<int> {
 
       if (releases.isEmpty) {
         _logger.info(
-            '\n  No releases yet. Run "fcp codepush release" to create one.');
+          '\n  No releases yet. Run "fcp codepush release" to create one.',
+        );
         return ExitCode.success.code;
       }
 
@@ -201,13 +202,15 @@ class CodePushStatusSubCommand extends Command<int> {
       return ExitCode.success.code;
     } catch (e) {
       if (asJson) {
-        _logger.info(json.encode({
-          'configured': false,
-          'logged_in': false,
-          'releases': <Map<String, dynamic>>[],
-          'total_patches': 0,
-          'error': '$e',
-        }));
+        _logger.info(
+          json.encode({
+            'configured': false,
+            'logged_in': false,
+            'releases': <Map<String, dynamic>>[],
+            'total_patches': 0,
+            'error': '$e',
+          }),
+        );
         return ExitCode.success.code;
       }
       progress?.fail('Failed: $e');
