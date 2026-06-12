@@ -39,18 +39,7 @@ String? writeReleaseVersionToAndroidYaml(
   // Write to a temp file and rename over the original: a failed write
   // (disk full, permissions) can then never corrupt the config, and the
   // original error propagates without a doomed in-place rescue attempt.
-  final tempFile = File('$yamlPath.tmp');
-  try {
-    tempFile.writeAsStringSync(content);
-    tempFile.renameSync(yamlPath);
-  } on FileSystemException {
-    try {
-      tempFile.deleteSync();
-    } on FileSystemException {
-      // Best-effort cleanup; the original config is untouched either way.
-    }
-    rethrow;
-  }
+  _atomicWrite(yamlPath, content);
   return originalContent;
 }
 
@@ -58,5 +47,23 @@ void restoreAndroidYaml(
   String originalContent, {
   String yamlPath = kDefaultAndroidCodePushYamlPath,
 }) {
-  File(yamlPath).writeAsStringSync(originalContent);
+  _atomicWrite(yamlPath, originalContent);
+}
+
+/// Writes [content] to [path] via a pid-qualified temp file and an atomic
+/// rename, so a failed or concurrent write can never leave the target
+/// truncated.
+void _atomicWrite(String path, String content) {
+  final tempFile = File('$path.$pid.tmp');
+  try {
+    tempFile.writeAsStringSync(content);
+    tempFile.renameSync(path);
+  } on FileSystemException {
+    try {
+      tempFile.deleteSync();
+    } on FileSystemException {
+      // Best-effort cleanup; the target file is untouched either way.
+    }
+    rethrow;
+  }
 }
