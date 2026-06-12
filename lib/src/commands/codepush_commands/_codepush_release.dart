@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/android_baseline_yaml.dart';
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
@@ -99,6 +100,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final buildService = CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
+    String? originalAndroidYaml;
     String? builtPlatform;
 
     if (shouldBuild) {
@@ -171,6 +173,29 @@ class CodePushReleaseSubCommand extends Command<int> {
           }
         }
 
+        // Stamp the release version into the Android code push config
+        // asset BEFORE `flutter build`, so the shipped APK carries the
+        // version it is released as. Restored afterwards so the app repo
+        // stays clean (same pattern as the iOS Info.plist stamp above).
+        if (platform == 'apk' || platform == 'appbundle') {
+          final releaseVersion = version;
+          if (releaseVersion.isNotEmpty) {
+            originalAndroidYaml =
+                writeReleaseVersionToAndroidYaml(releaseVersion);
+            if (originalAndroidYaml == null) {
+              _logger.warn(
+                'Warning: $kDefaultAndroidCodePushYamlPath not found. '
+                'This build will not embed a release version. '
+                'Run "fcp codepush init" to set up Android.',
+              );
+            } else {
+              _logger.detail(
+                'Stamped release_version=$releaseVersion into codepush.yaml',
+              );
+            }
+          }
+        }
+
         final buildProgress = _logger.progress('Building release ($platform)');
         final buildOk = await buildService.buildRelease(
           platform: platform,
@@ -204,6 +229,10 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (originalIosInfoPlist != null) {
           restoreIosInfoPlist(originalIosInfoPlist);
           _logger.detail('Restored ios/Runner/Info.plist');
+        }
+        if (originalAndroidYaml != null) {
+          restoreAndroidYaml(originalAndroidYaml);
+          _logger.detail('Restored android assets/codepush.yaml');
         }
       }
     }
