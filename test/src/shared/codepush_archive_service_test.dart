@@ -14,10 +14,7 @@ void main() {
     setUp(() {
       projectDir = Directory.systemTemp.createTempSync('fcp-archive-test-');
       logger = Logger(level: Level.quiet);
-      service = CodePushArchiveService(
-        logger: logger,
-        projectDir: projectDir,
-      );
+      service = CodePushArchiveService(logger: logger, projectDir: projectDir);
     });
 
     tearDown(() {
@@ -34,15 +31,21 @@ void main() {
       final baselineApp = Directory(
         '${projectDir.path}/build/codepush/baseline/Runner.app',
       );
-      Directory('${baselineApp.path}/Frameworks/Flutter.framework')
-          .createSync(recursive: true);
-      Directory('${baselineApp.path}/Frameworks/App.framework')
-          .createSync(recursive: true);
-      File('${baselineApp.path}/Frameworks/Flutter.framework/Flutter')
-          .writeAsStringSync(flutterFrameworkContents);
-      File('${baselineApp.path}/Frameworks/App.framework/App')
-          .writeAsStringSync(appFrameworkContents);
-      File('${baselineApp.path}/Runner').writeAsStringSync(runnerBinaryContents);
+      Directory(
+        '${baselineApp.path}/Frameworks/Flutter.framework',
+      ).createSync(recursive: true);
+      Directory(
+        '${baselineApp.path}/Frameworks/App.framework',
+      ).createSync(recursive: true);
+      File(
+        '${baselineApp.path}/Frameworks/Flutter.framework/Flutter',
+      ).writeAsStringSync(flutterFrameworkContents);
+      File(
+        '${baselineApp.path}/Frameworks/App.framework/App',
+      ).writeAsStringSync(appFrameworkContents);
+      File(
+        '${baselineApp.path}/Runner',
+      ).writeAsStringSync(runnerBinaryContents);
       File('${baselineApp.path}/Info.plist').writeAsStringSync('plist');
     }
 
@@ -55,10 +58,12 @@ void main() {
     }
 
     void initGitRepo() {
-      final result = Process.runSync(
-        'git',
-        ['-C', projectDir.path, 'init', '-q'],
-      );
+      final result = Process.runSync('git', [
+        '-C',
+        projectDir.path,
+        'init',
+        '-q',
+      ]);
       if (result.exitCode != 0) {
         fail('git init failed: ${result.stderr}');
       }
@@ -87,8 +92,7 @@ void main() {
       );
 
       expect(ok, isTrue);
-      final releaseDir =
-          Directory('${projectDir.path}/.fcp-archive/rel-2');
+      final releaseDir = Directory('${projectDir.path}/.fcp-archive/rel-2');
       expect(releaseDir.existsSync(), isTrue);
       expect(
         File('${releaseDir.path}/Runner.app/Info.plist').existsSync(),
@@ -127,8 +131,7 @@ void main() {
       );
 
       expect(ok, isTrue);
-      final releaseDir =
-          Directory('${projectDir.path}/.fcp-archive/rel-3');
+      final releaseDir = Directory('${projectDir.path}/.fcp-archive/rel-3');
       expect(
         Directory('${releaseDir.path}/Runner.app.dSYM').existsSync(),
         isTrue,
@@ -154,28 +157,25 @@ void main() {
       );
     });
 
-    test(
-      'appends .fcp-archive/ to .git/info/exclude in a git repo',
-      () {
-        initGitRepo();
-        writeBaselineApp();
+    test('appends .fcp-archive/ to .git/info/exclude in a git repo', () {
+      initGitRepo();
+      writeBaselineApp();
 
-        service.archiveIosRelease(
-          releaseId: 'rel-5',
-          baselineId: 'base-5',
-          fcpVersion: '0.0.0',
-        );
+      service.archiveIosRelease(
+        releaseId: 'rel-5',
+        baselineId: 'base-5',
+        fcpVersion: '0.0.0',
+      );
 
-        final excludeFile = File('${projectDir.path}/.git/info/exclude');
-        expect(excludeFile.existsSync(), isTrue);
-        final lines = excludeFile
-            .readAsStringSync()
-            .split('\n')
-            .map((l) => l.trim())
-            .toList();
-        expect(lines.contains('.fcp-archive/'), isTrue);
-      },
-    );
+      final excludeFile = File('${projectDir.path}/.git/info/exclude');
+      expect(excludeFile.existsSync(), isTrue);
+      final lines = excludeFile
+          .readAsStringSync()
+          .split('\n')
+          .map((l) => l.trim())
+          .toList();
+      expect(lines.contains('.fcp-archive/'), isTrue);
+    });
 
     test('does not duplicate the exclude entry on re-runs', () {
       initGitRepo();
@@ -192,9 +192,11 @@ void main() {
         fcpVersion: '0.0.0',
       );
 
-      final excludeContents =
-          File('${projectDir.path}/.git/info/exclude').readAsStringSync();
-      final occurrences = '\n$excludeContents\n'.split('\n.fcp-archive/').length - 1;
+      final excludeContents = File(
+        '${projectDir.path}/.git/info/exclude',
+      ).readAsStringSync();
+      final occurrences =
+          '\n$excludeContents\n'.split('\n.fcp-archive/').length - 1;
       expect(occurrences, 1);
     });
 
@@ -209,10 +211,7 @@ void main() {
 
       expect(ok, isTrue);
       // No .git directory was created.
-      expect(
-        Directory('${projectDir.path}/.git').existsSync(),
-        isFalse,
-      );
+      expect(Directory('${projectDir.path}/.git').existsSync(), isFalse);
     });
 
     test('overwrites an existing release archive on re-run', () {

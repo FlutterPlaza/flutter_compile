@@ -179,9 +179,8 @@ class CodePushBuildService {
       return false;
     }
 
-    final isIos = platform == 'ios' &&
-        artifactManager != null &&
-        flutterVersion != null;
+    final isIos =
+        platform == 'ios' && artifactManager != null && flutterVersion != null;
 
     String? expectedGenSnapshotSha;
     String? expectedFrameworkSha;
@@ -248,8 +247,7 @@ class CodePushBuildService {
         expectedFrameworkSha != null &&
         sdkGenSnapshotPath != null &&
         sdkFrameworkPath != null) {
-      final postBuildGenSnapshotSha =
-          _sha256OfFile(File(sdkGenSnapshotPath));
+      final postBuildGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
       final genSnapshotDrifted =
           postBuildGenSnapshotSha != expectedGenSnapshotSha;
 
@@ -262,8 +260,7 @@ class CodePushBuildService {
           'flutter build reset gen_snapshot to stock. '
           'Re-overlaying and rebuilding...',
         );
-        final reOverlayOk =
-            await artifactManager.installOverlaysIntoFlutterSdk(
+        final reOverlayOk = await artifactManager.installOverlaysIntoFlutterSdk(
           flutterVersion: flutterVersion,
           platform: artifactManager.currentPlatform,
         );
@@ -401,9 +398,7 @@ class CodePushBuildService {
         'build/app/intermediates/flutter/release/armeabi-v7a/app.so',
         'build/app/outputs/flutter-apk/app-release.apk',
       ],
-      'appbundle': [
-        'build/app/intermediates/flutter/release/app.so',
-      ],
+      'appbundle': ['build/app/intermediates/flutter/release/app.so'],
       'linux': [
         'build/linux/x64/release/bundle/lib/libapp.so',
         'build/linux/arm64/release/bundle/lib/libapp.so',
@@ -411,9 +406,7 @@ class CodePushBuildService {
       'macos': [
         'build/macos/Build/Products/Release/Runner.app/Contents/Frameworks/App.framework/App',
       ],
-      'windows': [
-        'build/windows/x64/runner/Release/app.so',
-      ],
+      'windows': ['build/windows/x64/runner/Release/app.so'],
     };
 
     final candidates = platformPaths[platform] ?? [];
@@ -434,10 +427,7 @@ class CodePushBuildService {
   /// Verify the first bytes of a patch payload match the expected
   /// format for [platform]. Returns `null` on pass; a short error
   /// string on fail.
-  static String? validatePayloadMagic(
-    List<int> payload,
-    String platform,
-  ) {
+  static String? validatePayloadMagic(List<int> payload, String platform) {
     if (payload.length < 4) {
       return 'Patch payload is too small to be valid '
           '(got ${payload.length} bytes).';
@@ -567,9 +557,7 @@ class CodePushBuildService {
   }) async {
     if (buildPlatform == 'ios') {
       if (flutterVersion == null || flutterVersion.isEmpty) {
-        _logger.err(
-          'Flutter version is required to prepare an iOS fcp build.',
-        );
+        _logger.err('Flutter version is required to prepare an iOS fcp build.');
         return false;
       }
       final overlaysInstalled =

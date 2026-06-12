@@ -13,10 +13,7 @@ import 'package:mason_logger/mason_logger.dart';
 class CodePushPatchSubCommand extends Command<int> {
   CodePushPatchSubCommand(this._logger) {
     argParser
-      ..addOption(
-        'release-id',
-        help: 'The release ID to patch against.',
-      )
+      ..addOption('release-id', help: 'The release ID to patch against.')
       ..addOption(
         'patch-file',
         help: 'Path to an existing patch file to upload.',
@@ -202,8 +199,10 @@ class CodePushPatchSubCommand extends Command<int> {
           iosPatchSourceImport = importPathForPatchSource(patchSource);
           iosHelperImports = _discoverDirectHelpers(patchSource);
           if (iosHelperImports.isNotEmpty) {
-            _logger.detail('Discovered ${iosHelperImports.length} '
-                'helper import(s) from patch source');
+            _logger.detail(
+              'Discovered ${iosHelperImports.length} '
+              'helper import(s) from patch source',
+            );
           }
           _logger.detail('Using iOS patch source: $patchSource');
           _logger.detail('Generated iOS patch target: $generated');
@@ -311,8 +310,7 @@ class CodePushPatchSubCommand extends Command<int> {
           final includeUris = <String>{
             if (iosSwapMode && iosPatchSourceImport != null)
               '$packagePrefix$iosPatchSourceImport',
-            for (final helper in iosHelperImports)
-              '$packagePrefix$helper',
+            for (final helper in iosHelperImports) '$packagePrefix$helper',
             ...explicitIncludes.where((u) => u.isNotEmpty),
           }.toList();
 
@@ -626,8 +624,9 @@ class CodePushPatchSubCommand extends Command<int> {
     if (!file.existsSync()) return null;
     try {
       for (final line in file.readAsLinesSync()) {
-        final match =
-            RegExp(r'^name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$').firstMatch(line);
+        final match = RegExp(
+          r'^name:\s*([A-Za-z_][A-Za-z0-9_]*)\s*$',
+        ).firstMatch(line);
         if (match != null) {
           return 'package:${match.group(1)}/';
         }
@@ -638,9 +637,7 @@ class CodePushPatchSubCommand extends Command<int> {
     return null;
   }
 
-  String? _resolveIosPatchSource({
-    String? explicitPath,
-  }) {
+  String? _resolveIosPatchSource({String? explicitPath}) {
     if (explicitPath != null && explicitPath.isNotEmpty) {
       if (!File(explicitPath).existsSync()) {
         _logger.err('Patch entry source not found: $explicitPath');
@@ -717,8 +714,9 @@ class CodePushPatchSubCommand extends Command<int> {
 
     // Match: import 'relative/path.dart'; or import "../path.dart";
     // Exclude: dart: and package: imports.
-    final importPattern =
-        RegExp(r'''import\s+['"](?!dart:|package:)([^'"]+)['"]''');
+    final importPattern = RegExp(
+      r'''import\s+['"](?!dart:|package:)([^'"]+)['"]''',
+    );
 
     for (final match in importPattern.allMatches(source)) {
       final relativePath = match.group(1);
