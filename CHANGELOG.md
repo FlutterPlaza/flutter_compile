@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.15-rc.9
+
+- Fix: Android apps now pick up code push configuration changes shipped in an app update. Re-run `fcp codepush init` in existing projects to apply.
+
 ## 0.19.14
 
 - **critical fix**: iOS patches built via `fcp codepush patch --build` were being packaged as an ELF dynamic-module snapshot, but iOS/macOS targets need a **Mach-O dylib** (`gen_snapshot --snapshot_kind=app-aot-macho-dylib`). The ELF was the wrong target format and `DN_Internal_loadDynamicModule` aborted the VM on load. `fcp-tool snapshot` also passed an unrecognized gen_snapshot flag (`--stable_object_pool_indices`) that was removed in a recent Dart SDK, so the snapshot step never even completed.
