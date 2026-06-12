@@ -335,7 +335,8 @@ $newCopyBlock
             .readAsStringSync()
             .replaceFirst(oldCopyBlock, newCopyBlock),
       );
-      _logger.info('  Updated: CodePushApp.kt (config now refreshes on every launch)');
+      _logger.info(
+          '  Updated: CodePushApp.kt (config now refreshes on every launch)');
     }
 
     // 4. Update AndroidManifest.xml to use CodePushApp
