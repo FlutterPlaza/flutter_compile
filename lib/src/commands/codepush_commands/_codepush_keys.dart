@@ -268,7 +268,9 @@ class _KeysRegisterCommand extends Command<int> {
       final indented =
           publicKeyPem.split('\n').map((line) => '  ${line.trim()}').join('\n');
       final block = 'public_key: |\n$indented\n';
-      if (content.contains(block)) return; // already up to date
+      if (content.replaceAll('\r\n', '\n').contains(block)) {
+        return; // already up to date (line endings normalized)
+      }
       final hadKey = kPublicKeyYamlBlockPattern.hasMatch(content);
       content = content.replaceAll(kPublicKeyYamlBlockPattern, '');
       if (content.isNotEmpty && !content.endsWith('\n')) content += '\n';

@@ -143,7 +143,11 @@ class CodePushInitSubCommand extends Command<int> {
       // ── Native setup ──────────────────────────────────────────
       final version = _readPubspecVersion() ?? '1.0.0+1';
       _logger.info('');
-      _setupAndroid(appId, version);
+      _setupAndroid(
+        appId,
+        version,
+        storedSigningKeyPath: await CodePushClient.getStoredSigningKey(),
+      );
       _setupIos(version);
       _setupPubspec();
       _logger.info('');
@@ -231,7 +235,11 @@ class CodePushInitSubCommand extends Command<int> {
 
   // ── Android setup ─────────────────────────────────────────────
 
-  void _setupAndroid(String appId, String version) {
+  void _setupAndroid(
+    String appId,
+    String version, {
+    String? storedSigningKeyPath,
+  }) {
     final androidDir = Directory('android/app/src/main');
     if (!androidDir.existsSync()) {
       _logger.detail('No android directory — skipping Android setup.');
@@ -246,7 +254,8 @@ class CodePushInitSubCommand extends Command<int> {
     final assetsDir = Directory('${androidDir.path}/assets');
     if (!assetsDir.existsSync()) assetsDir.createSync(recursive: true);
     final configFile = File('${assetsDir.path}/codepush.yaml');
-    var keyBlock = _publicKeyYamlBlock();
+    var keyBlock =
+        _publicKeyYamlBlock(storedSigningKeyPath: storedSigningKeyPath);
     if (keyBlock.isEmpty && configFile.existsSync()) {
       // No local key (CI, different machine, post-rotation) — keep a key
       // previously injected by `fcp codepush keys register` rather than
@@ -256,7 +265,11 @@ class CodePushInitSubCommand extends Command<int> {
       if (match != null) {
         keyBlock = match.group(0)!;
         if (!keyBlock.endsWith('\n')) keyBlock = '$keyBlock\n';
-        _logger.detail('Preserved existing public_key in codepush.yaml');
+        _logger.warn(
+          'Preserved the existing public_key in codepush.yaml (no local '
+          'signing key found). If you rotated keys, run '
+          '`fcp codepush keys register` to embed the new one.',
+        );
       }
     }
     configFile.writeAsStringSync(
@@ -405,24 +418,33 @@ $newCopyBlock
   /// signing public key exists, or an empty string otherwise. With a key
   /// in the config, devices require a valid patch signature; without one,
   /// only integrity checks run.
-  String _publicKeyYamlBlock() {
-    final publicKeyFile =
-        File('${F.homeDir()}/.flutter_codepush/codepush_public.pem');
-    if (!publicKeyFile.existsSync()) return '';
-    final String pem;
-    try {
-      pem = publicKeyFile.readAsStringSync().trim();
-    } on FileSystemException catch (e) {
-      _logger.warn(
-        'Could not read ${publicKeyFile.path}: $e — continuing without '
-        'embedding the public key.',
-      );
-      return '';
+  String _publicKeyYamlBlock({String? storedSigningKeyPath}) {
+    // Prefer the public key sitting next to the stored signing key (covers
+    // `keys generate --output-dir <custom>`), then the default location.
+    final candidates = <String>[
+      if (storedSigningKeyPath != null && storedSigningKeyPath.isNotEmpty)
+        '${File(storedSigningKeyPath).parent.path}/codepush_public.pem',
+      '${F.homeDir()}/.flutter_codepush/codepush_public.pem',
+    ];
+    for (final candidate in candidates) {
+      final publicKeyFile = File(candidate);
+      if (!publicKeyFile.existsSync()) continue;
+      final String pem;
+      try {
+        pem = publicKeyFile.readAsStringSync().trim();
+      } on FileSystemException catch (e) {
+        _logger.warn(
+          'Could not read ${publicKeyFile.path}: $e — continuing without '
+          'embedding the public key.',
+        );
+        continue;
+      }
+      if (pem.isEmpty) continue;
+      final indented =
+          pem.split('\n').map((line) => '  ${line.trim()}').join('\n');
+      return 'public_key: |\n$indented\n';
     }
-    if (pem.isEmpty) return '';
-    final indented =
-        pem.split('\n').map((line) => '  ${line.trim()}').join('\n');
-    return 'public_key: |\n$indented\n';
+    return '';
   }
 
   // ── iOS setup ─────────────────────────────────────────────────
