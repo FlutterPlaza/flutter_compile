@@ -246,8 +246,21 @@ class CodePushInitSubCommand extends Command<int> {
     final assetsDir = Directory('${androidDir.path}/assets');
     if (!assetsDir.existsSync()) assetsDir.createSync(recursive: true);
     final configFile = File('${assetsDir.path}/codepush.yaml');
+    var keyBlock = _publicKeyYamlBlock();
+    if (keyBlock.isEmpty && configFile.existsSync()) {
+      // No local key (CI, different machine, post-rotation) — keep a key
+      // previously injected by `fcp codepush keys register` rather than
+      // silently disabling signature verification on devices.
+      final match =
+          kPublicKeyYamlBlockPattern.firstMatch(configFile.readAsStringSync());
+      if (match != null) {
+        keyBlock = match.group(0)!;
+        if (!keyBlock.endsWith('\n')) keyBlock = '$keyBlock\n';
+        _logger.detail('Preserved existing public_key in codepush.yaml');
+      }
+    }
     configFile.writeAsStringSync(
-      'enabled: true\nrelease_version: "$version"\n${_publicKeyYamlBlock()}',
+      'enabled: true\nrelease_version: "$version"\n$keyBlock',
     );
 
     // 2. Find the package name and source directory
@@ -343,6 +356,12 @@ $newCopyBlock
             existing.replaceFirst(oldCopyBlock, newCopyBlock));
         _logger.info(
             '  Updated: CodePushApp.kt (config now refreshes on every launch)');
+      } else if (!existing.contains(newCopyBlock)) {
+        _logger.warn(
+          '  CodePushApp.kt was not upgraded automatically (the file has '
+          'been modified). Make sure the codepush.yaml copy in onCreate() '
+          'runs on every launch — remove any exists-check around it.',
+        );
       }
     }
 
@@ -390,7 +409,16 @@ $newCopyBlock
     final publicKeyFile =
         File('${F.homeDir()}/.flutter_codepush/codepush_public.pem');
     if (!publicKeyFile.existsSync()) return '';
-    final pem = publicKeyFile.readAsStringSync().trim();
+    final String pem;
+    try {
+      pem = publicKeyFile.readAsStringSync().trim();
+    } on FileSystemException catch (e) {
+      _logger.warn(
+        'Could not read ${publicKeyFile.path}: $e — continuing without '
+        'embedding the public key.',
+      );
+      return '';
+    }
     if (pem.isEmpty) return '';
     final indented =
         pem.split('\n').map((line) => '  ${line.trim()}').join('\n');

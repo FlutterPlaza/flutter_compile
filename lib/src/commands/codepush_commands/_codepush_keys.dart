@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -253,23 +254,39 @@ class _KeysRegisterCommand extends Command<int> {
     }
   }
 
-  /// Adds the public key to android/app/src/main/assets/codepush.yaml when
-  /// the project has Android code push set up and no key is present yet,
-  /// so devices verify patch signatures (parity with FLTCodePushPublicKey
-  /// on iOS). Migration path for projects initialized before key delivery.
+  /// Writes the public key into android/app/src/main/assets/codepush.yaml
+  /// when the project has Android code push set up, replacing any previous
+  /// key so rotation takes effect on devices (parity with
+  /// FLTCodePushPublicKey on iOS).
   void _maybeAddPublicKeyToAndroidConfig(String publicKeyPem) {
-    final yamlFile = File('android/app/src/main/assets/codepush.yaml');
-    if (!yamlFile.existsSync()) return;
-    var content = yamlFile.readAsStringSync();
-    if (content.contains('public_key:')) return;
-    final indented =
-        publicKeyPem.split('\n').map((line) => '  ${line.trim()}').join('\n');
-    if (content.isNotEmpty && !content.endsWith('\n')) content += '\n';
-    yamlFile.writeAsStringSync('${content}public_key: |\n$indented\n');
-    _logger.info(
-      'Added the public key to android/app/src/main/assets/codepush.yaml. '
-      'Devices will verify patch signatures from your next release build.',
-    );
+    if (publicKeyPem.trim().isEmpty) return;
+    const yamlPath = 'android/app/src/main/assets/codepush.yaml';
+    try {
+      final yamlFile = File(yamlPath);
+      if (!yamlFile.existsSync()) return;
+      var content = yamlFile.readAsStringSync();
+      final indented =
+          publicKeyPem.split('\n').map((line) => '  ${line.trim()}').join('\n');
+      final block = 'public_key: |\n$indented\n';
+      if (content.contains(block)) return; // already up to date
+      final hadKey = kPublicKeyYamlBlockPattern.hasMatch(content);
+      content = content.replaceAll(kPublicKeyYamlBlockPattern, '');
+      if (content.isNotEmpty && !content.endsWith('\n')) content += '\n';
+      yamlFile.writeAsStringSync('$content$block');
+      _logger.info(
+        hadKey
+            ? 'Updated the public key in $yamlPath. Devices verify against '
+                'the new key from your next release build.'
+            : 'Added the public key to $yamlPath. Devices will verify patch '
+                'signatures from your next release build.',
+      );
+    } on FileSystemException catch (e) {
+      _logger.warn(
+        'The key was registered on the server, but updating $yamlPath '
+        'failed: $e. Re-run `fcp codepush keys register` from the project '
+        'root to embed it.',
+      );
+    }
   }
 }
 

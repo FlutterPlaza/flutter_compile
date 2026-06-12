@@ -6,6 +6,11 @@ import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/extension.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+/// Matches a `public_key:` entry in an Android codepush.yaml, including a
+/// `|` block scalar's indented continuation lines.
+final RegExp kPublicKeyYamlBlockPattern =
+    RegExp(r'public_key:[^\n]*\n(?:[ \t]+[^\n]*(?:\n|$))*');
+
 class MigrateResult {
   final int blocksMoved;
   final bool sourceLineAdded;
