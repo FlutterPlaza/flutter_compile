@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.6
+
+### Changed
+
+- Compatible with all current Android Studio releases, including Android Studio Quail (2026.1)
+- Future Android Studio and IntelliJ IDEA updates no longer require waiting for a plugin update
+
 ## 0.3.5
 
 ### Changed

@@ -1,3 +1,6 @@
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
+import org.jetbrains.intellij.platform.gradle.models.ProductRelease
+
 plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "2.1.0"
@@ -5,7 +8,7 @@ plugins {
 }
 
 group = "com.flutterplaza.fluttercompile"
-version = "0.3.5"
+version = "0.3.6"
 
 repositories {
     mavenCentral()
@@ -33,10 +36,25 @@ intellijPlatform {
     pluginConfiguration {
         ideaVersion {
             sinceBuild = "251"
-            untilBuild = "253.*"
+            // No upper bound: stay installable on future IDE releases without
+            // a re-release (per JetBrains guidance on until-build).
+            untilBuild = provider { null }
         }
     }
     buildSearchableOptions = false
+
+    pluginVerification {
+        ides {
+            // Every stable Android Studio release line the declared range
+            // covers, resolved from the official releases feed.
+            select {
+                types = listOf(IntelliJPlatformType.AndroidStudio)
+                channels = listOf(ProductRelease.Channel.RELEASE)
+                sinceBuild = "251"
+                untilBuild = "261.*"
+            }
+        }
+    }
 
     signing {
         certificateChain = providers.environmentVariable("CERTIFICATE_CHAIN")
@@ -47,4 +65,13 @@ intellijPlatform {
     publishing {
         token = providers.environmentVariable("PUBLISH_TOKEN")
     }
+}
+
+// Mirror the plugin-verification criteria so `./gradlew printProductsReleases`
+// lists the Android Studio releases `verifyPlugin` runs against.
+tasks.named<org.jetbrains.intellij.platform.gradle.tasks.PrintProductsReleasesTask>("printProductsReleases") {
+    types = listOf(IntelliJPlatformType.AndroidStudio)
+    channels = listOf(ProductRelease.Channel.RELEASE)
+    sinceBuild = "251"
+    untilBuild = "261.*"
 }
