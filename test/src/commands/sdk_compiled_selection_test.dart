@@ -97,6 +97,24 @@ void main() {
   });
 
   group('sdk global compiled', () {
+    test(
+      'sets the canonical name and prints the caveat when checkout is present',
+      () async {
+        createFakeCheckout();
+        final result = await commandRunner.run(['sdk', 'global', 'engine']);
+        expect(result, equals(ExitCode.success.code));
+        verify(() => logger.info(Constants.compiledSdkCaveat)).called(1);
+
+        final rc = File('${tempHome.path}/.flutter_compilerc');
+        expect(rc.existsSync(), isTrue);
+        expect(rc.readAsStringSync(), contains('global_sdk_version:compiled'));
+      },
+      skip: Platform.isWindows
+          ? 'default-symlink creation needs elevated privileges on Windows '
+              'runners'
+          : false,
+    );
+
     test('errors with the install-flutter hint when checkout is absent',
         () async {
       final result = await commandRunner.run(['sdk', 'global', 'engine']);

@@ -782,7 +782,9 @@ class F {
       return; // real dir — don't touch
     }
     if (type == FileSystemEntityType.link) Link(linkPath).deleteSync();
-    await Link(linkPath).create(sdkPath);
+    // recursive: the versions/ dir may not exist yet on a machine that has
+    // only the contributor checkout and no versioned SDK installs.
+    await Link(linkPath).create(sdkPath, recursive: true);
   }
 
   /// Remove the `default` symlink if it exists.
