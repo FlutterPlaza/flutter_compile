@@ -50,8 +50,13 @@ class SdkExecSubCommand extends Command<int> {
 
     // Resolve through getSdkPath (not the raw canonical path) so the
     // contributor environment and whitespace-recovered directories both
-    // execute from the same location that validation checked.
-    final sdkPath = F.getSdkPath(version)!;
+    // execute from the same location that validation checked. Re-check
+    // for null: the SDK can vanish between validation and here.
+    final sdkPath = F.getSdkPath(version);
+    if (sdkPath == null) {
+      _logger.err('SDK "$version" is no longer available.');
+      return ExitCode.software.code;
+    }
     final environment = {
       ...F.sdkEnvironment(sdkPath),
       'PATH': '$sdkPath/bin${F.envPathSeparator}$sdkPath/bin/cache/dart-sdk/bin'

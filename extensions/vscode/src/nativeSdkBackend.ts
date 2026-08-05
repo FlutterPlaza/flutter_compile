@@ -491,7 +491,7 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async removeSdk(version: string): Promise<void> {
-    if (version.trim() === "compiled") {
+    if (["compiled", "engine"].includes(version.trim())) {
       throw new Error(
         '"compiled" is the contributor environment — remove it with ' +
           '"Flutter Compile: Uninstall", not the SDK manager.'

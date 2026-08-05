@@ -6,6 +6,7 @@ import { updateFlutterSdkPath } from "./sdkSettings";
 import type { SdkTreeItem } from "./views/sdkTreeProvider";
 import type { BuildEntryItem } from "./views/buildsTreeProvider";
 import type { CheckItem } from "./views/doctorTreeProvider";
+import type { CodePushTreeItem } from "./views/codePushTreeProvider";
 
 /** Canonical name of the contributor (from-source) environment. */
 const COMPILED_SDK_NAME = "compiled";
@@ -16,7 +17,6 @@ const COMPILED_SDK_CAVEAT =
   "pinned by bin/internal/engine.version. To run your locally built " +
   "engine, pass --local-engine / --local-engine-host, or install your " +
   "engine artifacts into this SDK's cache.";
-import type { CodePushTreeItem } from "./views/codePushTreeProvider";
 
 /** Callback invoked after mutating commands to refresh tree views. */
 export type RefreshCallback = () => void;
