@@ -532,7 +532,10 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async getSdkPath(version: string): Promise<string | undefined> {
-    const trimmed = version.trim();
+    const raw = version.trim();
+    // Normalize the "engine" alias to the canonical contributor name,
+    // matching the Dart CLI's normalizeSdkName.
+    const trimmed = raw === "engine" ? "compiled" : raw;
     // Contributor environment: the from-source checkout created by
     // `install flutter`, selectable under the fixed name "compiled".
     if (trimmed === "compiled") {
