@@ -44,6 +44,15 @@ intellijPlatform {
     buildSearchableOptions = false
 
     pluginVerification {
+        // Fail on real incompatibilities only. INTERNAL_API_USAGES is excluded:
+        // the flagged ToolWindowFactory overrides (getIcon/getAnchor/manage) are
+        // Kotlin compiler-generated interface bridges, not source-level usages.
+        // Deprecated / scheduled-for-removal usages are tracked as follow-ups.
+        failureLevel = listOf(
+            org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel.COMPATIBILITY_PROBLEMS,
+            org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel.MISSING_DEPENDENCIES,
+            org.jetbrains.intellij.platform.gradle.tasks.VerifyPluginTask.FailureLevel.INVALID_PLUGIN,
+        )
         ides {
             // Every stable Android Studio release line the declared range
             // covers, resolved from the official releases feed.
