@@ -114,7 +114,9 @@ Future<int> listSdks(Logger l, {bool asJson = false}) async {
     l.info('\nContributor environments:');
     for (final sdk in contributor) {
       l.info(
-        '  ${sdk['version']}  ${sdk['path']}    (via install flutter)',
+        '  ${sdk['version']}  ${sdk['path']}    (via install flutter; '
+        'selectable: sdk use ${sdk['version']} | '
+        'sdk global ${sdk['version']})',
       );
     }
   }

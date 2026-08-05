@@ -199,6 +199,20 @@ $env:PATH = "{{path}}\tool\bin;$env:PATH"
   // SDK Management Constants
   static const sdkVersionsPath = '$baseCliPath/versions';
   static const defaultSdkLink = 'default';
+
+  /// Canonical name of the contributor environment (the from-source Flutter
+  /// checkout created by `install flutter`) when used as a selectable SDK.
+  static const compiledSdkName = 'compiled';
+
+  /// Accepted input alias for [compiledSdkName].
+  static const compiledSdkAlias = 'engine';
+
+  /// Printed whenever the contributor environment is selected as an SDK.
+  static const compiledSdkCaveat =
+      'Note: app builds from the contributor checkout use the prebuilt '
+      'engine pinned by bin/internal/engine.version. To run your locally '
+      'built engine, pass --local-engine / --local-engine-host, or install '
+      "your engine artifacts into this SDK's cache.";
   static const flutterGitUrl = 'https://github.com/flutter/flutter.git';
   static const globalSdkVersionKey = 'global_sdk_version';
   static const flutterVersionFile = '.flutter-version';

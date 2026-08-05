@@ -31,6 +31,16 @@ class SdkRemoveSubCommand extends Command<int> {
 }
 
 Future<int> removeSdk(Logger l, String version) async {
+  // Guard BEFORE resolution: the contributor checkout must never be
+  // deleted by the SDK manager.
+  if (F.normalizeSdkName(version) == Constants.compiledSdkName) {
+    l.err(
+      '"${Constants.compiledSdkName}" is the contributor environment '
+      'managed by "flutter_compile install flutter" / '
+      '"flutter_compile uninstall flutter" — sdk remove does not manage it.',
+    );
+    return ExitCode.usage.code;
+  }
   final targetPath = F.getSdkPath(version);
   if (targetPath == null) {
     l.err('Flutter SDK "$version" is not installed.');

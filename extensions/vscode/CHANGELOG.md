@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7
+
+### Added
+
+- The Flutter contributor checkout (from `fcp install flutter`) can now be selected as an SDK from the picker — switch globally or pin it to a project like any other version.
+
 ## 0.3.6
 
 ### Changed

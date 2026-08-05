@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -30,8 +31,8 @@ class SdkExecSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final version = await F.resolveActiveSdkVersion();
-    if (version == null) {
+    final resolved = await F.resolveActiveSdkVersion();
+    if (resolved == null) {
       _logger.err(
         'No SDK version configured. '
         'Run "flutter_compile sdk global <version>" or '
@@ -40,15 +41,27 @@ class SdkExecSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
+    final version = F.normalizeSdkName(resolved);
     if (!F.isSdkInstalled(version)) {
       _logger.err(
-        'Resolved SDK "$version" is not installed. '
-        'Run "flutter_compile sdk install $version" first.',
+        version == Constants.compiledSdkName
+            ? 'The contributor environment is not installed. '
+                'Run "flutter_compile install flutter" first.'
+            : 'Resolved SDK "$version" is not installed. '
+                'Run "flutter_compile sdk install $version" first.',
       );
       return ExitCode.usage.code;
     }
 
-    final sdkPath = F.sdkVersionPath(version);
+    // Resolve through getSdkPath (not the raw canonical path) so the
+    // contributor environment and whitespace-recovered directories both
+    // execute from the same location that validation checked. Re-check
+    // for null: the SDK can vanish between validation and here.
+    final sdkPath = F.getSdkPath(version);
+    if (sdkPath == null) {
+      _logger.err('SDK "$version" is no longer available.');
+      return ExitCode.software.code;
+    }
     final environment = {
       ...F.sdkEnvironment(sdkPath),
       'PATH': '$sdkPath/bin${F.envPathSeparator}$sdkPath/bin/cache/dart-sdk/bin'
