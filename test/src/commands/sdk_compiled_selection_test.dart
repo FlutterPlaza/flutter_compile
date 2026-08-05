@@ -125,7 +125,8 @@ void main() {
       if (projectDir.existsSync()) projectDir.deleteSync(recursive: true);
     });
 
-    test('errors with the install-flutter hint when the pinned checkout '
+    test(
+        'errors with the install-flutter hint when the pinned checkout '
         'is absent', () async {
       await File('${projectDir.path}/${Constants.flutterVersionFile}')
           .writeAsString('compiled\n');
