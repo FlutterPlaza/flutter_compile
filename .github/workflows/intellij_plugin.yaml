@@ -78,7 +78,7 @@ jobs:
           if-no-files-found: ignore
 
   publish:
-    needs: build
+    needs: [build, verify]
     if: startsWith(github.ref, 'refs/tags/intellij-v')
     runs-on: ubuntu-latest
     permissions:

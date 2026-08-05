@@ -3,8 +3,8 @@ import org.jetbrains.intellij.platform.gradle.models.ProductRelease
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.0"
-    id("org.jetbrains.intellij.platform") version "2.11.0"
+    id("org.jetbrains.kotlin.jvm") version "2.2.20"
+    id("org.jetbrains.intellij.platform") version "2.18.1"
 }
 
 group = "com.flutterplaza.fluttercompile"
@@ -51,7 +51,6 @@ intellijPlatform {
                 types = listOf(IntelliJPlatformType.AndroidStudio)
                 channels = listOf(ProductRelease.Channel.RELEASE)
                 sinceBuild = "251"
-                untilBuild = "261.*"
             }
         }
     }
@@ -73,5 +72,4 @@ tasks.named<org.jetbrains.intellij.platform.gradle.tasks.PrintProductsReleasesTa
     types = listOf(IntelliJPlatformType.AndroidStudio)
     channels = listOf(ProductRelease.Channel.RELEASE)
     sinceBuild = "251"
-    untilBuild = "261.*"
 }
