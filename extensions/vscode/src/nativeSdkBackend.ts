@@ -568,13 +568,6 @@ export class NativeSdkBackend implements SdkBackend {
       }
     }
 
-    // Also check the compiled environment
-    if (trimmed === "compiled") {
-      const compiledDir = path.join(homeDir(), "flutter_compile", "flutter");
-      if (fs.existsSync(compiledDir)) {
-        return compiledDir;
-      }
-    }
     return undefined;
   }
 

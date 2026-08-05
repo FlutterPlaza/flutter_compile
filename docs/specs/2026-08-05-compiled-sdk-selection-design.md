@@ -9,9 +9,13 @@
 `fcp sdk list` and the VS Code SDK picker already *display* the contributor
 environment — the from-source Flutter checkout at `~/flutter_compile/flutter`
 created by `fcp install flutter` — as a `compiled` entry with a beaker icon.
-But selecting it fails: `sdk use`, `sdk global`, `sdk exec`, and the
-extension's pick handler all resolve SDK names through helpers that only look
-under `~/flutter_compile/versions/`. Contributors who work on Flutter or
+But selecting it fails on the CLI side: `sdk use`, `sdk global`, and
+`sdk exec` resolve SDK names through helpers that only look under
+`~/flutter_compile/versions/`. (The extension's backend carried a partial
+tail-end `compiled` fallback in `getSdkPath` — without alias support — so
+the two sides disagreed: an extension-written pin was unreadable by the
+CLI. This PR replaces that fallback with one normalized upfront check
+mirrored on both sides.) Contributors who work on Flutter or
 engine source cannot switch their tool to the from-source checkout without
 hand-editing PATH or using a second machine; ordinary SDK-manager users are
 unaffected but the dead-end picker entry is a trap.
