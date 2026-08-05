@@ -85,6 +85,26 @@ class CodePushSetupSubCommand extends Command<int> {
         '  Path: ${manager.versionDir(flutterVersion)}/${targetPlatform ?? manager.currentPlatform}',
       );
       await manager.saveActiveVersion(flutterVersion);
+
+      // Always install overlays into the active Flutter SDK cache, even
+      // when artifacts are already cached.  Without this, the custom
+      // gen_snapshot and Flutter.framework are never copied into the SDK
+      // cache — the app builds with stock artifacts and crashes at
+      // launch with "Wrong full snapshot version."
+      final resolvedPlatform = targetPlatform ?? manager.currentPlatform;
+      final installProgress = _logger.progress(
+        'Installing overlays into active Flutter SDK cache',
+      );
+      final installed = await manager.installOverlaysIntoFlutterSdk(
+        flutterVersion: flutterVersion,
+        platform: resolvedPlatform,
+      );
+      if (!installed) {
+        installProgress.fail('Failed to install overlays.');
+        return ExitCode.software.code;
+      }
+      installProgress.complete('Overlays installed.');
+
       _logger.success('Code push is ready.');
       return ExitCode.success.code;
     }
@@ -122,6 +142,27 @@ class CodePushSetupSubCommand extends Command<int> {
     }
 
     progress.complete('Build artifacts downloaded');
+
+    // Install the downloaded overlays into the active Flutter SDK cache so
+    // that `flutter build ios --release` produces a code-push-capable
+    // `Runner.app`. Without this, download-only cached files in
+    // `~/.flutter_compile/cache/codepush-engine/` are invisible to the
+    // stock Flutter build pipeline.
+    final resolvedPlatform = targetPlatform ?? manager.currentPlatform;
+    final installProgress = _logger.progress(
+      'Installing overlays into active Flutter SDK cache',
+    );
+    final installed = await manager.installOverlaysIntoFlutterSdk(
+      flutterVersion: flutterVersion,
+      platform: resolvedPlatform,
+    );
+    if (!installed) {
+      installProgress.fail(
+        'Failed to install overlays into Flutter SDK cache',
+      );
+      return ExitCode.software.code;
+    }
+    installProgress.complete('Overlays installed into Flutter SDK cache');
 
     // Save as active version.
     await manager.saveActiveVersion(flutterVersion);
