@@ -23,10 +23,14 @@ String? writeBaselineIdToIosInfoPlist(
       '$keyTag\n\t<string>$baselineId</string>',
     );
   } else {
-    content = content.replaceFirst(
-      '</dict>',
-      '\t$keyTag\n\t<string>$baselineId</string>\n</dict>',
-    );
+    // Insert before the LAST </dict>: the first one may close a nested
+    // dict (NSAppTransportSecurity, CFBundleURLTypes, ...) and a key
+    // injected there is invisible to the SDK's Info.plist lookup.
+    final idx = content.lastIndexOf('</dict>');
+    if (idx == -1) return null;
+    content = '${content.substring(0, idx)}'
+        '\t$keyTag\n\t<string>$baselineId</string>\n</dict>'
+        '${content.substring(idx + '</dict>'.length)}';
   }
 
   plistFile.writeAsStringSync(content);

@@ -35,6 +35,37 @@ void main() {
       }
     });
 
+    test('inserts into the OUTER dict when nested dicts are present', () {
+      const baselineId = '12345678-1234-4234-8234-123456789abc';
+      File(plistPath).writeAsStringSync('''
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+\t<key>CFBundleName</key>
+\t<string>Runner</string>
+\t<key>NSAppTransportSecurity</key>
+\t<dict>
+\t\t<key>NSAllowsArbitraryLoads</key>
+\t\t<true/>
+\t</dict>
+\t<key>UILaunchStoryboardName</key>
+\t<string>LaunchScreen</string>
+</dict>
+</plist>
+''');
+
+      writeBaselineIdToIosInfoPlist(baselineId, plistPath: plistPath);
+
+      final content = File(plistPath).readAsStringSync();
+      final keyIndex = content.indexOf('<key>FCPBaselineId</key>');
+      final nestedDictClose = content.indexOf('</dict>');
+      expect(keyIndex, greaterThan(nestedDictClose),
+          reason: 'FCPBaselineId must land after the nested dict closes, '
+              'inside the outer dict');
+      expect(content.lastIndexOf('</dict>'), greaterThan(keyIndex),
+          reason: 'FCPBaselineId must sit before the outer dict closes');
+    });
+
     test('returns null when plist does not exist', () {
       expect(
         writeBaselineIdToIosInfoPlist(
