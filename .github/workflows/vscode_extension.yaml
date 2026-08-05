@@ -83,7 +83,11 @@ jobs:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
       - name: 🏷️ Ensure Open VSX Namespace
-        run: npx ovsx create-namespace flutterPlaza-com -p "$OVSX_PAT" || true
+        run: |
+          out=$(npx ovsx create-namespace flutterPlaza-com -p "$OVSX_PAT" 2>&1) || {
+            echo "$out"
+            echo "$out" | grep -qi "already exists" || exit 1
+          }
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
