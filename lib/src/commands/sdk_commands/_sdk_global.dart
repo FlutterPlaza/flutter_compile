@@ -44,16 +44,21 @@ class SdkGlobalSubCommand extends Command<int> {
   }
 
   Future<int> _setGlobalVersion(String version) async {
-    final sdkPath = F.getSdkPath(version);
+    final normalized = F.normalizeSdkName(version);
+    final isCompiled = normalized == Constants.compiledSdkName;
+    final sdkPath = F.getSdkPath(normalized);
     if (sdkPath == null || !F.isFlutterSdk(sdkPath)) {
       _logger.err(
-        'Flutter SDK "$version" is not installed. '
-        'Run "flutter_compile sdk install $version" first.',
+        isCompiled
+            ? 'The contributor environment is not installed. '
+                'Run "flutter_compile install flutter" first.'
+            : 'Flutter SDK "$normalized" is not installed. '
+                'Run "flutter_compile sdk install $normalized" first.',
       );
       return ExitCode.usage.code;
     }
 
-    final trimmed = version.trim();
+    final trimmed = normalized;
     final home = F.homeDir();
     final rcConfigFile = File('$home/.flutter_compilerc');
     await F.writeKeyValueToRcConfig(
@@ -69,6 +74,9 @@ class SdkGlobalSubCommand extends Command<int> {
     await F.updateDefaultSdkLink(sdkPath);
 
     _logger.success('Global SDK version set to "$trimmed".');
+    if (isCompiled) {
+      _logger.info(Constants.compiledSdkCaveat);
+    }
     _logger.info(Constants.platformRestartShell);
 
     return ExitCode.success.code;

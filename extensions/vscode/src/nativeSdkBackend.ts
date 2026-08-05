@@ -491,6 +491,12 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async removeSdk(version: string): Promise<void> {
+    if (version.trim() === "compiled") {
+      throw new Error(
+        '"compiled" is the contributor environment — remove it with ' +
+          '"Flutter Compile: Uninstall", not the SDK manager.'
+      );
+    }
     const sdkDir = sdkVersionPath(version);
     if (!fs.existsSync(sdkDir)) {
       throw new Error(`SDK "${version}" is not installed.`);
@@ -527,6 +533,12 @@ export class NativeSdkBackend implements SdkBackend {
 
   async getSdkPath(version: string): Promise<string | undefined> {
     const trimmed = version.trim();
+    // Contributor environment: the from-source checkout created by
+    // `install flutter`, selectable under the fixed name "compiled".
+    if (trimmed === "compiled") {
+      const checkout = path.join(homeDir(), "flutter_compile", "flutter");
+      return fs.existsSync(checkout) ? checkout : undefined;
+    }
     const sdkPath = sdkVersionPath(trimmed);
     if (fs.existsSync(sdkPath)) {
       return sdkPath;

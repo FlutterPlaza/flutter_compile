@@ -47,22 +47,30 @@ class SdkUseSubCommand extends Command<int> {
   }
 
   Future<int> _setProjectVersion(String version) async {
-    if (!F.isSdkInstalled(version)) {
+    final normalized = F.normalizeSdkName(version);
+    final isCompiled = normalized == Constants.compiledSdkName;
+    if (!F.isSdkInstalled(normalized)) {
       _logger.err(
-        'Flutter SDK "$version" is not installed. '
-        'Run "flutter_compile sdk install $version" first.',
+        isCompiled
+            ? 'The contributor environment is not installed. '
+                'Run "flutter_compile install flutter" first.'
+            : 'Flutter SDK "$normalized" is not installed. '
+                'Run "flutter_compile sdk install $normalized" first.',
       );
       return ExitCode.usage.code;
     }
 
     final file =
         File('${Directory.current.path}/${Constants.flutterVersionFile}');
-    await file.writeAsString('$version\n');
+    await file.writeAsString('$normalized\n');
 
     _logger.success(
-      'Project SDK version pinned to "$version" '
+      'Project SDK version pinned to "$normalized" '
       'in ${Constants.flutterVersionFile}.',
     );
+    if (isCompiled) {
+      _logger.info(Constants.compiledSdkCaveat);
+    }
 
     return ExitCode.success.code;
   }

@@ -6,6 +6,16 @@ import { updateFlutterSdkPath } from "./sdkSettings";
 import type { SdkTreeItem } from "./views/sdkTreeProvider";
 import type { BuildEntryItem } from "./views/buildsTreeProvider";
 import type { CheckItem } from "./views/doctorTreeProvider";
+
+/** Canonical name of the contributor (from-source) environment. */
+const COMPILED_SDK_NAME = "compiled";
+
+/** Shown after selecting the contributor environment as an SDK. */
+const COMPILED_SDK_CAVEAT =
+  "Note: app builds from the contributor checkout use the prebuilt engine " +
+  "pinned by bin/internal/engine.version. To run your locally built " +
+  "engine, pass --local-engine / --local-engine-host, or install your " +
+  "engine artifacts into this SDK's cache.";
 import type { CodePushTreeItem } from "./views/codePushTreeProvider";
 
 /** Callback invoked after mutating commands to refresh tree views. */
@@ -58,6 +68,9 @@ export async function selectSdk(): Promise<void> {
 
   const items: vscode.QuickPickItem[] = sdks.map((sdk) => {
     const markers: string[] = [];
+    if (sdk.contributor) {
+      markers.push("engine dev");
+    }
     if (sdk.global) {
       markers.push("global");
     }
@@ -103,6 +116,9 @@ export async function selectSdk(): Promise<void> {
         vscode.window.showInformationMessage(
           `Switched to Flutter SDK ${version}.`
         );
+        if (version === COMPILED_SDK_NAME) {
+          vscode.window.showInformationMessage(COMPILED_SDK_CAVEAT);
+        }
       } catch (e) {
         vscode.window.showErrorMessage(
           `Failed to switch SDK: ${e}`
@@ -248,6 +264,9 @@ export async function pinSdkToProject(
         vscode.window.showInformationMessage(
           `Pinned Flutter SDK ${version} to project.`
         );
+        if (version === COMPILED_SDK_NAME) {
+          vscode.window.showInformationMessage(COMPILED_SDK_CAVEAT);
+        }
       } catch (e) {
         vscode.window.showErrorMessage(
           `Failed to pin SDK: ${e}`

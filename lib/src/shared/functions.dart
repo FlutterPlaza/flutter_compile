@@ -643,13 +643,28 @@ class F {
     return '$home${Constants.sdkVersionsPath}/$version';
   }
 
+  /// Canonicalizes an SDK name: trims whitespace and maps the `engine`
+  /// alias to the canonical contributor-environment name `compiled`.
+  static String normalizeSdkName(String version) {
+    final trimmed = version.trim();
+    return trimmed == Constants.compiledSdkAlias
+        ? Constants.compiledSdkName
+        : trimmed;
+  }
+
   /// Resolves the actual filesystem path for an SDK [version].
   ///
-  /// First tries the canonical path (`sdkVersionPath(version)`), then falls
+  /// The contributor environment (`compiled`, alias `engine`) resolves to
+  /// the from-source checkout created by `install flutter`. Otherwise, first
+  /// tries the canonical path (`sdkVersionPath(version)`), then falls
   /// back to scanning the versions directory for a directory whose trimmed
   /// name matches. This handles directories created with trailing whitespace.
   static String? getSdkPath(String version) {
-    final trimmed = version.trim();
+    final trimmed = normalizeSdkName(version);
+    if (trimmed == Constants.compiledSdkName) {
+      final checkout = '${homeDir()}${Constants.flutterCompileInstallPath}';
+      return Directory(checkout).existsSync() ? checkout : null;
+    }
     final canonical = sdkVersionPath(trimmed);
     if (Directory(canonical).existsSync()) return canonical;
 
