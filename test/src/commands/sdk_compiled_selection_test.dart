@@ -110,6 +110,49 @@ void main() {
     });
   });
 
+  group('sdk exec compiled', () {
+    late Directory previousCwd;
+    late Directory projectDir;
+
+    setUp(() {
+      previousCwd = Directory.current;
+      projectDir = Directory.systemTemp.createTempSync('fc_exec_');
+      Directory.current = projectDir;
+    });
+
+    tearDown(() {
+      Directory.current = previousCwd;
+      if (projectDir.existsSync()) projectDir.deleteSync(recursive: true);
+    });
+
+    test('errors with the install-flutter hint when the pinned checkout '
+        'is absent', () async {
+      await File('${projectDir.path}/${Constants.flutterVersionFile}')
+          .writeAsString('compiled\n');
+      final result = await commandRunner.run(['sdk', 'exec', 'flutter']);
+      expect(result, equals(ExitCode.usage.code));
+      verify(
+        () => logger.err(
+          'The contributor environment is not installed. '
+          'Run "flutter_compile install flutter" first.',
+        ),
+      ).called(1);
+    });
+
+    test('normalizes a hand-written engine pin', () async {
+      await File('${projectDir.path}/${Constants.flutterVersionFile}')
+          .writeAsString('engine\n');
+      final result = await commandRunner.run(['sdk', 'exec', 'flutter']);
+      expect(result, equals(ExitCode.usage.code));
+      verify(
+        () => logger.err(
+          'The contributor environment is not installed. '
+          'Run "flutter_compile install flutter" first.',
+        ),
+      ).called(1);
+    });
+  });
+
   group('sdk remove compiled', () {
     test('refuses to remove the contributor environment', () async {
       createFakeCheckout();

@@ -30,8 +30,8 @@ class SdkExecSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    final version = await F.resolveActiveSdkVersion();
-    if (version == null) {
+    final resolved = await F.resolveActiveSdkVersion();
+    if (resolved == null) {
       _logger.err(
         'No SDK version configured. '
         'Run "flutter_compile sdk global <version>" or '
@@ -40,10 +40,14 @@ class SdkExecSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
+    final version = F.normalizeSdkName(resolved);
     if (!F.isSdkInstalled(version)) {
       _logger.err(
-        'Resolved SDK "$version" is not installed. '
-        'Run "flutter_compile sdk install $version" first.',
+        version == Constants.compiledSdkName
+            ? 'The contributor environment is not installed. '
+                'Run "flutter_compile install flutter" first.'
+            : 'Resolved SDK "$version" is not installed. '
+                'Run "flutter_compile sdk install $version" first.',
       );
       return ExitCode.usage.code;
     }

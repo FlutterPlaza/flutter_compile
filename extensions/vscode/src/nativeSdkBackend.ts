@@ -33,6 +33,16 @@ function sdkVersionPath(version: string): string {
   return path.join(versionsDir(), version);
 }
 
+/**
+ * Canonicalizes an SDK name: trims whitespace and maps the `engine` alias
+ * to the canonical contributor-environment name `compiled`, matching the
+ * Dart CLI's `normalizeSdkName`.
+ */
+function normalizeSdkName(version: string): string {
+  const trimmed = version.trim();
+  return trimmed === "engine" ? "compiled" : trimmed;
+}
+
 /** Returns the RC config file path (`~/.flutter_compilerc`). */
 function rcFilePath(): string {
   return path.join(homeDir(), RC_FILE);
@@ -457,11 +467,12 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async setGlobalSdk(version: string): Promise<void> {
-    const sdkDir = await this.getSdkPath(version);
+    const normalized = normalizeSdkName(version);
+    const sdkDir = await this.getSdkPath(normalized);
     if (!sdkDir || !isFlutterSdk(sdkDir)) {
-      throw new Error(`SDK "${version}" is not installed.`);
+      throw new Error(`SDK "${normalized}" is not installed.`);
     }
-    writeRcConfigKey(GLOBAL_SDK_KEY, version);
+    writeRcConfigKey(GLOBAL_SDK_KEY, normalized);
 
     // Update shell config so new terminal sessions use this SDK
     const pubCachePath = path.join(sdkDir, ".pub-cache");
@@ -491,7 +502,7 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async removeSdk(version: string): Promise<void> {
-    if (["compiled", "engine"].includes(version.trim())) {
+    if (normalizeSdkName(version) === "compiled") {
       throw new Error(
         '"compiled" is the contributor environment — remove it with ' +
           '"Flutter Compile: Uninstall", not the SDK manager.'
@@ -514,12 +525,13 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async pinToProject(version: string, projectRoot: string): Promise<void> {
-    const sdkPath = await this.getSdkPath(version);
+    const normalized = normalizeSdkName(version);
+    const sdkPath = await this.getSdkPath(normalized);
     if (!sdkPath || !isFlutterSdk(sdkPath)) {
-      throw new Error(`SDK "${version}" is not installed.`);
+      throw new Error(`SDK "${normalized}" is not installed.`);
     }
     const filePath = path.join(projectRoot, FLUTTER_VERSION_FILE);
-    fs.writeFileSync(filePath, `${version}\n`, "utf-8");
+    fs.writeFileSync(filePath, `${normalized}\n`, "utf-8");
   }
 
   async unpinFromProject(projectRoot: string): Promise<void> {
@@ -532,10 +544,7 @@ export class NativeSdkBackend implements SdkBackend {
   }
 
   async getSdkPath(version: string): Promise<string | undefined> {
-    const raw = version.trim();
-    // Normalize the "engine" alias to the canonical contributor name,
-    // matching the Dart CLI's normalizeSdkName.
-    const trimmed = raw === "engine" ? "compiled" : raw;
+    const trimmed = normalizeSdkName(version);
     // Contributor environment: the from-source checkout created by
     // `install flutter`, selectable under the fixed name "compiled".
     if (trimmed === "compiled") {
