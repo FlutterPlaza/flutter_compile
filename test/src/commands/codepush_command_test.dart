@@ -154,6 +154,12 @@ void main() {
         final patch = cmd.subcommands['patch']!;
         expect(patch.argParser.options, contains('baseline'));
       });
+
+      test('has --patch-entry-file option', () {
+        final cmd = commandRunner.commands['codepush']!;
+        final patch = cmd.subcommands['patch']!;
+        expect(patch.argParser.options, contains('patch-entry-file'));
+      });
     });
 
     group('rollback subcommand', () {

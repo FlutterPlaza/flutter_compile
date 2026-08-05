@@ -1,9 +1,13 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/android_baseline_yaml.dart';
+import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
+import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
@@ -20,7 +24,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       )
       ..addOption(
         'snapshot',
-        help: 'Path to the AOT snapshot file (.so or .aot).',
+        help: 'Path to a pre-built release artifact.',
       )
       ..addOption(
         'platform',
@@ -31,6 +35,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         'build',
         help: 'Build the app in release mode before uploading.',
         defaultsTo: false,
+      )
+      ..addMultiOption(
+        'dart-define',
+        help: 'Additional --dart-define values to forward to flutter build '
+            'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
         'flutter-version',
@@ -89,6 +98,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     // If --build is set, build the app first.
     final shouldBuild = argResults?['build'] as bool? ?? false;
     final buildService = CodePushBuildService(logger: _logger);
+    String? baselineId;
+    String? originalIosInfoPlist;
+    String? originalAndroidYaml;
+    String? builtPlatform;
 
     if (shouldBuild) {
       var platform = argResults?['platform'] as String?;
@@ -99,6 +112,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
         return ExitCode.usage.code;
       }
+      builtPlatform = platform;
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
@@ -115,46 +129,119 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       _logger.detail('Using Flutter version: $flutterVersion');
 
-      final prepProgress = _logger.progress('Preparing code push build');
-      final prepared = await buildService.prepareCodePushBuild(
-        buildPlatform: platform,
-        flutterVersion: flutterVersion,
-        artifactManager: artifactManager,
-      );
-      if (prepared) {
-        prepProgress.complete('Ready');
-      } else {
-        prepProgress.fail(
-          'Code push build preparation failed. '
-          'Run "fcp codepush setup" first.',
+      final dartDefines =
+          (argResults?['dart-define'] as List<String>? ?? const <String>[])
+              .where((value) => value.isNotEmpty)
+              .toList();
+      final extraBuildArgs = [
+        for (final value in dartDefines) '--dart-define=$value',
+      ];
+
+      try {
+        final prepProgress = _logger.progress('Preparing code push build');
+        final prepared = await buildService.prepareCodePushBuild(
+          buildPlatform: platform,
+          flutterVersion: flutterVersion,
+          artifactManager: artifactManager,
         );
-      }
-
-      final buildProgress = _logger.progress('Building release ($platform)');
-      final buildOk = await buildService.buildRelease(
-        platform: platform,
-      );
-      if (!buildOk) {
-        buildProgress.fail('Build failed');
-        return ExitCode.software.code;
-      }
-      buildProgress.complete('Build succeeded');
-
-      final finalizeProgress = _logger.progress('Finalizing build');
-      final finalized = await buildService.finalizeBuild(
-        buildPlatform: platform,
-        flutterVersion: flutterVersion,
-        artifactManager: artifactManager,
-      );
-      if (finalized.success) {
-        finalizeProgress.complete('Build finalized');
-      } else {
-        finalizeProgress.fail(finalized.message ?? 'Finalization failed');
-        final diagnostics = finalized.formatDiagnostics();
-        if (diagnostics.isNotEmpty) {
-          _logger.err(diagnostics);
+        if (prepared) {
+          prepProgress.complete('Ready');
+        } else {
+          prepProgress.fail(
+            'Code push build preparation failed. '
+            'Run "fcp codepush setup" first.',
+          );
+          return ExitCode.software.code;
         }
-        return ExitCode.software.code;
+
+        // Generate a UUID and write it into ios/Runner/Info.plist as
+        // FCPBaselineId BEFORE `flutter build`, so it's bundled into the
+        // .app. Restore the plist afterwards so `release --build` does
+        // not leave the app repo dirty.
+        if (platform == 'ios') {
+          final generatedBaselineId = generateBaselineId();
+          originalIosInfoPlist =
+              writeBaselineIdToIosInfoPlist(generatedBaselineId);
+          if (originalIosInfoPlist == null) {
+            _logger.warn(
+              'Warning: ios/Runner/Info.plist not found. '
+              'This build will not embed a baseline identity.',
+            );
+          } else {
+            baselineId = generatedBaselineId;
+            _logger.detail('Wrote FCPBaselineId=$baselineId to Info.plist');
+          }
+        }
+
+        // Stamp the release version into the Android code push config
+        // asset BEFORE `flutter build`, so the shipped APK carries the
+        // version it is released as. Restored afterwards so the app repo
+        // stays clean (same pattern as the iOS Info.plist stamp above).
+        if ((platform == 'apk' || platform == 'appbundle') &&
+            version.isNotEmpty) {
+          originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
+          if (originalAndroidYaml == null) {
+            _logger.warn(
+              'Warning: $kDefaultAndroidCodePushYamlPath not found. '
+              'This build will not embed a release version. '
+              'Run "fcp codepush init" to set up Android.',
+            );
+          } else {
+            _logger.detail(
+              'Stamped release_version=$version into codepush.yaml',
+            );
+          }
+        }
+
+        final buildProgress = _logger.progress('Building release ($platform)');
+        final buildOk = await buildService.buildRelease(
+          platform: platform,
+          extraArgs: extraBuildArgs,
+          artifactManager: artifactManager,
+          flutterVersion: flutterVersion,
+        );
+        if (!buildOk) {
+          buildProgress.fail('Build failed');
+          return ExitCode.software.code;
+        }
+        buildProgress.complete('Build succeeded');
+
+        final finalizeProgress = _logger.progress('Finalizing build');
+        final finalized = await buildService.finalizeBuild(
+          buildPlatform: platform,
+          flutterVersion: flutterVersion,
+          artifactManager: artifactManager,
+        );
+        if (finalized.success) {
+          finalizeProgress.complete('Build finalized');
+        } else {
+          finalizeProgress.fail(finalized.message ?? 'Finalization failed');
+          final diagnostics = finalized.formatDiagnostics();
+          if (diagnostics.isNotEmpty) {
+            _logger.err(diagnostics);
+          }
+          return ExitCode.software.code;
+        }
+      } finally {
+        if (originalIosInfoPlist != null) {
+          restoreIosInfoPlist(originalIosInfoPlist);
+          _logger.detail('Restored ios/Runner/Info.plist');
+        }
+        if (originalAndroidYaml != null) {
+          try {
+            restoreAndroidYaml(originalAndroidYaml);
+            _logger.detail('Restored android assets/codepush.yaml');
+          } on FileSystemException catch (e) {
+            // Don't mask an in-flight build error with a restore failure;
+            // tell the user the repo is dirty and how to fix it.
+            _logger.err(
+              'Failed to restore $kDefaultAndroidCodePushYamlPath after the '
+              'build: $e\nThe file still contains the stamped release '
+              'version — restore it manually (e.g. git checkout -- '
+              '$kDefaultAndroidCodePushYamlPath).',
+            );
+          }
+        }
       }
     }
 
@@ -231,6 +318,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         version: version,
         snapshotData: snapshotData,
         flutterVersion: flutterVersion,
+        baselineId: baselineId,
       );
 
       final statusCode = result['status_code'] as int;
@@ -264,8 +352,29 @@ class CodePushReleaseSubCommand extends Command<int> {
         _logger.info('  Release ID:      ${release['id']}');
         _logger.info('  Version:         ${release['version']}');
         _logger.info('  Hash:            ${release['snapshot_hash']}');
+        if (release['baseline_id'] != null) {
+          _logger.info('  Baseline ID:     ${release['baseline_id']}');
+        }
         if (release['flutter_version'] != null) {
           _logger.info('  Flutter version: ${release['flutter_version']}');
+        }
+      }
+
+      // Save the iOS baseline app for later device install.
+      if (builtPlatform == 'ios' && baselineId != null) {
+        _saveIosBaselineApp(baselineId: baselineId);
+
+        // Archive the saved baseline app + dSYM into a per-release
+        // directory so a future device replay can reinstall the exact
+        // bundle that produced this release. Best-effort; never fails
+        // a successful release.
+        final releaseId = release?['id'] as String?;
+        if (releaseId != null) {
+          CodePushArchiveService(logger: _logger).archiveIosRelease(
+            releaseId: releaseId,
+            baselineId: baselineId,
+            fcpVersion: packageVersion,
+          );
         }
       }
 
@@ -276,5 +385,38 @@ class CodePushReleaseSubCommand extends Command<int> {
     } finally {
       client.close();
     }
+  }
+
+  void _saveIosBaselineApp({required String baselineId}) {
+    const source = 'build/ios/iphoneos/Runner.app';
+    const dest = 'build/codepush/baseline/Runner.app';
+
+    final sourceDir = Directory(source);
+    if (!sourceDir.existsSync()) {
+      _logger.detail('No built Runner.app to save.');
+      return;
+    }
+
+    // Remove any previous saved baseline.
+    final destDir = Directory(dest);
+    if (destDir.existsSync()) {
+      destDir.deleteSync(recursive: true);
+    }
+    destDir.parent.createSync(recursive: true);
+
+    // Copy recursively.
+    final result = Process.runSync('cp', ['-R', source, dest]);
+    if (result.exitCode != 0) {
+      _logger.warn('Could not save baseline app to $dest');
+      return;
+    }
+
+    _logger.info('');
+    _logger.success('Saved baseline app: $dest');
+    _logger.info('  Embedded baseline ID: $baselineId');
+    _logger.info(
+      '  If installing manually on device, re-sign the saved '
+      'app bundle recursively after any framework repair.',
+    );
   }
 }
