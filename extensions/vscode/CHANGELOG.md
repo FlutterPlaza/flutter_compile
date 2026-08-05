@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.6
+
+### Changed
+
+- Version alignment with the Android Studio plugin release; no functional changes
+
 ## 0.3.5
 
 ### Changed
