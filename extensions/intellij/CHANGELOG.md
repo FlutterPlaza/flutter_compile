@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.7
+
+### Added
+
+- The Flutter contributor checkout (created by `fcp install flutter`) can now be selected as an SDK — set it global or pin it to a project from the SDK panel. Requires `flutter_compile` 0.19.15-rc.9 or newer.
+
 ## 0.3.6
 
 ### Changed

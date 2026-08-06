@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.flutterplaza.fluttercompile"
-version = "0.3.6"
+version = "0.3.7"
 
 repositories {
     mavenCentral()
@@ -34,6 +34,14 @@ dependencies {
 
 intellijPlatform {
     pluginConfiguration {
+        changeNotes = """
+            <h3>0.3.7</h3>
+            <ul>
+              <li>The Flutter contributor checkout (created by <code>fcp install flutter</code>)
+                  can now be selected as an SDK &mdash; set it global or pin it to a project
+                  from the SDK panel. Requires <code>flutter_compile</code> 0.19.15-rc.9 or newer.</li>
+            </ul>
+        """.trimIndent()
         ideaVersion {
             sinceBuild = "251"
             // No upper bound: stay installable on future IDE releases without
