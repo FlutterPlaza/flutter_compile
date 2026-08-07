@@ -7,6 +7,27 @@ import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+/// Ensures `<uses-permission android:name="android.permission.INTERNET"/>` is
+/// declared in the (release) manifest. Returns the manifest unchanged if the
+/// permission is already present, otherwise inserts it right after the opening
+/// `<manifest ...>` tag. `flutter create` declares INTERNET only in the
+/// debug/profile manifests, so a release build otherwise cannot reach the
+/// update server and code push fails at runtime with a SocketException.
+String ensureInternetPermission(String manifest) {
+  if (manifest.contains('android.permission.INTERNET')) {
+    return manifest;
+  }
+  final match = RegExp(r'<manifest\b[^>]*>').firstMatch(manifest);
+  if (match == null) {
+    return manifest;
+  }
+  const permission =
+      '\n    <uses-permission android:name="android.permission.INTERNET"/>';
+  return manifest.substring(0, match.end) +
+      permission +
+      manifest.substring(match.end);
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -378,17 +399,23 @@ $newCopyBlock
       }
     }
 
-    // 4. Update AndroidManifest.xml to use CodePushApp
-    // Only replace the default ${applicationName}. If the app uses flavors
-    // or a custom Application class, warn the user to integrate manually.
-    if (manifestContent.contains('android:name="\${applicationName}"')) {
-      manifest.writeAsStringSync(
-        manifestContent.replaceFirst(
-          'android:name="\${applicationName}"',
-          'android:name=".CodePushApp"',
-        ),
+    // 4. Update AndroidManifest.xml: use CodePushApp and ensure the INTERNET
+    // permission. `flutter create` only declares INTERNET in the debug/profile
+    // manifests, so a --release build cannot reach the update server without
+    // this — code push silently fails at runtime (SocketException).
+    var updatedManifest = ensureInternetPermission(manifestContent);
+    if (updatedManifest.contains('android:name="\${applicationName}"')) {
+      updatedManifest = updatedManifest.replaceFirst(
+        'android:name="\${applicationName}"',
+        'android:name=".CodePushApp"',
       );
+      manifest.writeAsStringSync(updatedManifest);
     } else if (!manifestContent.contains('CodePushApp')) {
+      // Custom Application class — write the INTERNET fix but leave the
+      // Application class to the user (warned below).
+      if (updatedManifest != manifestContent) {
+        manifest.writeAsStringSync(updatedManifest);
+      }
       // App has a custom Application class (possibly per-flavor).
       final existingMatch =
           RegExp(r'android:name="([^"]+)"').firstMatch(manifestContent);
@@ -406,6 +433,9 @@ $newCopyBlock
         '      android.util.Log.e("CodePushApp", "Failed to copy codepush.yaml", e)\n'
         '    }',
       );
+    } else if (updatedManifest != manifestContent) {
+      // CodePushApp already wired (re-run) but INTERNET was missing.
+      manifest.writeAsStringSync(updatedManifest);
     }
 
     progress.complete('Android configured');
