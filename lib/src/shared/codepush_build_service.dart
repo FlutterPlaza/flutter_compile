@@ -424,6 +424,69 @@ class CodePushBuildService {
     return null;
   }
 
+  /// Path of the Android release AOT library exactly as it ships to
+  /// devices: the stripped `libapp.so` that gets packaged into the
+  /// APK/AAB. This is the file whose SHA-256 matches what an installed
+  /// app can compute from its own package, so it is the only correct
+  /// source for release/baseline hashing on Android.
+  ///
+  /// The pre-strip copies (`intermediates/flutter/release/**/app.so`,
+  /// `merged_native_libs/**/libapp.so`) are the same size but not the
+  /// same bytes — the strip step rewrites the file in place — so
+  /// hashing those produces a value no installed device can match.
+  ///
+  /// A release stores a single baseline identity, and with arm64-v8a
+  /// preferred that is the arm64 identity. On a multi-ABI upload an
+  /// armeabi-v7a device runs different bytes and will not match it —
+  /// which is correct: patches are built for arm64 and must not be
+  /// delivered to other ABIs.
+  ///
+  /// Returns null when no Android release build output is present.
+  String? findAndroidBaselineLibPath() {
+    const abis = ['arm64-v8a', 'armeabi-v7a'];
+    const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';
+    // Known layouts first: AGP 8 inserts the strip task name into the
+    // path; older AGP wrote directly under out/.
+    for (final abi in abis) {
+      for (final path in [
+        '$strippedRoot/stripReleaseDebugSymbols/out/lib/$abi/libapp.so',
+        '$strippedRoot/out/lib/$abi/libapp.so',
+      ]) {
+        if (File(path).existsSync()) return path;
+      }
+    }
+    // Fallback: scan the stripped tree so a future AGP layout change
+    // degrades to a search instead of a miss.
+    final root = Directory(strippedRoot);
+    if (!root.existsSync()) return null;
+    try {
+      // Stat each candidate once (a vanished file just drops out), then
+      // sort newest-first so the tiebreak between several task dirs is
+      // deterministic and picks the freshest build output.
+      final libsWithMtime = <(File, DateTime)>[];
+      for (final entry in root.listSync(recursive: true)) {
+        if (entry is! File || entry.uri.pathSegments.last != 'libapp.so') {
+          continue;
+        }
+        try {
+          libsWithMtime.add((entry, entry.statSync().modified));
+        } catch (_) {
+          // Raced with a build clean — skip this candidate.
+        }
+      }
+      libsWithMtime.sort((a, b) => b.$2.compareTo(a.$2));
+      final libs = [for (final (file, _) in libsWithMtime) file];
+      for (final abi in abis) {
+        for (final lib in libs) {
+          if (lib.uri.pathSegments.contains(abi)) return lib.path;
+        }
+      }
+    } catch (_) {
+      // Unreadable build tree — treat as absent.
+    }
+    return null;
+  }
+
   /// Verify the first bytes of a patch payload match the expected
   /// format for [platform]. Returns `null` on pass; a short error
   /// string on fail.

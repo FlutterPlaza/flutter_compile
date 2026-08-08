@@ -118,6 +118,7 @@ class CodePushPatchSubCommand extends Command<int> {
     final shouldBuild = argResults?['build'] as bool? ?? false;
     final buildService = CodePushBuildService(logger: _logger);
     String? generatedIosTargetPath;
+    String? builtPlatform;
     CodePushClient? client;
 
     try {
@@ -131,6 +132,7 @@ class CodePushPatchSubCommand extends Command<int> {
           );
           return ExitCode.usage.code;
         }
+        builtPlatform = platform;
 
         final artifactManager = CodePushArtifactManager(logger: _logger);
 
@@ -501,12 +503,33 @@ class CodePushPatchSubCommand extends Command<int> {
           '${baselineHash.substring(0, 16)}…',
         );
       } else {
-        // Fallback: compute from local build output (pre-existing
-        // behavior). This path runs when the release has no stored
-        // hash or the server lookup fails.
+        // Fallback: compute from local build output. This path runs
+        // when the release has no stored hash or the server lookup
+        // fails. Candidates are gated by the patch's platform — a dev
+        // box routinely holds both an iOS and an Android build under
+        // build/, and hashing the other platform's artifact would store
+        // an identity no target device can match. Only a DEFINITIVE
+        // platform counts: the explicit --platform flag or the platform
+        // this invocation just built. A directory-layout guess is not
+        // definitive (nearly every Flutter app has an android/ dir), so
+        // without one no local hash is computed at all — the patch
+        // uploads without a hash (served, not gated), which is safer
+        // than gating on the wrong platform's artifact in either
+        // direction. On Android only the stripped, packaged libapp.so
+        // may be hashed (what devices actually run); the
+        // merged_native_libs copy this used to hash is pre-strip and
+        // hashes differently.
+        final fallbackPlatform =
+            (argResults?['platform'] as String?) ?? builtPlatform;
+        final isAndroidFallback =
+            const {'apk', 'appbundle', 'android'}.contains(fallbackPlatform);
+        final androidBaselineLib = isAndroidFallback
+            ? buildService.findAndroidBaselineLibPath()
+            : null;
         final candidateAppFrameworks = [
-          'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
-          'build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libapp.so',
+          if (fallbackPlatform == 'ios')
+            'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+          if (androidBaselineLib != null) androidBaselineLib,
         ];
         for (final candidate in candidateAppFrameworks) {
           final file = File(candidate);
