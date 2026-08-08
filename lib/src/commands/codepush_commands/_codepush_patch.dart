@@ -118,6 +118,7 @@ class CodePushPatchSubCommand extends Command<int> {
     final shouldBuild = argResults?['build'] as bool? ?? false;
     final buildService = CodePushBuildService(logger: _logger);
     String? generatedIosTargetPath;
+    String? builtPlatform;
     CodePushClient? client;
 
     try {
@@ -131,6 +132,7 @@ class CodePushPatchSubCommand extends Command<int> {
           );
           return ExitCode.usage.code;
         }
+        builtPlatform = platform;
 
         final artifactManager = CodePushArtifactManager(logger: _logger);
 
@@ -506,21 +508,26 @@ class CodePushPatchSubCommand extends Command<int> {
         // fails. Candidates are gated by the patch's platform — a dev
         // box routinely holds both an iOS and an Android build under
         // build/, and hashing the other platform's artifact would store
-        // an identity no target device can match. On Android only the
-        // stripped, packaged libapp.so may be hashed (what devices
-        // actually run); the merged_native_libs copy this used to hash
-        // is pre-strip and hashes differently. No candidate → null →
-        // the patch uploads without a hash (served, not gated), which
-        // is safer than gating on a wrong one.
-        final fallbackPlatform = (argResults?['platform'] as String?) ??
-            buildService.detectPlatform();
+        // an identity no target device can match. Only a DEFINITIVE
+        // platform counts: the explicit --platform flag or the platform
+        // this invocation just built. A directory-layout guess is not
+        // definitive (nearly every Flutter app has an android/ dir), so
+        // without one no local hash is computed at all — the patch
+        // uploads without a hash (served, not gated), which is safer
+        // than gating on the wrong platform's artifact in either
+        // direction. On Android only the stripped, packaged libapp.so
+        // may be hashed (what devices actually run); the
+        // merged_native_libs copy this used to hash is pre-strip and
+        // hashes differently.
+        final fallbackPlatform =
+            (argResults?['platform'] as String?) ?? builtPlatform;
         final isAndroidFallback =
             const {'apk', 'appbundle', 'android'}.contains(fallbackPlatform);
         final androidBaselineLib = isAndroidFallback
             ? buildService.findAndroidBaselineLibPath()
             : null;
         final candidateAppFrameworks = [
-          if (fallbackPlatform == 'ios' || fallbackPlatform == null)
+          if (fallbackPlatform == 'ios')
             'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
           if (androidBaselineLib != null) androidBaselineLib,
         ];
