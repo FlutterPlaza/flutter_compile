@@ -246,9 +246,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     // Resolve snapshot path.
     var snapshotPath = argResults?['snapshot'] as String?;
     if (snapshotPath == null || snapshotPath.isEmpty) {
-      // Auto-detect from build output.
+      // Auto-detect from build output. Resolve the platform the same way
+      // the build branch does — explicit flag, then the platform that was
+      // just built, then project detection — so a non-Android project
+      // without --platform never routes into the Android-only branch.
       final platform = argResults?['platform'] as String?;
-      final resolvedPlatform = platform ?? 'apk';
+      final resolvedPlatform =
+          platform ?? builtPlatform ?? buildService.detectPlatform() ?? 'apk';
       // On Android the uploaded baseline MUST be the stripped libapp.so
       // that ships inside the APK/AAB: the server hashes these bytes and
       // devices compare against a hash of the packaged file they run.
