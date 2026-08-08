@@ -460,16 +460,22 @@ class CodePushBuildService {
     final root = Directory(strippedRoot);
     if (!root.existsSync()) return null;
     try {
-      final libs = root
-          .listSync(recursive: true)
-          .whereType<File>()
-          .where((f) => f.uri.pathSegments.last == 'libapp.so')
-          .toList()
-        // Deterministic tiebreak when several task dirs hold a copy:
-        // the newest build output wins.
-        ..sort(
-          (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
-        );
+      // Stat each candidate once (a vanished file just drops out), then
+      // sort newest-first so the tiebreak between several task dirs is
+      // deterministic and picks the freshest build output.
+      final libsWithMtime = <(File, DateTime)>[];
+      for (final entry in root.listSync(recursive: true)) {
+        if (entry is! File || entry.uri.pathSegments.last != 'libapp.so') {
+          continue;
+        }
+        try {
+          libsWithMtime.add((entry, entry.statSync().modified));
+        } catch (_) {
+          // Raced with a build clean — skip this candidate.
+        }
+      }
+      libsWithMtime.sort((a, b) => b.$2.compareTo(a.$2));
+      final libs = [for (final (file, _) in libsWithMtime) file];
       for (final abi in abis) {
         for (final lib in libs) {
           if (lib.uri.pathSegments.contains(abi)) return lib.path;

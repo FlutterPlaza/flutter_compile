@@ -260,9 +260,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         snapshotPath = buildService.findAndroidBaselineLibPath();
         if (snapshotPath == null) {
           _logger.err(
-            'No packaged Android library found to upload. Run a release '
-            'build first (flutter build apk / appbundle), or pass '
-            '--snapshot with the exact library file your app ships.',
+            'No packaged Android library found to upload for a supported '
+            'ABI (arm64-v8a, armeabi-v7a). Run a release build first '
+            '(flutter build apk / appbundle) — an emulator-only (x86) '
+            'build does not produce one — or pass --snapshot with the '
+            'exact library file your app ships.',
           );
           return ExitCode.usage.code;
         }
