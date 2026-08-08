@@ -7,6 +7,63 @@ import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+/// Ensures `<uses-permission android:name="android.permission.INTERNET"/>` is
+/// declared in the (release) manifest. Returns the manifest unchanged if the
+/// permission is already present, otherwise inserts it right after the opening
+/// `<manifest ...>` tag. `flutter create` declares INTERNET only in the
+/// debug/profile manifests, so a release build otherwise cannot reach the
+/// update server and code push fails at runtime with a SocketException.
+String ensureInternetPermission(String manifest) {
+  // Ignore XML comments when checking, so a commented-out permission
+  // (e.g. a scaffold's "uncomment for release" hint) still gets a real
+  // declaration inserted.
+  final uncommented = manifest.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+  if (uncommented.contains('android.permission.INTERNET')) {
+    return manifest;
+  }
+  final match = RegExp(r'<manifest\b[^>]*>').firstMatch(manifest);
+  if (match == null) {
+    return manifest;
+  }
+  const permission =
+      '\n    <uses-permission android:name="android.permission.INTERNET"/>';
+  return manifest.substring(0, match.end) +
+      permission +
+      manifest.substring(match.end);
+}
+
+/// Computes the manifest content `fcp codepush init` should write, or null
+/// when no write is needed. This is the write decision for all three manifest
+/// states, kept pure so each branch is directly testable:
+///
+/// - fresh scaffold (`${applicationName}` placeholder): the INTERNET
+///   permission is ensured and the placeholder is pointed at `.CodePushApp`;
+/// - custom Application class (no placeholder, no `CodePushApp`): only the
+///   INTERNET permission is ensured — the Application class stays untouched
+///   (the caller warns with wiring instructions);
+/// - re-run (`CodePushApp` already wired): only a missing INTERNET
+///   permission triggers a write, so repeat runs are no-ops.
+String? computeManifestUpdate(String manifestContent) {
+  final updated = ensureInternetPermission(manifestContent);
+  if (updated.contains('android:name="\${applicationName}"')) {
+    return updated.replaceFirst(
+      'android:name="\${applicationName}"',
+      'android:name=".CodePushApp"',
+    );
+  }
+  return updated == manifestContent ? null : updated;
+}
+
+/// The `android:name` attribute of the `<application ...>` element, or null.
+/// Scoped to the application tag so permission declarations above it can't
+/// be mistaken for the Application class name.
+String? findApplicationClassName(String manifestContent) {
+  final applicationTag =
+      RegExp(r'<application\b[^>]*>').firstMatch(manifestContent)?.group(0);
+  if (applicationTag == null) return null;
+  return RegExp(r'android:name="([^"]+)"').firstMatch(applicationTag)?.group(1);
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -378,21 +435,21 @@ $newCopyBlock
       }
     }
 
-    // 4. Update AndroidManifest.xml to use CodePushApp
-    // Only replace the default ${applicationName}. If the app uses flavors
-    // or a custom Application class, warn the user to integrate manually.
-    if (manifestContent.contains('android:name="\${applicationName}"')) {
-      manifest.writeAsStringSync(
-        manifestContent.replaceFirst(
-          'android:name="\${applicationName}"',
-          'android:name=".CodePushApp"',
-        ),
-      );
-    } else if (!manifestContent.contains('CodePushApp')) {
-      // App has a custom Application class (possibly per-flavor).
-      final existingMatch =
-          RegExp(r'android:name="([^"]+)"').firstMatch(manifestContent);
-      final existingClass = existingMatch?.group(1);
+    // 4. Update AndroidManifest.xml: use CodePushApp and ensure the INTERNET
+    // permission. `flutter create` only declares INTERNET in the debug/profile
+    // manifests, so a --release build cannot reach the update server without
+    // this — code push silently fails at runtime (SocketException).
+    final updatedManifest = computeManifestUpdate(manifestContent);
+    if (updatedManifest != null) {
+      manifest.writeAsStringSync(updatedManifest);
+    }
+    if (!manifestContent.contains('android:name="\${applicationName}"') &&
+        !manifestContent.contains('CodePushApp')) {
+      // Custom Application class (possibly per-flavor) — the INTERNET fix
+      // was written above if needed, but the Application wiring is left to
+      // the user.
+      final existingClass =
+          findApplicationClassName(manifestContent) ?? '(unknown)';
       _logger.warn(
         'AndroidManifest.xml already has a custom Application class: '
         '$existingClass\n'
@@ -411,7 +468,11 @@ $newCopyBlock
     progress.complete('Android configured');
     _logger.info('  Created: assets/codepush.yaml');
     _logger.info('  Created: CodePushApp.kt');
-    _logger.info('  Updated: AndroidManifest.xml');
+    _logger.info(
+      updatedManifest != null
+          ? '  Updated: AndroidManifest.xml'
+          : '  AndroidManifest.xml: already configured',
+    );
   }
 
   /// Returns a `public_key: |` YAML block for codepush.yaml when a local
