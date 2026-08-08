@@ -30,7 +30,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addMultiOption(
         'dart-define',
-        help: 'Additional --dart-define values to forward to flutter build '
+        help:
+            'Additional --dart-define values to forward to flutter build '
             'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
@@ -58,7 +59,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'flutter-version',
-        help: 'Flutter SDK version this patch was built with (e.g., 3.41.2). '
+        help:
+            'Flutter SDK version this patch was built with (e.g., 3.41.2). '
             'Auto-detected from "flutter --version" if not specified, '
             'then falls back to codepush_engine_flutter_version in '
             '~/.flutter_compilerc. Required by the finalize step to locate '
@@ -66,7 +68,8 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'package-prefix',
-        help: 'iOS only. Package URI prefix identifying the user\'s '
+        help:
+            'iOS only. Package URI prefix identifying the user\'s '
             'app code (e.g. `package:fcptest/`). Only libraries '
             'whose URIs start with this prefix get compiled into the '
             'patch; everything else (Flutter framework, pub deps) '
@@ -75,19 +78,22 @@ class CodePushPatchSubCommand extends Command<int> {
       )
       ..addOption(
         'patch-entry-file',
-        help: 'iOS only. Path to the Dart file under `lib/` that defines '
+        help:
+            'iOS only. Path to the Dart file under `lib/` that defines '
             '`codePushPatch()`. If omitted, flutter_compile scans `lib/` '
             'and requires exactly one matching source file.',
       )
       ..addFlag(
         'swap-mode',
-        help: 'iOS only. Alternative patch generation mode that '
+        help:
+            'iOS only. Alternative patch generation mode that '
             'enables runtime function replacement. Default: off.',
         negatable: false,
       )
       ..addMultiOption(
         'include-uri',
-        help: 'iOS only. Additional library URI to include in the '
+        help:
+            'iOS only. Additional library URI to include in the '
             'bytecode module (repeatable). For patch-side helper '
             'libraries not discovered automatically.',
       );
@@ -501,12 +507,18 @@ class CodePushPatchSubCommand extends Command<int> {
           '${baselineHash.substring(0, 16)}…',
         );
       } else {
-        // Fallback: compute from local build output (pre-existing
-        // behavior). This path runs when the release has no stored
-        // hash or the server lookup fails.
+        // Fallback: compute from local build output. This path runs
+        // when the release has no stored hash or the server lookup
+        // fails. On Android only the stripped, packaged libapp.so may
+        // be hashed (what devices actually run); the merged_native_libs
+        // copy this used to hash is pre-strip and hashes differently,
+        // which would wrongly refuse correct baselines. No candidate →
+        // null → the patch uploads without a hash (served, not gated),
+        // which is safer than gating on a wrong one.
+        final androidBaselineLib = buildService.findAndroidBaselineLibPath();
         final candidateAppFrameworks = [
           'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
-          'build/app/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libapp.so',
+          if (androidBaselineLib != null) androidBaselineLib,
         ];
         for (final candidate in candidateAppFrameworks) {
           final file = File(candidate);

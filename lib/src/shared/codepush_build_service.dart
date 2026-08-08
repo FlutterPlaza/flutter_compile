@@ -206,7 +206,8 @@ class CodePushBuildService {
       if (flutterRoot != null) {
         final engineCache = '$flutterRoot/bin/cache/artifacts/engine';
         sdkGenSnapshotPath = '$engineCache/ios-release/gen_snapshot_arm64';
-        sdkFrameworkPath = '$engineCache/ios-release/'
+        sdkFrameworkPath =
+            '$engineCache/ios-release/'
             'Flutter.xcframework/ios-arm64/Flutter.framework/Flutter';
 
         expectedGenSnapshotSha = _sha256OfFile(File(sdkGenSnapshotPath));
@@ -424,6 +425,52 @@ class CodePushBuildService {
     return null;
   }
 
+  /// Path of the Android release AOT library exactly as it ships to
+  /// devices: the stripped `libapp.so` that gets packaged into the
+  /// APK/AAB. This is the file whose SHA-256 matches what an installed
+  /// app can compute from its own package, so it is the only correct
+  /// source for release/baseline hashing on Android.
+  ///
+  /// The pre-strip copies (`intermediates/flutter/release/**/app.so`,
+  /// `merged_native_libs/**/libapp.so`) are the same size but not the
+  /// same bytes — the strip step rewrites the file in place — so
+  /// hashing those produces a value no installed device can match.
+  ///
+  /// Returns null when no Android release build output is present.
+  String? findAndroidBaselineLibPath() {
+    const abis = ['arm64-v8a', 'armeabi-v7a'];
+    const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';
+    // Known layouts first: AGP 8 inserts the strip task name into the
+    // path; older AGP wrote directly under out/.
+    for (final abi in abis) {
+      for (final path in [
+        '$strippedRoot/stripReleaseDebugSymbols/out/lib/$abi/libapp.so',
+        '$strippedRoot/out/lib/$abi/libapp.so',
+      ]) {
+        if (File(path).existsSync()) return path;
+      }
+    }
+    // Fallback: scan the stripped tree so a future AGP layout change
+    // degrades to a search instead of a miss.
+    final root = Directory(strippedRoot);
+    if (!root.existsSync()) return null;
+    try {
+      final libs = root
+          .listSync(recursive: true)
+          .whereType<File>()
+          .where((f) => f.uri.pathSegments.last == 'libapp.so')
+          .toList();
+      for (final abi in abis) {
+        for (final lib in libs) {
+          if (lib.uri.pathSegments.contains(abi)) return lib.path;
+        }
+      }
+    } catch (_) {
+      // Unreadable build tree — treat as absent.
+    }
+    return null;
+  }
+
   /// Verify the first bytes of a patch payload match the expected
   /// format for [platform]. Returns `null` on pass; a short error
   /// string on fail.
@@ -560,11 +607,11 @@ class CodePushBuildService {
         _logger.err('Flutter version is required to prepare an iOS fcp build.');
         return false;
       }
-      final overlaysInstalled =
-          await artifactManager.installOverlaysIntoFlutterSdk(
-        flutterVersion: flutterVersion,
-        platform: buildPlatform,
-      );
+      final overlaysInstalled = await artifactManager
+          .installOverlaysIntoFlutterSdk(
+            flutterVersion: flutterVersion,
+            platform: buildPlatform,
+          );
       if (!overlaysInstalled) {
         _logger.err(
           'Failed to install the iOS fcp engine overlays into the active Flutter SDK.',
@@ -608,7 +655,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -658,7 +706,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }
@@ -713,7 +762,8 @@ class CodePushBuildService {
     if (tool == null) {
       return const BuildStepResult(
         success: false,
-        message: 'Build tool not available. '
+        message:
+            'Build tool not available. '
             'Run "fcp codepush setup" first to download it.',
       );
     }

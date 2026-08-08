@@ -13,19 +13,13 @@ import 'package:mason_logger/mason_logger.dart';
 class CodePushReleaseSubCommand extends Command<int> {
   CodePushReleaseSubCommand(this._logger) {
     argParser
-      ..addOption(
-        'app-id',
-        help: 'The app ID to create a release for.',
-      )
+      ..addOption('app-id', help: 'The app ID to create a release for.')
       ..addOption(
         'version',
         abbr: 'v',
         help: 'The version string for this release (e.g., 1.0.0+1).',
       )
-      ..addOption(
-        'snapshot',
-        help: 'Path to a pre-built release artifact.',
-      )
+      ..addOption('snapshot', help: 'Path to a pre-built release artifact.')
       ..addOption(
         'platform',
         abbr: 'p',
@@ -38,12 +32,14 @@ class CodePushReleaseSubCommand extends Command<int> {
       )
       ..addMultiOption(
         'dart-define',
-        help: 'Additional --dart-define values to forward to flutter build '
+        help:
+            'Additional --dart-define values to forward to flutter build '
             'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
         'flutter-version',
-        help: 'Flutter SDK version this release was built with (e.g., 3.41.2). '
+        help:
+            'Flutter SDK version this release was built with (e.g., 3.41.2). '
             'Auto-detected from "flutter --version" if not specified. '
             'Required for server-side patch compilation.',
       );
@@ -81,15 +77,18 @@ class CodePushReleaseSubCommand extends Command<int> {
       final pubspec = File('pubspec.yaml');
       if (pubspec.existsSync()) {
         final content = pubspec.readAsStringSync();
-        final match =
-            RegExp(r'^version:\s*(.+)$', multiLine: true).firstMatch(content);
+        final match = RegExp(
+          r'^version:\s*(.+)$',
+          multiLine: true,
+        ).firstMatch(content);
         if (match != null) {
           version = match.group(1)?.trim();
         }
       }
       if (version == null || version.isEmpty) {
         _logger.err(
-            'No version specified. Use --version or add one to pubspec.yaml.');
+          'No version specified. Use --version or add one to pubspec.yaml.',
+        );
         return ExitCode.usage.code;
       }
       _logger.detail('Using version from pubspec.yaml: $version');
@@ -160,8 +159,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         // not leave the app repo dirty.
         if (platform == 'ios') {
           final generatedBaselineId = generateBaselineId();
-          originalIosInfoPlist =
-              writeBaselineIdToIosInfoPlist(generatedBaselineId);
+          originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
+            generatedBaselineId,
+          );
           if (originalIosInfoPlist == null) {
             _logger.warn(
               'Warning: ios/Runner/Info.plist not found. '
@@ -250,7 +250,16 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (snapshotPath == null || snapshotPath.isEmpty) {
       // Auto-detect from build output.
       final platform = argResults?['platform'] as String?;
-      snapshotPath = buildService.findSnapshotPath(platform ?? 'apk');
+      final resolvedPlatform = platform ?? 'apk';
+      // On Android the uploaded baseline MUST be the stripped libapp.so
+      // that ships inside the APK/AAB: the server hashes these bytes and
+      // devices compare against a hash of the packaged file they run.
+      // The pre-strip app.so that findSnapshotPath prefers hashes
+      // differently, which would make every device's check miss.
+      if (const {'apk', 'appbundle', 'android'}.contains(resolvedPlatform)) {
+        snapshotPath = buildService.findAndroidBaselineLibPath();
+      }
+      snapshotPath ??= buildService.findSnapshotPath(resolvedPlatform);
       if (snapshotPath == null) {
         _logger.err(
           'No snapshot found. Build your app in release mode first, or use --snapshot.',
@@ -279,8 +288,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (vResult.exitCode == 0) {
           try {
             final vJson = (vResult.stdout as String).trim();
-            final match =
-                RegExp(r'"frameworkVersion"\s*:\s*"([^"]+)"').firstMatch(vJson);
+            final match = RegExp(
+              r'"frameworkVersion"\s*:\s*"([^"]+)"',
+            ).firstMatch(vJson);
             flutterVersion = match?.group(1);
           } catch (_) {}
         }
@@ -288,8 +298,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (flutterVersion == null || flutterVersion.isEmpty) {
           final plainResult = Process.runSync(flutter, ['--version']);
           if (plainResult.exitCode == 0) {
-            final match = RegExp(r'Flutter (\d+\.\d+\.\d+)')
-                .firstMatch(plainResult.stdout as String);
+            final match = RegExp(
+              r'Flutter (\d+\.\d+\.\d+)',
+            ).firstMatch(plainResult.stdout as String);
             flutterVersion = match?.group(1);
           }
         }
@@ -306,10 +317,12 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
-    final versionSuffix =
-        flutterVersion != null ? ' (Flutter $flutterVersion)' : '';
-    final progress =
-        _logger.progress('Creating release v$version for $appId$versionSuffix');
+    final versionSuffix = flutterVersion != null
+        ? ' (Flutter $flutterVersion)'
+        : '';
+    final progress = _logger.progress(
+      'Creating release v$version for $appId$versionSuffix',
+    );
 
     try {
       final result = await client.createRelease(
