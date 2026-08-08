@@ -468,7 +468,11 @@ $newCopyBlock
     progress.complete('Android configured');
     _logger.info('  Created: assets/codepush.yaml');
     _logger.info('  Created: CodePushApp.kt');
-    _logger.info('  Updated: AndroidManifest.xml');
+    _logger.info(
+      updatedManifest != null
+          ? '  Updated: AndroidManifest.xml'
+          : '  AndroidManifest.xml: already configured',
+    );
   }
 
   /// Returns a `public_key: |` YAML block for codepush.yaml when a local
