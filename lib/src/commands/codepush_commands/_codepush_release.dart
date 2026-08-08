@@ -32,14 +32,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       )
       ..addMultiOption(
         'dart-define',
-        help:
-            'Additional --dart-define values to forward to flutter build '
+        help: 'Additional --dart-define values to forward to flutter build '
             'when --build is used. Repeat for multiple values.',
       )
       ..addOption(
         'flutter-version',
-        help:
-            'Flutter SDK version this release was built with (e.g., 3.41.2). '
+        help: 'Flutter SDK version this release was built with (e.g., 3.41.2). '
             'Auto-detected from "flutter --version" if not specified. '
             'Required for server-side patch compilation.',
       );
@@ -255,9 +253,19 @@ class CodePushReleaseSubCommand extends Command<int> {
       // that ships inside the APK/AAB: the server hashes these bytes and
       // devices compare against a hash of the packaged file they run.
       // The pre-strip app.so that findSnapshotPath prefers hashes
-      // differently, which would make every device's check miss.
+      // differently, which would make every device's check miss — so a
+      // missing packaged library is an error here, never a silent
+      // fallback to a copy whose identity no device can match.
       if (const {'apk', 'appbundle', 'android'}.contains(resolvedPlatform)) {
         snapshotPath = buildService.findAndroidBaselineLibPath();
+        if (snapshotPath == null) {
+          _logger.err(
+            'No packaged Android library found to upload. Run a release '
+            'build first (flutter build apk / appbundle), or pass '
+            '--snapshot with the exact library file your app ships.',
+          );
+          return ExitCode.usage.code;
+        }
       }
       snapshotPath ??= buildService.findSnapshotPath(resolvedPlatform);
       if (snapshotPath == null) {
@@ -317,9 +325,8 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     final serverUrl = await CodePushClient.getServerUrl();
     final client = CodePushClient(serverUrl: serverUrl);
-    final versionSuffix = flutterVersion != null
-        ? ' (Flutter $flutterVersion)'
-        : '';
+    final versionSuffix =
+        flutterVersion != null ? ' (Flutter $flutterVersion)' : '';
     final progress = _logger.progress(
       'Creating release v$version for $appId$versionSuffix',
     );

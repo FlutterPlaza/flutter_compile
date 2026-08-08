@@ -78,6 +78,19 @@ void main() {
       expect(service.findAndroidBaselineLibPath(), contains('arm64-v8a'));
     });
 
+    test('scan tiebreak: the newest of several copies wins', () {
+      createLib('$strippedRoot/oldTask/out/lib/arm64-v8a/libapp.so');
+      createLib('$strippedRoot/newTask/out/lib/arm64-v8a/libapp.so');
+      final old = File('$strippedRoot/oldTask/out/lib/arm64-v8a/libapp.so');
+      old.setLastModifiedSync(
+        DateTime.now().subtract(const Duration(days: 1)),
+      );
+      expect(
+        service.findAndroidBaselineLibPath(),
+        contains('newTask'),
+      );
+    });
+
     test('never returns a pre-strip copy', () {
       createLib(
         'build/app/intermediates/merged_native_libs/release/out/lib/'
