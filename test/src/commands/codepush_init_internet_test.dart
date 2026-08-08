@@ -55,8 +55,7 @@ void main() {
           '</manifest>\n';
       final result = ensureInternetPermission(manifest);
       // The real (uncommented) declaration must have been inserted.
-      final uncommented =
-          result.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+      final uncommented = result.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
       expect(uncommented, contains(permission));
     });
   });
