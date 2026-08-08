@@ -59,4 +59,107 @@ void main() {
       expect(uncommented, contains(permission));
     });
   });
+
+  manifestStates();
+}
+
+const _permission =
+    '<uses-permission android:name="android.permission.INTERNET"/>';
+
+/// The three manifest states `fcp codepush init` can encounter, verified
+/// through the pure write decision (`computeManifestUpdate`) that drives
+/// every manifest write in `_setupAndroid`.
+void manifestStates() {
+  group('computeManifestUpdate', () {
+    test('fresh scaffold: inserts INTERNET and wires CodePushApp', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <application\n'
+          '        android:label="myapp"\n'
+          '        android:name="\${applicationName}"\n'
+          '        android:icon="@mipmap/ic_launcher">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      final result = computeManifestUpdate(manifest);
+      expect(result, isNotNull);
+      expect(result, contains(_permission));
+      expect(result, contains('android:name=".CodePushApp"'));
+      expect(result, isNot(contains(r'${applicationName}')));
+    });
+
+    test('custom Application class: inserts INTERNET, leaves the class alone',
+        () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <application\n'
+          '        android:name="com.example.MyApplication"\n'
+          '        android:label="myapp">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      final result = computeManifestUpdate(manifest);
+      expect(result, isNotNull);
+      expect(result, contains(_permission));
+      expect(result, contains('android:name="com.example.MyApplication"'));
+      expect(result, isNot(contains('CodePushApp')));
+    });
+
+    test('custom Application class with INTERNET present: no write', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    $_permission\n'
+          '    <application android:name="com.example.MyApplication">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      expect(computeManifestUpdate(manifest), isNull);
+    });
+
+    test('re-run (CodePushApp wired, INTERNET present): no write', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    $_permission\n'
+          '    <application android:name=".CodePushApp">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      expect(computeManifestUpdate(manifest), isNull);
+    });
+
+    test('re-run with INTERNET missing: restores only the permission', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <application android:name=".CodePushApp">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      final result = computeManifestUpdate(manifest);
+      expect(result, isNotNull);
+      expect(result, contains(_permission));
+      // Idempotent from here: a second pass writes nothing.
+      expect(computeManifestUpdate(result!), isNull);
+    });
+  });
+
+  group('findApplicationClassName', () {
+    test('reads the class from the application element, not a permission', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <uses-permission android:name="android.permission.CAMERA"/>\n'
+          '    <application\n'
+          '        android:name="com.example.MyApplication">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      expect(
+        findApplicationClassName(manifest),
+        equals('com.example.MyApplication'),
+      );
+    });
+
+    test('returns null when the application element has no android:name', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <uses-permission android:name="android.permission.CAMERA"/>\n'
+          '    <application android:label="myapp">\n'
+          '    </application>\n'
+          '</manifest>\n';
+      expect(findApplicationClassName(manifest), isNull);
+    });
+  });
 }
