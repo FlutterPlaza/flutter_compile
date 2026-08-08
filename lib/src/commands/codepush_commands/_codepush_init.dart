@@ -14,7 +14,11 @@ import 'package:mason_logger/mason_logger.dart';
 /// debug/profile manifests, so a release build otherwise cannot reach the
 /// update server and code push fails at runtime with a SocketException.
 String ensureInternetPermission(String manifest) {
-  if (manifest.contains('android.permission.INTERNET')) {
+  // Ignore XML comments when checking, so a commented-out permission
+  // (e.g. a scaffold's "uncomment for release" hint) still gets a real
+  // declaration inserted.
+  final uncommented = manifest.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+  if (uncommented.contains('android.permission.INTERNET')) {
     return manifest;
   }
   final match = RegExp(r'<manifest\b[^>]*>').firstMatch(manifest);

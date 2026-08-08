@@ -46,5 +46,18 @@ void main() {
       const junk = 'not a manifest';
       expect(ensureInternetPermission(junk), equals(junk));
     });
+
+    test('a commented-out permission does not count as present', () {
+      const manifest =
+          '<manifest xmlns:android="http://schemas.android.com/apk/res/android">\n'
+          '    <!-- $permission -->\n'
+          '    <application/>\n'
+          '</manifest>\n';
+      final result = ensureInternetPermission(manifest);
+      // The real (uncommented) declaration must have been inserted.
+      final uncommented =
+          result.replaceAll(RegExp(r'<!--[\s\S]*?-->'), '');
+      expect(uncommented, contains(permission));
+    });
   });
 }
