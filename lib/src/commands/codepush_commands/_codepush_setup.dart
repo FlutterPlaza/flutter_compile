@@ -56,7 +56,9 @@ class CodePushSetupSubCommand extends Command<int> {
     }
 
     // Ensure the build tool is ready (bootstrap download if missing).
-    final tool = await manager.ensureBuildTool();
+    // `--force` re-consults the manifest and re-downloads on any change,
+    // so it's the real recovery path for a stale/broken cached tool.
+    final tool = await manager.ensureBuildTool(forceRefresh: force);
     if (tool == null) {
       return ExitCode.software.code;
     }

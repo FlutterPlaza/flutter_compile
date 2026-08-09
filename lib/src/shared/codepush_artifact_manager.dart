@@ -45,7 +45,7 @@ class CodePushArtifactManager {
   /// This keeps a stale cached tool from silently missing newer
   /// subcommands. When the manifest can't be fetched (offline), an
   /// existing cached tool is used as-is.
-  Future<String?> ensureBuildTool() async {
+  Future<String?> ensureBuildTool({bool forceRefresh = false}) async {
     final home = Platform.environment['HOME'] ?? '/tmp';
     final platform = currentPlatform;
     final cacheDir = Directory('$home/.flutter_compile/cache/tools');
@@ -55,8 +55,10 @@ class CodePushArtifactManager {
     // Version-check at most once per window: a freshly-verified cached
     // tool returns instantly (no network) so the common path — and the
     // offline path — isn't gated on a manifest fetch. The window bounds
-    // how long a tool update can go unnoticed.
-    if (cached.existsSync() && _checkedRecently(stamp)) {
+    // how long a tool update can go unnoticed. [forceRefresh] bypasses
+    // the window so `setup --force` re-consults the manifest and
+    // re-downloads on any sha change, even right after the tool ran.
+    if (!forceRefresh && cached.existsSync() && _checkedRecently(stamp)) {
       return cached.path;
     }
 
