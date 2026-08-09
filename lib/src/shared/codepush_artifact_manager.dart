@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:mason_logger/mason_logger.dart';
 
 import 'constants.dart';
@@ -37,13 +38,29 @@ class CodePushArtifactManager {
 
   /// Returns the path to the build tool binary, downloading it first if
   /// needed. Returns null if the download fails.
+  ///
+  /// The cache is version-keyed against the published `tools/versions.json`
+  /// manifest: when the manifest is reachable and its sha256 for this
+  /// platform differs from the cached binary, the tool is re-downloaded.
+  /// This keeps a stale cached tool from silently missing newer
+  /// subcommands. When the manifest can't be fetched (offline), an
+  /// existing cached tool is used as-is.
   Future<String?> ensureBuildTool() async {
     final home = Platform.environment['HOME'] ?? '/tmp';
     final platform = currentPlatform;
     final cacheDir = Directory('$home/.flutter_compile/cache/tools');
     final cached = File('${cacheDir.path}/fcp-tool-$platform');
 
-    if (cached.existsSync()) return cached.path;
+    final expectedSha = await _fetchExpectedToolSha(platform);
+
+    if (cached.existsSync()) {
+      // No manifest (offline) → trust the cache. Manifest present and
+      // matching → cache is current. Only a definite mismatch re-downloads.
+      if (expectedSha == null) return cached.path;
+      final currentSha = sha256.convert(cached.readAsBytesSync()).toString();
+      if (currentSha == expectedSha) return cached.path;
+      _logger.detail('Build tool is out of date — refreshing.');
+    }
 
     cacheDir.createSync(recursive: true);
     final url = '$_toolBucketBase/$platform/fcp-tool';
@@ -58,8 +75,20 @@ class CodePushArtifactManager {
         );
         return null;
       }
-      final sink = cached.openWrite();
+      // Download to a temp file and rename on success, so an interrupted
+      // download never leaves a truncated tool in the cache.
+      final tmp = File('${cached.path}.download');
+      final sink = tmp.openWrite();
       await response.pipe(sink);
+      if (expectedSha != null) {
+        final gotSha = sha256.convert(tmp.readAsBytesSync()).toString();
+        if (gotSha != expectedSha) {
+          tmp.deleteSync();
+          progress.fail('Build tool checksum mismatch — download rejected.');
+          return null;
+        }
+      }
+      tmp.renameSync(cached.path);
       if (!Platform.isWindows) {
         await Process.run('chmod', ['+x', cached.path]);
       }
@@ -67,6 +96,30 @@ class CodePushArtifactManager {
       return cached.path;
     } on Exception catch (e) {
       progress.fail('Build tool download error: $e');
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// Best-effort fetch of the expected sha256 for [platform] from the
+  /// tools manifest. Returns null when the manifest is unreachable or has
+  /// no entry, so callers fall back to the cached tool.
+  Future<String?> _fetchExpectedToolSha(String platform) async {
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .getUrl(Uri.parse('$_toolBucketBase/versions.json'))
+          .timeout(const Duration(seconds: 5));
+      final response =
+          await request.close().timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return null;
+      final body = await response.transform(utf8.decoder).join();
+      final manifest = jsonDecode(body) as Map<String, dynamic>;
+      final entry = manifest[platform];
+      if (entry is Map<String, dynamic>) return entry['sha256'] as String?;
+      return null;
+    } on Exception {
       return null;
     } finally {
       client.close(force: true);
