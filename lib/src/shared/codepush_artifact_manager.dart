@@ -67,7 +67,13 @@ class CodePushArtifactManager {
     if (cached.existsSync()) {
       // No manifest (offline) → trust the cache. Manifest present and
       // matching → cache is current. Only a definite mismatch re-downloads.
-      if (expectedSha == null) return cached.path;
+      // Stamp on both trust paths, so a repeated offline call within the
+      // window returns instantly instead of re-eating the manifest
+      // timeout each time.
+      if (expectedSha == null) {
+        _touch(stamp);
+        return cached.path;
+      }
       final currentSha = sha256.convert(cached.readAsBytesSync()).toString();
       if (currentSha == expectedSha) {
         _touch(stamp);
