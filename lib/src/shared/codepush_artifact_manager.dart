@@ -157,7 +157,12 @@ class CodePushArtifactManager {
       final response =
           await request.close().timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return null;
-      final body = await response.transform(utf8.decoder).join();
+      // Bound the body read too: a connection that stalls mid-body must
+      // not hang the version check and defeat the freshness window.
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 5));
       // `is` checks (not `as` casts): a 200 body that isn't the expected
       // shape — a JSON array, a captive-portal page, sha256 as a number —
       // must degrade to "unknown" (→ trust the cache), not throw a

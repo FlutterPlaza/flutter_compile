@@ -543,10 +543,14 @@ class CodePushBuildService {
     if (tool == null) return null;
 
     // Sign a temp copy and swap it in on success, so a mid-sign failure
-    // never leaves a partially-rewritten container on disk.
+    // never leaves a partially-rewritten container on disk. The whole
+    // body is guarded so any I/O or process error (unreadable patch,
+    // a tool binary that's present but not executable / wrong arch / on
+    // a noexec mount → ProcessException) returns null with a clear
+    // message, honoring the "null on any failure" contract.
     final tmp = File('$patchPath.signing');
-    File(patchPath).copySync(tmp.path);
     try {
+      File(patchPath).copySync(tmp.path);
       final result = Process.runSync(tool, [
         'sign',
         '--patch',
@@ -579,6 +583,9 @@ class CodePushBuildService {
       }
       tmp.renameSync(patchPath);
       return signatureBase64;
+    } on Exception catch (e) {
+      _logger.err('Signing failed: $e');
+      return null;
     } finally {
       if (tmp.existsSync()) tmp.deleteSync();
     }

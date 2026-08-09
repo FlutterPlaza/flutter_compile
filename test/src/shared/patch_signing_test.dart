@@ -94,5 +94,20 @@ void main() {
       when(() => artifacts.ensureBuildTool()).thenAnswer((_) async => null);
       return run().then((r) => expect(r, isNull));
     });
+
+    test('returns null (no crash) when the tool binary throws on exec', () {
+      // A present-but-not-executable "tool" makes Process.runSync throw a
+      // ProcessException rather than return a non-zero exit.
+      final notExec = File('${tmp.path}/not-exec')..writeAsStringSync('x');
+      when(() => artifacts.ensureBuildTool())
+          .thenAnswer((_) async => notExec.path);
+
+      return run().then((result) {
+        expect(result, isNull);
+        // Original container preserved; no leftover temp.
+        expect(File(patchPath).readAsBytesSync(), equals([1, 2, 3, 4, 5]));
+        expect(File('$patchPath.signing').existsSync(), isFalse);
+      });
+    });
   });
 }
