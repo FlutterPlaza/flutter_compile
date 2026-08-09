@@ -522,6 +522,44 @@ class CodePushBuildService {
         'rebuild the patch.';
   }
 
+  /// Signs a packaged patch container in place and returns the base64
+  /// RSA-SHA256 signature to forward to the server.
+  ///
+  /// Delegates to the build tool's `sign` step, which signs the raw
+  /// payload inside the container (the exact bytes the device runtime
+  /// and the server both verify) and embeds the signature so a signed
+  /// app can load the patch. Returns null on any failure.
+  Future<String?> signPatchContainer({
+    required String patchPath,
+    required String privateKeyPath,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    if (!File(privateKeyPath).existsSync()) {
+      _logger.err('Signing key not found: $privateKeyPath');
+      return null;
+    }
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) return null;
+
+    final result = Process.runSync(tool, [
+      'sign',
+      '--patch',
+      patchPath,
+      '--signing-key',
+      privateKeyPath,
+    ]);
+    if (result.exitCode != 0) {
+      _logger.err('Signing failed: ${result.stderr}');
+      return null;
+    }
+    final signatureBase64 = (result.stdout as String).trim();
+    if (signatureBase64.isEmpty) {
+      _logger.err('Signing produced no signature.');
+      return null;
+    }
+    return signatureBase64;
+  }
+
   /// Sign data with RSA-SHA256 using a PEM private key file.
   Future<Uint8List?> signPayload(Uint8List data, String privateKeyPath) async {
     final keyFile = File(privateKeyPath);

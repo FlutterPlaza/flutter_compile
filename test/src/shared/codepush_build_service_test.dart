@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 class MockLogger extends Mock implements Logger {}
 
 void main() {
+  _signingGuards();
   group('CodePushBuildService', () {
     late MockLogger logger;
     late CodePushBuildService service;
@@ -240,6 +241,31 @@ void main() {
       expect(diag, contains('exit code: 1'));
       expect(diag, isNot(contains('stderr:')));
       expect(diag, isNot(contains('stdout:')));
+    });
+  });
+}
+
+// ── Patch signing (finding #4) ──────────────────────────────────────
+void _signingGuards() {
+  group('signPatchContainer', () {
+    late CodePushBuildService service;
+    late CodePushArtifactManager artifactManager;
+
+    setUp(() {
+      final logger = MockLogger();
+      service = CodePushBuildService(logger: logger);
+      artifactManager = CodePushArtifactManager(logger: logger);
+    });
+
+    test(
+        'returns null when the signing key is missing (before any tool '
+        'download)', () async {
+      final result = await service.signPatchContainer(
+        patchPath: 'build/codepush/patch.fcppatch',
+        privateKeyPath: '/nonexistent/key.pem',
+        artifactManager: artifactManager,
+      );
+      expect(result, isNull);
     });
   });
 }

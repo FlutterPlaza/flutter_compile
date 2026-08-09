@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -440,29 +439,30 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
 
-      final patchData = patchFile.readAsBytesSync();
-      _logger.detail('Patch size: ${patchData.length} bytes');
-
-      // Sign the packaged patch bytes (not the raw payload). The server
-      // will verify the signature against exactly these bytes.
-      // Auto-detect stored key if --signing-key isn't passed. Signing is
-      // mandatory unless --unsigned is explicitly set.
-      final buildServiceForSigning = CodePushBuildService(logger: _logger);
+      // Sign the raw payload inside the container and embed the
+      // signature, so a signed app can verify the patch on device. The
+      // same signature goes to the server, which verifies it over the
+      // same payload bytes. Auto-detect the stored key if --signing-key
+      // isn't passed. Signing is mandatory unless --unsigned is set.
+      final artifactManagerForSigning = CodePushArtifactManager(
+        logger: _logger,
+      );
       final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
-      Uint8List? signature;
+      String? signatureBase64;
       var signingKeyPath = argResults?['signing-key'] as String?;
       signingKeyPath ??= await CodePushClient.getStoredSigningKey();
       if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
         final signProgress = _logger.progress('Signing patch');
-        signature = await buildServiceForSigning.signPayload(
-          Uint8List.fromList(patchData),
-          signingKeyPath,
+        signatureBase64 = await buildService.signPatchContainer(
+          patchPath: patchPath,
+          privateKeyPath: signingKeyPath,
+          artifactManager: artifactManagerForSigning,
         );
-        if (signature == null) {
+        if (signatureBase64 == null) {
           signProgress.fail('Signing failed');
           return ExitCode.software.code;
         }
-        signProgress.complete('Signed (${signature.length} bytes)');
+        signProgress.complete('Signed and embedded');
       } else if (!allowUnsigned) {
         _logger.err(
           'No signing key found. Patches must be signed for production.\n'
@@ -478,6 +478,12 @@ class CodePushPatchSubCommand extends Command<int> {
           'Do NOT use in production.',
         );
       }
+
+      // Read the container AFTER signing: the sign step rewrote the file
+      // with the signature embedded, and the device must receive that
+      // signed container (an unsigned one is rejected by a signed app).
+      final patchData = patchFile.readAsBytesSync();
+      _logger.detail('Patch size: ${patchData.length} bytes');
 
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
@@ -555,7 +561,7 @@ class CodePushPatchSubCommand extends Command<int> {
           patchData: patchData,
           rolloutPercentage: rollout,
           channel: channel,
-          signature: signature == null ? null : base64Encode(signature),
+          signature: signatureBase64,
           baselineHash: baselineHash,
         );
 
