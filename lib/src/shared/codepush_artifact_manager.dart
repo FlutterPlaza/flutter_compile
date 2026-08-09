@@ -50,6 +50,15 @@ class CodePushArtifactManager {
     final platform = currentPlatform;
     final cacheDir = Directory('$home/.flutter_compile/cache/tools');
     final cached = File('${cacheDir.path}/fcp-tool-$platform');
+    final stamp = File('${cacheDir.path}/fcp-tool-$platform.checked');
+
+    // Version-check at most once per window: a freshly-verified cached
+    // tool returns instantly (no network) so the common path — and the
+    // offline path — isn't gated on a manifest fetch. The window bounds
+    // how long a tool update can go unnoticed.
+    if (cached.existsSync() && _checkedRecently(stamp)) {
+      return cached.path;
+    }
 
     final expectedSha = await _fetchExpectedToolSha(platform);
 
@@ -58,7 +67,10 @@ class CodePushArtifactManager {
       // matching → cache is current. Only a definite mismatch re-downloads.
       if (expectedSha == null) return cached.path;
       final currentSha = sha256.convert(cached.readAsBytesSync()).toString();
-      if (currentSha == expectedSha) return cached.path;
+      if (currentSha == expectedSha) {
+        _touch(stamp);
+        return cached.path;
+      }
       _logger.detail('Build tool is out of date — refreshing.');
     }
 
@@ -92,6 +104,7 @@ class CodePushArtifactManager {
       if (!Platform.isWindows) {
         await Process.run('chmod', ['+x', cached.path]);
       }
+      _touch(stamp);
       progress.complete('Build tool ready');
       return cached.path;
     } on Exception catch (e) {
@@ -102,9 +115,31 @@ class CodePushArtifactManager {
     }
   }
 
+  /// How long a verified cached tool is trusted before re-checking the
+  /// manifest.
+  static const Duration _toolCheckWindow = Duration(hours: 6);
+
+  bool _checkedRecently(File stamp) {
+    try {
+      if (!stamp.existsSync()) return false;
+      return DateTime.now().difference(stamp.lastModifiedSync()) <
+          _toolCheckWindow;
+    } on Exception {
+      return false;
+    }
+  }
+
+  void _touch(File stamp) {
+    try {
+      stamp.writeAsStringSync('${DateTime.now().toIso8601String()}\n');
+    } on Exception {
+      // A missing stamp only costs an extra manifest fetch next time.
+    }
+  }
+
   /// Best-effort fetch of the expected sha256 for [platform] from the
-  /// tools manifest. Returns null when the manifest is unreachable or has
-  /// no entry, so callers fall back to the cached tool.
+  /// tools manifest. Returns null when the manifest is unreachable, is
+  /// malformed, or has no entry, so callers fall back to the cached tool.
   Future<String?> _fetchExpectedToolSha(String platform) async {
     final client = _httpClientFactory();
     try {
@@ -115,10 +150,17 @@ class CodePushArtifactManager {
           await request.close().timeout(const Duration(seconds: 5));
       if (response.statusCode != 200) return null;
       final body = await response.transform(utf8.decoder).join();
-      final manifest = jsonDecode(body) as Map<String, dynamic>;
-      final entry = manifest[platform];
-      if (entry is Map<String, dynamic>) return entry['sha256'] as String?;
-      return null;
+      // `is` checks (not `as` casts): a 200 body that isn't the expected
+      // shape — a JSON array, a captive-portal page, sha256 as a number —
+      // must degrade to "unknown" (→ trust the cache), not throw a
+      // TypeError (an Error, not an Exception) that escapes this
+      // best-effort path.
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return null;
+      final entry = decoded[platform];
+      if (entry is! Map<String, dynamic>) return null;
+      final sha = entry['sha256'];
+      return sha is String ? sha : null;
     } on Exception {
       return null;
     } finally {
