@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -522,37 +523,71 @@ class CodePushBuildService {
         'rebuild the patch.';
   }
 
-  /// Sign data with RSA-SHA256 using a PEM private key file.
-  Future<Uint8List?> signPayload(Uint8List data, String privateKeyPath) async {
-    final keyFile = File(privateKeyPath);
-    if (!keyFile.existsSync()) {
+  /// Signs a packaged patch container in place and returns the base64
+  /// RSA-SHA256 signature to forward to the server.
+  ///
+  /// Delegates to the build tool's `sign` step, which signs the raw
+  /// payload inside the container (the exact bytes the device runtime
+  /// and the server both verify) and embeds the signature so a signed
+  /// app can load the patch. Returns null on any failure.
+  Future<String?> signPatchContainer({
+    required String patchPath,
+    required String privateKeyPath,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    if (!File(privateKeyPath).existsSync()) {
       _logger.err('Signing key not found: $privateKeyPath');
       return null;
     }
-    final tempDir = Directory.systemTemp.createTempSync('fcp_sign_');
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) return null;
+
+    // Sign a temp copy and swap it in on success, so a mid-sign failure
+    // never leaves a partially-rewritten container on disk. The whole
+    // body is guarded so any I/O or process error (unreadable patch,
+    // a tool binary that's present but not executable / wrong arch / on
+    // a noexec mount → ProcessException) returns null with a clear
+    // message, honoring the "null on any failure" contract.
+    final tmp = File('$patchPath.signing');
     try {
-      final dataFile = File('${tempDir.path}/payload.bin');
-      dataFile.writeAsBytesSync(data);
-      final sigFile = '${tempDir.path}/payload.sig';
-
-      final result = Process.runSync('openssl', [
-        'dgst',
-        '-sha256',
-        '-sign',
+      File(patchPath).copySync(tmp.path);
+      final result = Process.runSync(tool, [
+        'sign',
+        '--patch',
+        tmp.path,
+        '--signing-key',
         privateKeyPath,
-        '-out',
-        sigFile,
-        dataFile.path,
       ]);
-
       if (result.exitCode != 0) {
-        _logger.err('Signing failed: ${result.stderr}');
+        // An old cached tool has no `sign` subcommand; point the user at
+        // the refresh rather than a bare tool error.
+        _logger.err(
+          'Signing failed: ${(result.stderr as String).trim()}\n'
+          '  If this persists, refresh the build tool: '
+          'fcp codepush setup --force',
+        );
         return null;
       }
-
-      return File(sigFile).readAsBytesSync();
+      final signatureBase64 = (result.stdout as String).trim();
+      if (signatureBase64.isEmpty) {
+        _logger.err('Signing produced no signature.');
+        return null;
+      }
+      // The tool must print only the base64 signature; validate it so a
+      // stray stdout line can't corrupt what we forward to the server.
+      try {
+        base64Decode(signatureBase64);
+      } on FormatException {
+        _logger.err('Signing produced malformed output.');
+        return null;
+      }
+      tmp.renameSync(patchPath);
+      return signatureBase64;
+    } on Exception catch (e) {
+      _logger.err('Signing failed: $e');
+      return null;
     } finally {
-      tempDir.deleteSync(recursive: true);
+      if (tmp.existsSync()) tmp.deleteSync();
     }
   }
 

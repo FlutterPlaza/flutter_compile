@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart' show sha256;
 import 'package:mason_logger/mason_logger.dart';
 
 import 'constants.dart';
@@ -37,13 +38,49 @@ class CodePushArtifactManager {
 
   /// Returns the path to the build tool binary, downloading it first if
   /// needed. Returns null if the download fails.
-  Future<String?> ensureBuildTool() async {
+  ///
+  /// The cache is version-keyed against the published `tools/versions.json`
+  /// manifest: when the manifest is reachable and its sha256 for this
+  /// platform differs from the cached binary, the tool is re-downloaded.
+  /// This keeps a stale cached tool from silently missing newer
+  /// subcommands. When the manifest can't be fetched (offline), an
+  /// existing cached tool is used as-is.
+  Future<String?> ensureBuildTool({bool forceRefresh = false}) async {
     final home = Platform.environment['HOME'] ?? '/tmp';
     final platform = currentPlatform;
     final cacheDir = Directory('$home/.flutter_compile/cache/tools');
     final cached = File('${cacheDir.path}/fcp-tool-$platform');
+    final stamp = File('${cacheDir.path}/fcp-tool-$platform.checked');
 
-    if (cached.existsSync()) return cached.path;
+    // Version-check at most once per window: a freshly-verified cached
+    // tool returns instantly (no network) so the common path — and the
+    // offline path — isn't gated on a manifest fetch. The window bounds
+    // how long a tool update can go unnoticed. [forceRefresh] bypasses
+    // the window so `setup --force` re-consults the manifest and
+    // re-downloads on any sha change, even right after the tool ran.
+    if (!forceRefresh && cached.existsSync() && _checkedRecently(stamp)) {
+      return cached.path;
+    }
+
+    final expectedSha = await _fetchExpectedToolSha(platform);
+
+    if (cached.existsSync()) {
+      // No manifest (offline) → trust the cache. Manifest present and
+      // matching → cache is current. Only a definite mismatch re-downloads.
+      // Stamp on both trust paths, so a repeated offline call within the
+      // window returns instantly instead of re-eating the manifest
+      // timeout each time.
+      if (expectedSha == null) {
+        _touch(stamp);
+        return cached.path;
+      }
+      final currentSha = sha256.convert(cached.readAsBytesSync()).toString();
+      if (currentSha == expectedSha) {
+        _touch(stamp);
+        return cached.path;
+      }
+      _logger.detail('Build tool is out of date — refreshing.');
+    }
 
     cacheDir.createSync(recursive: true);
     final url = '$_toolBucketBase/$platform/fcp-tool';
@@ -58,15 +95,86 @@ class CodePushArtifactManager {
         );
         return null;
       }
-      final sink = cached.openWrite();
+      // Download to a temp file and rename on success, so an interrupted
+      // download never leaves a truncated tool in the cache.
+      final tmp = File('${cached.path}.download');
+      final sink = tmp.openWrite();
       await response.pipe(sink);
+      if (expectedSha != null) {
+        final gotSha = sha256.convert(tmp.readAsBytesSync()).toString();
+        if (gotSha != expectedSha) {
+          tmp.deleteSync();
+          progress.fail('Build tool checksum mismatch — download rejected.');
+          return null;
+        }
+      }
+      tmp.renameSync(cached.path);
       if (!Platform.isWindows) {
         await Process.run('chmod', ['+x', cached.path]);
       }
+      _touch(stamp);
       progress.complete('Build tool ready');
       return cached.path;
     } on Exception catch (e) {
       progress.fail('Build tool download error: $e');
+      return null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// How long a verified cached tool is trusted before re-checking the
+  /// manifest.
+  static const Duration _toolCheckWindow = Duration(hours: 6);
+
+  bool _checkedRecently(File stamp) {
+    try {
+      if (!stamp.existsSync()) return false;
+      return DateTime.now().difference(stamp.lastModifiedSync()) <
+          _toolCheckWindow;
+    } on Exception {
+      return false;
+    }
+  }
+
+  void _touch(File stamp) {
+    try {
+      stamp.writeAsStringSync('${DateTime.now().toIso8601String()}\n');
+    } on Exception {
+      // A missing stamp only costs an extra manifest fetch next time.
+    }
+  }
+
+  /// Best-effort fetch of the expected sha256 for [platform] from the
+  /// tools manifest. Returns null when the manifest is unreachable, is
+  /// malformed, or has no entry, so callers fall back to the cached tool.
+  Future<String?> _fetchExpectedToolSha(String platform) async {
+    final client = _httpClientFactory();
+    try {
+      final request = await client
+          .getUrl(Uri.parse('$_toolBucketBase/versions.json'))
+          .timeout(const Duration(seconds: 5));
+      final response =
+          await request.close().timeout(const Duration(seconds: 5));
+      if (response.statusCode != 200) return null;
+      // Bound the body read too: a connection that stalls mid-body must
+      // not hang the version check and defeat the freshness window.
+      final body = await response
+          .transform(utf8.decoder)
+          .join()
+          .timeout(const Duration(seconds: 5));
+      // `is` checks (not `as` casts): a 200 body that isn't the expected
+      // shape — a JSON array, a captive-portal page, sha256 as a number —
+      // must degrade to "unknown" (→ trust the cache), not throw a
+      // TypeError (an Error, not an Exception) that escapes this
+      // best-effort path.
+      final decoded = jsonDecode(body);
+      if (decoded is! Map<String, dynamic>) return null;
+      final entry = decoded[platform];
+      if (entry is! Map<String, dynamic>) return null;
+      final sha = entry['sha256'];
+      return sha is String ? sha : null;
+    } on Exception {
       return null;
     } finally {
       client.close(force: true);
