@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.15-rc.10
+
+- Fix: `fcp codepush release --build` and `fcp codepush patch --build` now verify the built Android app before continuing, and fail with a clear error if it is not code-push capable.
+
 ## 0.19.15-rc.9
 
 - Fix: Android apps now pick up code push configuration changes shipped in an app update. Re-run `fcp codepush init` in existing projects to apply. If you integrated the copy step into a custom `Application` class manually, remove the exists-check around the copy so it runs on every launch.
