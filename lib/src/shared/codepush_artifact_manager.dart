@@ -299,6 +299,37 @@ class CodePushArtifactManager {
     return result.exitCode == 0;
   }
 
+  /// The `android-arm64` engine cache directory for [flutterVersion] —
+  /// where `finalize`'s engine swap reads `libflutter.so` and where the
+  /// Android AOT `gen_snapshot` lives.
+  String androidEngineDir(String flutterVersion) =>
+      '${versionDir(flutterVersion)}/android-arm64';
+
+  /// Whether the Android engine set for [flutterVersion] is already in the
+  /// cache (both files the Android build needs).
+  bool isAndroidEngineCached(String flutterVersion) {
+    final dir = androidEngineDir(flutterVersion);
+    return File('$dir/libflutter.so').existsSync() &&
+        File('$dir/gen_snapshot').existsSync();
+  }
+
+  /// Ensures the `android-arm64` engine set (`libflutter.so` +
+  /// `gen_snapshot`) is cached for [flutterVersion], downloading it if
+  /// missing. Unlike iOS, Android needs no Flutter-SDK-cache install:
+  /// `fcp-tool finalize` swaps `libflutter.so` straight from this cache
+  /// into the built APK, and the patch compile reads `gen_snapshot`
+  /// from here — so a verified download is the whole install.
+  Future<bool> ensureAndroidEngine({
+    required String flutterVersion,
+    bool force = false,
+  }) async {
+    if (!force && isAndroidEngineCached(flutterVersion)) return true;
+    return downloadArtifacts(
+      flutterVersion: flutterVersion,
+      platform: 'android-arm64',
+    );
+  }
+
   /// Finalize the code-push engine install into the active Flutter SDK.
   /// On macOS hosts, installs the iOS target overlay so
   /// `flutter build ios --release` produces a code-push-capable app.
