@@ -48,6 +48,44 @@ void main() {
       });
     });
 
+    group('android engine cache (finding #2)', () {
+      test('androidEngineDir points at the finalize read path', () {
+        expect(
+          manager.androidEngineDir('3.41.6'),
+          equals('${tempDir.path}/flutter-3.41.6/android-arm64'),
+        );
+      });
+
+      test('isAndroidEngineCached is false when the engine is absent', () {
+        expect(manager.isAndroidEngineCached('3.41.6'), isFalse);
+      });
+
+      test('isAndroidEngineCached needs BOTH libflutter.so and gen_snapshot',
+          () {
+        final dir = Directory(manager.androidEngineDir('3.41.6'))
+          ..createSync(recursive: true);
+        File('${dir.path}/libflutter.so').writeAsBytesSync([1, 2, 3]);
+        // Only one of the two present → not cached.
+        expect(manager.isAndroidEngineCached('3.41.6'), isFalse);
+        File('${dir.path}/gen_snapshot').writeAsBytesSync([4, 5, 6]);
+        expect(manager.isAndroidEngineCached('3.41.6'), isTrue);
+      });
+
+      test(
+          'ensureAndroidEngine short-circuits when already cached '
+          '(no tool download)', () async {
+        final dir = Directory(manager.androidEngineDir('3.41.6'))
+          ..createSync(recursive: true);
+        File('${dir.path}/libflutter.so').writeAsBytesSync([1]);
+        File('${dir.path}/gen_snapshot').writeAsBytesSync([2]);
+        // Cached + not forced → returns true without touching the network.
+        expect(
+          await manager.ensureAndroidEngine(flutterVersion: '3.41.6'),
+          isTrue,
+        );
+      });
+    });
+
     group('listCachedVersions', () {
       test('returns empty list when cache is empty', () {
         expect(manager.listCachedVersions(), isEmpty);

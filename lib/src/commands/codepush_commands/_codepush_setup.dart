@@ -14,8 +14,9 @@ class CodePushSetupSubCommand extends Command<int> {
       )
       ..addOption(
         'platform',
-        help: 'Target platform (e.g., darwin-arm64, linux-x64). '
-            'Defaults to current platform.',
+        help: 'Target platform to set up (e.g. apk/android, ios, '
+            'darwin-arm64, linux-x64). Defaults to the host platform '
+            "plus any target the project directory shows it builds.",
       )
       ..addFlag(
         'force',
@@ -78,6 +79,40 @@ class CodePushSetupSubCommand extends Command<int> {
       progress.complete('Flutter $flutterVersion');
     }
 
+    // Explicit Android target: fetch just the android-arm64 engine into
+    // the cache and stop. Android needs no Flutter-SDK-cache overlay —
+    // `finalize` swaps libflutter.so straight from the cache — and the
+    // host/iOS steps below would only fetch files Android doesn't use
+    // (and fail if the iOS set for this version isn't published), so the
+    // Android path is handled on its own here.
+    if (_isAndroidPlatform(targetPlatform)) {
+      final supported = await manager.isVersionSupported(flutterVersion);
+      if (!supported) {
+        _logger.err(
+          'Flutter $flutterVersion is not yet supported for code push. '
+          'Run `fcp codepush setup --list-versions`.',
+        );
+        return ExitCode.software.code;
+      }
+      final androidProgress = _logger.progress(
+        'Downloading Android engine (android-arm64)',
+      );
+      final ok = await manager.ensureAndroidEngine(
+        flutterVersion: flutterVersion,
+        force: force,
+      );
+      if (!ok) {
+        androidProgress.fail('Failed to download the Android engine.');
+        return ExitCode.software.code;
+      }
+      androidProgress.complete('Android engine ready');
+      await manager.saveActiveVersion(flutterVersion);
+      _logger.success(
+        'Code push is ready for Android (Flutter $flutterVersion).',
+      );
+      return ExitCode.success.code;
+    }
+
     // Check if already cached.
     if (!force && manager.isVersionCached(flutterVersion)) {
       _logger.info(
@@ -106,6 +141,8 @@ class CodePushSetupSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
       installProgress.complete('Overlays installed.');
+
+      await _autoFetchAndroidIfTargeted(manager, flutterVersion, force: force);
 
       _logger.success('Code push is ready.');
       return ExitCode.success.code;
@@ -191,6 +228,8 @@ class CodePushSetupSubCommand extends Command<int> {
       }
     }
 
+    await _autoFetchAndroidIfTargeted(manager, flutterVersion, force: force);
+
     // Clean up other versions if requested.
     if (cleanup) {
       manager.cleanupOldVersions(keepVersion: flutterVersion);
@@ -200,6 +239,40 @@ class CodePushSetupSubCommand extends Command<int> {
       'Code push is ready for Flutter $flutterVersion.',
     );
     return ExitCode.success.code;
+  }
+
+  /// Whether [platform] names the Android target in any of its accepted
+  /// spellings (all map to the `android-arm64` engine set).
+  static bool _isAndroidPlatform(String? platform) => const {
+        'apk',
+        'appbundle',
+        'android',
+        'android-arm64',
+      }.contains(platform);
+
+  /// When no explicit `--platform` was given and the project directory
+  /// shows it builds for Android, make sure the Android engine is cached
+  /// too — a Flutter app commonly targets both iOS and Android, and the
+  /// host/iOS-oriented setup above never fetches it. Best-effort: a
+  /// failure here warns but doesn't fail the whole setup.
+  Future<void> _autoFetchAndroidIfTargeted(
+    CodePushArtifactManager manager,
+    String flutterVersion, {
+    required bool force,
+  }) async {
+    if (_isAndroidPlatform(argResults?['platform'] as String?)) return;
+    if (!Directory('android').existsSync()) return;
+    final p = _logger.progress('Downloading Android engine (android-arm64)');
+    final ok = await manager.ensureAndroidEngine(
+      flutterVersion: flutterVersion,
+      force: force,
+    );
+    if (ok) {
+      p.complete('Android engine ready');
+    } else {
+      p.fail('Android engine not fetched — run '
+          '`fcp codepush setup --platform android` to retry.');
+    }
   }
 
   Future<int> _listVersions(CodePushArtifactManager manager) async {
