@@ -281,22 +281,31 @@ class CodePushArtifactManager {
 
   // ── Download ──────────────────────────────────────────────────────
 
-  /// Download and cache artifacts for a specific Flutter version and platform.
+  /// Download and cache artifacts for a specific Flutter version and
+  /// platform. Returns false on any failure — including a tool binary
+  /// that can't be launched (`Process.runSync` throws `ProcessException`
+  /// rather than returning a non-zero exit), so callers that treat this
+  /// as best-effort don't crash on a broken cached tool.
   Future<bool> downloadArtifacts({
     required String flutterVersion,
     String? platform,
   }) async {
     final targetPlatform = platform ?? currentPlatform;
-    final tool = await ensureBuildTool();
-    if (tool == null) return false;
-    final result = Process.runSync(tool, [
-      'download-artifacts',
-      '--flutter-version',
-      flutterVersion,
-      '--platform',
-      targetPlatform,
-    ]);
-    return result.exitCode == 0;
+    try {
+      final tool = await ensureBuildTool();
+      if (tool == null) return false;
+      final result = Process.runSync(tool, [
+        'download-artifacts',
+        '--flutter-version',
+        flutterVersion,
+        '--platform',
+        targetPlatform,
+      ]);
+      return result.exitCode == 0;
+    } on Exception catch (e) {
+      _logger.detail('downloadArtifacts failed: $e');
+      return false;
+    }
   }
 
   /// The `android-arm64` engine cache directory for [flutterVersion] —
