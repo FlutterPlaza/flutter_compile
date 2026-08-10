@@ -72,12 +72,6 @@ class BuildStepResult {
   }
 }
 
-/// Build service for code push operations.
-///
-/// Only high-level, non-proprietary glue lives here:
-///   - locate the Flutter / Dart tools on PATH
-///   - run `flutter build`
-///   - compute SHA-256 hashes and sign payloads with RSA
 /// Result of the Android pre-build engine preparation step.
 ///
 /// [environment] must be present on the `flutter build` process so the
@@ -93,6 +87,12 @@ class AndroidEnginePrep {
   final String engineSha256;
 }
 
+/// Build service for code push operations.
+///
+/// Only high-level, non-proprietary glue lives here:
+///   - locate the Flutter / Dart tools on PATH
+///   - run `flutter build`
+///   - compute SHA-256 hashes and sign payloads with RSA
 ///   - thin Process wrappers around the private build tool binary
 class CodePushBuildService {
   CodePushBuildService({required Logger logger}) : _logger = logger;
@@ -103,6 +103,12 @@ class CodePushBuildService {
   /// code-push engine as part of the build itself (in which case the
   /// post-build finalize step has nothing left to do).
   bool _androidEngineVerified = false;
+
+  /// Test seam for [finalizeBuild]'s Android short-circuit; production
+  /// code must only set this through [buildRelease]'s verification.
+  void debugSetAndroidEngineVerified({required bool value}) {
+    _androidEngineVerified = value;
+  }
 
   /// Find the `flutter` executable.
   String? findFlutterBin() {
@@ -253,7 +259,17 @@ class CodePushBuildService {
         platform == 'apk' || platform == 'appbundle' || platform == 'android';
     _androidEngineVerified = false;
     AndroidEnginePrep? androidPrep;
-    if (isAndroid && artifactManager != null && flutterVersion != null) {
+    if (isAndroid) {
+      if (artifactManager == null || flutterVersion == null) {
+        // Never fall through to a silently-stock Android build: a
+        // missing parameter is a caller bug, not a reason to skip the
+        // engine preparation and verification.
+        _logger.err(
+          'Android builds require artifactManager and flutterVersion '
+          'so the produced app can be verified as code-push capable.',
+        );
+        return false;
+      }
       androidPrep = await prepareAndroidEngineBuild(
         flutterVersion: flutterVersion,
         artifactManager: artifactManager,
@@ -867,6 +883,7 @@ class CodePushBuildService {
   Future<AndroidEnginePrep?> prepareAndroidEngineBuild({
     required String flutterVersion,
     required CodePushArtifactManager artifactManager,
+    String? flutterRootOverride,
   }) async {
     final engineReady = await artifactManager.ensureAndroidEngine(
       flutterVersion: flutterVersion,
@@ -886,7 +903,7 @@ class CodePushBuildService {
       );
       return null;
     }
-    final flutterRoot = _findActiveFlutterRoot();
+    final flutterRoot = flutterRootOverride ?? _findActiveFlutterRoot();
     if (flutterRoot == null) {
       _logger.err('Could not locate the active Flutter SDK root.');
       return null;
@@ -906,6 +923,9 @@ class CodePushBuildService {
       ]);
       if (result.exitCode != 0) {
         final stderrText = (result.stderr as String?)?.trim() ?? '';
+        // Substring is coupled to the args CommandRunner's
+        // unknown-command wording in the tool; if it drifts, this
+        // degrades to the generic message below (still a safe failure).
         if (stderrText.contains('Could not find a command named')) {
           // Older tool binary without this step (see the fcp-tool
           // protocol note: new subcommands need a feature probe).
@@ -937,8 +957,14 @@ class CodePushBuildService {
     } on FormatException {
       _logger.err('Android build preparation returned an invalid result.');
       return null;
-    } on FileSystemException {
-      _logger.err('Android build preparation returned an invalid result.');
+    } on Exception catch (e) {
+      // A tool binary that's present but not executable / wrong arch /
+      // on a noexec mount throws ProcessException; treat every failure
+      // here as "tool unusable" with the actionable fix, never a crash.
+      _logger.err(
+        'Android build preparation failed: $e\n'
+        'Run "fcp codepush setup --force" and retry.',
+      );
       return null;
     } finally {
       try {
