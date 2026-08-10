@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -77,11 +78,31 @@ class BuildStepResult {
 ///   - locate the Flutter / Dart tools on PATH
 ///   - run `flutter build`
 ///   - compute SHA-256 hashes and sign payloads with RSA
+/// Result of the Android pre-build engine preparation step.
+///
+/// [environment] must be present on the `flutter build` process so the
+/// produced app packages the code-push engine; [engineSha256] is the
+/// engine library's checksum, used to verify the built artifact.
+class AndroidEnginePrep {
+  const AndroidEnginePrep({
+    required this.environment,
+    required this.engineSha256,
+  });
+
+  final Map<String, String> environment;
+  final String engineSha256;
+}
+
 ///   - thin Process wrappers around the private build tool binary
 class CodePushBuildService {
   CodePushBuildService({required Logger logger}) : _logger = logger;
 
   final Logger _logger;
+
+  /// Whether the last Android [buildRelease] installed and verified the
+  /// code-push engine as part of the build itself (in which case the
+  /// post-build finalize step has nothing left to do).
+  bool _androidEngineVerified = false;
 
   /// Find the `flutter` executable.
   String? findFlutterBin() {
@@ -220,6 +241,26 @@ class CodePushBuildService {
       }
     }
 
+    // --- Android: prepare the engine BEFORE the build ---
+    //
+    // The engine library that ships in the APK/AAB is chosen while the
+    // build runs; rewriting build outputs afterwards does not change
+    // what was packaged. The build tool sets up the build environment
+    // so the produced app packages the code-push engine, and the
+    // artifact is verified after the build. A preparation failure fails
+    // the build — never fall through to a silently-stock app.
+    final isAndroid =
+        platform == 'apk' || platform == 'appbundle' || platform == 'android';
+    _androidEngineVerified = false;
+    AndroidEnginePrep? androidPrep;
+    if (isAndroid && artifactManager != null && flutterVersion != null) {
+      androidPrep = await prepareAndroidEngineBuild(
+        flutterVersion: flutterVersion,
+        artifactManager: artifactManager,
+      );
+      if (androidPrep == null) return false;
+    }
+
     // --- Run flutter build ---
     final args = [
       'build',
@@ -234,12 +275,38 @@ class CodePushBuildService {
       flutter,
       args,
       mode: ProcessStartMode.inheritStdio,
+      environment: androidPrep?.environment,
     );
     final exitCode = await process.exitCode;
 
     if (exitCode != 0) {
       _logger.err('Flutter build failed with exit code $exitCode');
       return false;
+    }
+
+    // --- Android: verify the built artifact packages the engine ---
+    if (androidPrep != null) {
+      final artifact = _findBuiltAndroidArtifact(platform);
+      if (artifact == null) {
+        _logger.err(
+          'Build succeeded but no Android artifact was found to verify. '
+          'Expected an APK under build/app/outputs/flutter-apk or an '
+          'app bundle under build/app/outputs/bundle.',
+        );
+        return false;
+      }
+      if (!androidArchiveContainsEngine(
+        archivePath: artifact,
+        expectedSha256: androidPrep.engineSha256,
+      )) {
+        _logger.err(
+          'The built app does not contain the code-push engine '
+          '($artifact). Run "fcp codepush setup --force" and rebuild.',
+        );
+        return false;
+      }
+      _logger.detail('Verified code-push engine in $artifact.');
+      _androidEngineVerified = true;
     }
 
     // --- iOS: validate + repair after build ---
@@ -787,6 +854,154 @@ class CodePushBuildService {
     );
   }
 
+  /// Prepares the environment for an Android code-push build.
+  ///
+  /// Delegates to the build tool, which sets up everything `flutter
+  /// build` needs to produce an app that packages the code-push engine,
+  /// and reports the environment variables to put on the build process
+  /// plus the engine library's SHA-256 for post-build verification.
+  ///
+  /// Returns null on any failure. Callers must treat null as fatal for
+  /// the build — falling back silently would produce an app that cannot
+  /// load patches.
+  Future<AndroidEnginePrep?> prepareAndroidEngineBuild({
+    required String flutterVersion,
+    required CodePushArtifactManager artifactManager,
+  }) async {
+    final engineReady = await artifactManager.ensureAndroidEngine(
+      flutterVersion: flutterVersion,
+    );
+    if (!engineReady) {
+      _logger.err(
+        'Android engine artifacts are not available for Flutter '
+        '$flutterVersion. Run "fcp codepush setup --platform android '
+        '--flutter-version $flutterVersion" first.',
+      );
+      return null;
+    }
+    final tool = await artifactManager.ensureBuildTool();
+    if (tool == null) {
+      _logger.err(
+        'Build tool not available. Run "fcp codepush setup" first.',
+      );
+      return null;
+    }
+    final flutterRoot = _findActiveFlutterRoot();
+    if (flutterRoot == null) {
+      _logger.err('Could not locate the active Flutter SDK root.');
+      return null;
+    }
+
+    final tempDir = Directory.systemTemp.createTempSync('fcp_engine_prep_');
+    final outFile = File('${tempDir.path}/prep.json');
+    try {
+      final result = Process.runSync(tool, [
+        'engine-prepare',
+        '--flutter-version',
+        flutterVersion,
+        '--sdk-root',
+        flutterRoot,
+        '--output',
+        outFile.path,
+      ]);
+      if (result.exitCode != 0) {
+        final stderrText = (result.stderr as String?)?.trim() ?? '';
+        if (stderrText.contains('Could not find a command named')) {
+          // Older tool binary without this step (see the fcp-tool
+          // protocol note: new subcommands need a feature probe).
+          _logger.err(
+            'The code push build tool is out of date. '
+            'Run "fcp codepush setup --force" and retry.',
+          );
+        } else {
+          _logger.err('Android build preparation failed.');
+          if (stderrText.isNotEmpty) _logger.err(stderrText);
+        }
+        return null;
+      }
+      final decoded = jsonDecode(outFile.readAsStringSync());
+      if (decoded is! Map<String, dynamic>) {
+        _logger.err('Android build preparation returned an invalid result.');
+        return null;
+      }
+      final envRaw = decoded['env'];
+      final sha = decoded['engine_sha256'];
+      if (envRaw is! Map<String, dynamic> || sha is! String || sha.isEmpty) {
+        _logger.err('Android build preparation returned an invalid result.');
+        return null;
+      }
+      return AndroidEnginePrep(
+        environment: envRaw.map((k, v) => MapEntry(k, v.toString())),
+        engineSha256: sha,
+      );
+    } on FormatException {
+      _logger.err('Android build preparation returned an invalid result.');
+      return null;
+    } on FileSystemException {
+      _logger.err('Android build preparation returned an invalid result.');
+      return null;
+    } finally {
+      try {
+        tempDir.deleteSync(recursive: true);
+      } on FileSystemException {
+        // Best-effort temp cleanup.
+      }
+    }
+  }
+
+  /// Whether [archivePath] (an APK or AAB) contains an arm64 engine
+  /// library whose SHA-256 equals [expectedSha256].
+  static bool androidArchiveContainsEngine({
+    required String archivePath,
+    required String expectedSha256,
+  }) {
+    final Archive archive;
+    try {
+      archive = ZipDecoder().decodeBytes(File(archivePath).readAsBytesSync());
+    } on Exception {
+      return false;
+    }
+    for (final entry in archive.files) {
+      // APK: lib/arm64-v8a/libflutter.so; AAB: base/lib/arm64-v8a/...
+      if (entry.isFile && entry.name.endsWith('lib/arm64-v8a/libflutter.so')) {
+        final sha = sha256.convert(entry.content as List<int>).toString();
+        return sha == expectedSha256;
+      }
+    }
+    return false;
+  }
+
+  /// Locates the artifact a just-finished Android release build wrote,
+  /// preferring the canonical output paths and falling back to the
+  /// newest matching file (flavored builds use different names).
+  String? _findBuiltAndroidArtifact(String platform) {
+    if (platform == 'appbundle') {
+      const canonical = 'build/app/outputs/bundle/release/app-release.aab';
+      if (File(canonical).existsSync()) return canonical;
+      return _newestFileWithSuffix('build/app/outputs/bundle', '.aab');
+    }
+    const canonical = 'build/app/outputs/flutter-apk/app-release.apk';
+    if (File(canonical).existsSync()) return canonical;
+    return _newestFileWithSuffix('build/app/outputs/flutter-apk', '.apk');
+  }
+
+  static String? _newestFileWithSuffix(String dir, String suffix) {
+    final d = Directory(dir);
+    if (!d.existsSync()) return null;
+    File? newest;
+    var newestTime = DateTime.fromMillisecondsSinceEpoch(0);
+    for (final entity in d.listSync(recursive: true)) {
+      if (entity is File && entity.path.endsWith(suffix)) {
+        final t = entity.lastModifiedSync();
+        if (t.isAfter(newestTime)) {
+          newest = entity;
+          newestTime = t;
+        }
+      }
+    }
+    return newest?.path;
+  }
+
   /// Run the finalize step of the build tool.
   ///
   /// Returns a [BuildStepResult]; on failure, callers should pass
@@ -804,6 +1019,18 @@ class CodePushBuildService {
       return const BuildStepResult(
         success: true,
         message: 'iOS build already finalized during prepare.',
+      );
+    }
+
+    final isAndroid = buildPlatform == 'apk' ||
+        buildPlatform == 'appbundle' ||
+        buildPlatform == 'android';
+    if (isAndroid && _androidEngineVerified) {
+      // The engine was packaged during the build itself and the built
+      // artifact verified; the post-build swap has nothing left to do.
+      return const BuildStepResult(
+        success: true,
+        message: 'Android engine installed and verified during build.',
       );
     }
 
