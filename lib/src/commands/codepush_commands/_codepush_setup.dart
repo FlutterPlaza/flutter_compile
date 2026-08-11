@@ -86,11 +86,17 @@ class CodePushSetupSubCommand extends Command<int> {
     // (and fail if the iOS set for this version isn't published), so the
     // Android path is handled on its own here.
     if (_isAndroidPlatform(targetPlatform)) {
-      final supported = await manager.isVersionSupported(flutterVersion);
+      // Platform-aware when the server publishes per-platform support:
+      // a version can be live for iOS while its Android artifacts are
+      // not yet published (or vice versa).
+      final supported = await manager.isVersionSupportedForPlatform(
+        flutterVersion,
+        'android-arm64',
+      );
       if (!supported) {
         _logger.err(
-          'Flutter $flutterVersion is not yet supported for code push. '
-          'Run `fcp codepush setup --list-versions`.',
+          'Flutter $flutterVersion does not support Android code push '
+          'yet. Run `fcp codepush versions` to see per-platform support.',
         );
         return ExitCode.software.code;
       }
@@ -149,17 +155,25 @@ class CodePushSetupSubCommand extends Command<int> {
     }
 
     // Check if this version is supported before attempting download.
+    // This path installs the iOS overlay set, so check iOS support when
+    // the server publishes per-platform data — a version listed only
+    // for Android would previously pass here and then die on raw HTTP
+    // errors downloading overlay files that don't exist.
     final checkProgress = _logger.progress(
       'Checking server for Flutter $flutterVersion artifacts',
     );
-    final supported = await manager.isVersionSupported(flutterVersion);
+    final supported = await manager.isVersionSupportedForPlatform(
+      flutterVersion,
+      'ios-arm64',
+    );
     if (!supported) {
       checkProgress.fail(
-        'Flutter $flutterVersion is not yet supported for code push.',
+        'Flutter $flutterVersion does not support iOS code push yet.',
       );
       _logger.info('');
-      _logger.info('Run `fcp codepush setup --list-versions` to see '
-          'available Flutter versions.');
+      _logger.info('Run `fcp codepush versions` to see per-platform '
+          'support, or pass `--platform android` for an Android-only '
+          'setup.');
       return ExitCode.software.code;
     }
     checkProgress.complete('Flutter $flutterVersion is supported');

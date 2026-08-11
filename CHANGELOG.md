@@ -1,5 +1,9 @@
 # CHANGE LOG
 
+## 0.19.15-rc.11
+
+- `fcp codepush versions` and `fcp codepush setup` now show and check code push support per platform, so a Flutter version can be supported for Android and iOS independently.
+
 ## 0.19.15-rc.10
 
 - Fix: `fcp codepush release --build` and `fcp codepush patch --build` now verify the built Android app before continuing, and fail with a clear error if it is not code-push capable.

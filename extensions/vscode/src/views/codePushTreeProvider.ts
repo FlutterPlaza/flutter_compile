@@ -7,6 +7,9 @@ interface SupportedVersion {
   installed: boolean;
   global: boolean;
   project_pinned: boolean;
+  /** Per-target support (e.g. ["android", "ios"]); absent on old CLIs
+   *  or servers without a platform-aware manifest. */
+  platforms?: string[];
 }
 
 interface SupportedVersionsResponse {
@@ -227,16 +230,24 @@ export class CodePushTreeProvider
           description = "not installed";
           contextValue = "cpVersion";
         }
+        const platformsSuffix =
+          v.platforms && v.platforms.length > 0
+            ? ` · ${v.platforms.join(", ")}`
+            : "";
         const item = new CodePushTreeItem(
           `${icon} v${v.version}`,
           vscode.TreeItemCollapsibleState.None,
           contextValue,
-          description
+          `${description}${platformsSuffix}`
         );
         item.versionName = v.version;
-        item.tooltip = v.build_revision
+        const base = v.build_revision
           ? `Flutter ${v.version} — build ${v.build_revision}`
           : `Flutter ${v.version}`;
+        item.tooltip =
+          v.platforms && v.platforms.length > 0
+            ? `${base}\nCode push targets: ${v.platforms.join(", ")}`
+            : base;
         return item;
       });
     } catch {

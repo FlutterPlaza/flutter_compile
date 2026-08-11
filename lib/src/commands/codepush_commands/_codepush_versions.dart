@@ -58,6 +58,10 @@ class CodePushVersionsSubCommand extends Command<int> {
     }
     progress?.complete('Supported versions');
 
+    // Platform-aware support (best-effort — old servers don't publish
+    // it, and every consumer must handle its absence).
+    final platformSupport = await manager.fetchPlatformSupport();
+
     // Installed SDK names (native backend + FVM cache).
     final installed = await _gatherInstalledVersionNames();
 
@@ -81,6 +85,11 @@ class CodePushVersionsSubCommand extends Command<int> {
         'installed': installed.contains(v),
         'global': v == globalVersion,
         'project_pinned': v == projectVersion,
+        // Additive: absent when the server has no platform-aware
+        // manifest. Consumers (IDE tree providers) ignore unknown
+        // fields, so older extensions are unaffected.
+        if (platformSupport != null)
+          'platforms': _friendlyPlatforms(platformSupport[v]),
       });
     }
 
@@ -102,9 +111,13 @@ class CodePushVersionsSubCommand extends Command<int> {
       if (v['global'] == true) markers.add('global');
       if (v['project_pinned'] == true) markers.add('pinned');
       final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
+      final platforms = v['platforms'];
+      final platformSuffix = platforms is List && platforms.isNotEmpty
+          ? '  [${platforms.join(', ')}]'
+          : '';
       final marker =
           name == selected ? '*' : (v['installed'] == true ? ' ' : '-');
-      _logger.info('  $marker $name$suffix');
+      _logger.info('  $marker $name$platformSuffix$suffix');
     }
     if (selected == null) {
       _logger.info('');
@@ -166,5 +179,19 @@ class CodePushVersionsSubCommand extends Command<int> {
       }
     }
     return aParts.length.compareTo(bParts.length);
+  }
+
+  /// Maps artifact platform ids to the user-facing target names shown
+  /// in output (e.g. `android-arm64` → `android`). Unknown ids pass
+  /// through unchanged so future targets appear without a CLI update.
+  static List<String> _friendlyPlatforms(Map<String, String>? platforms) {
+    if (platforms == null) return const [];
+    const friendly = {
+      'android-arm64': 'android',
+      'ios-arm64': 'ios',
+    };
+    final names = platforms.keys.map((p) => friendly[p] ?? p).toSet().toList()
+      ..sort();
+    return names;
   }
 }
