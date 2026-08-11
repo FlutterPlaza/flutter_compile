@@ -155,20 +155,30 @@ class CodePushSetupSubCommand extends Command<int> {
     }
 
     // Check if this version is supported before attempting download.
-    // This path installs the iOS overlay set, so check iOS support when
-    // the server publishes per-platform data — a version listed only
-    // for Android would previously pass here and then die on raw HTTP
-    // errors downloading overlay files that don't exist.
+    // Only iOS-overlay runs gate on iOS support specifically — a
+    // version listed only for Android would previously pass a generic
+    // check and then die on raw HTTP errors downloading overlay files
+    // that don't exist. Host-only runs (Linux/Windows, explicit host
+    // targets) keep the version-level check: their overlay step is a
+    // no-op.
     final checkProgress = _logger.progress(
       'Checking server for Flutter $flutterVersion artifacts',
     );
-    final supported = await manager.isVersionSupportedForPlatform(
-      flutterVersion,
-      'ios-arm64',
+    final needsIos = setupNeedsIosSupport(
+      targetPlatform: targetPlatform,
+      isMacOsHost: Platform.isMacOS,
     );
+    final supported = needsIos
+        ? await manager.isVersionSupportedForPlatform(
+            flutterVersion,
+            'ios-arm64',
+          )
+        : await manager.isVersionSupported(flutterVersion);
     if (!supported) {
       checkProgress.fail(
-        'Flutter $flutterVersion does not support iOS code push yet.',
+        needsIos
+            ? 'Flutter $flutterVersion does not support iOS code push yet.'
+            : 'Flutter $flutterVersion is not yet supported for code push.',
       );
       _logger.info('');
       _logger.info('Run `fcp codepush versions` to see per-platform '
@@ -264,6 +274,19 @@ class CodePushSetupSubCommand extends Command<int> {
         'android-arm64',
       }.contains(platform);
 
+  /// Whether this setup run installs the iOS overlay set — and must
+  /// therefore gate on iOS support specifically. True for an explicit
+  /// iOS target, or for a target-less run on a macOS host (where the
+  /// default setup includes the iOS overlay; on other hosts the overlay
+  /// step is a no-op, so a version live for any platform may proceed).
+  static bool setupNeedsIosSupport({
+    required String? targetPlatform,
+    required bool isMacOsHost,
+  }) {
+    if (targetPlatform == null) return isMacOsHost;
+    return const {'ios', 'ipa', 'ios-arm64'}.contains(targetPlatform);
+  }
+
   /// When no explicit `--platform` was given and the project directory
   /// shows it builds for Android, make sure the Android engine is cached
   /// too — a Flutter app commonly targets both iOS and Android, and the
@@ -323,6 +346,11 @@ class CodePushSetupSubCommand extends Command<int> {
         'Your current Flutter version ($current) is not yet supported.',
       );
     }
+    _logger.info('');
+    _logger.info(
+      'For per-platform support (Android vs iOS), run '
+      '`fcp codepush versions`.',
+    );
 
     return ExitCode.success.code;
   }

@@ -329,6 +329,11 @@ class CodePushArtifactManager {
   /// Uses the platform-aware manifest when available; falls back to the
   /// flat per-version manifest (which cannot distinguish platforms)
   /// when it is not, preserving the old behavior against old servers.
+  ///
+  /// Contract: when the v2 manifest is present it is authoritative AND
+  /// complete — a version absent from it is unsupported even if the
+  /// flat manifest still lists it. The publisher must keep every
+  /// supported version in v2 once it starts publishing v2 at all.
   Future<bool> isVersionSupportedForPlatform(
     String flutterVersion,
     String targetPlatform,
