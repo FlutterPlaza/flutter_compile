@@ -4,7 +4,6 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/commands/sdk_commands/_sdk_list.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
-import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -34,9 +33,11 @@ class CodePushVersionsSubCommand extends Command<int> {
   Future<int> run() async {
     final asJson = argResults?['json'] == true;
 
-    final serverUrl = await CodePushClient.getServerUrl();
-    final manager =
-        CodePushArtifactManager(logger: _logger, baseUrl: serverUrl);
+    // Manifests are read from the artifact host (the manager's default
+    // base URL) — the same source `setup` gates on — so what this
+    // command displays and what setup enforces can never diverge. The
+    // server's /versions.json mirror remains for web consumers.
+    final manager = CodePushArtifactManager(logger: _logger);
 
     final progress = asJson ? null : _logger.progress('Fetching versions');
     final manifest = await manager.fetchSupportedVersions();
@@ -56,6 +57,10 @@ class CodePushVersionsSubCommand extends Command<int> {
       }
       return ExitCode.software.code;
     }
+    // Platform-aware support (best-effort — old servers don't publish
+    // it, and every consumer must handle its absence). Fetched inside
+    // the progress span so a slow fetch isn't a silent hang.
+    final platformSupport = await manager.fetchPlatformSupport();
     progress?.complete('Supported versions');
 
     // Installed SDK names (native backend + FVM cache).
@@ -81,6 +86,11 @@ class CodePushVersionsSubCommand extends Command<int> {
         'installed': installed.contains(v),
         'global': v == globalVersion,
         'project_pinned': v == projectVersion,
+        // Additive: absent when the server has no platform-aware
+        // manifest. Consumers (IDE tree providers) ignore unknown
+        // fields, so older extensions are unaffected.
+        if (platformSupport != null)
+          'platforms': friendlyPlatforms(platformSupport[v]),
       });
     }
 
@@ -102,9 +112,13 @@ class CodePushVersionsSubCommand extends Command<int> {
       if (v['global'] == true) markers.add('global');
       if (v['project_pinned'] == true) markers.add('pinned');
       final suffix = markers.isEmpty ? '' : '  (${markers.join(', ')})';
+      final platforms = v['platforms'];
+      final platformSuffix = platforms is List && platforms.isNotEmpty
+          ? '  [${platforms.join(', ')}]'
+          : '';
       final marker =
           name == selected ? '*' : (v['installed'] == true ? ' ' : '-');
-      _logger.info('  $marker $name$suffix');
+      _logger.info('  $marker $name$platformSuffix$suffix');
     }
     if (selected == null) {
       _logger.info('');
@@ -166,5 +180,20 @@ class CodePushVersionsSubCommand extends Command<int> {
       }
     }
     return aParts.length.compareTo(bParts.length);
+  }
+
+  /// Maps artifact platform ids to the user-facing target names shown
+  /// in output (e.g. `android-arm64` → `android`). Unknown ids pass
+  /// through unchanged so future targets appear without a CLI update.
+  /// Public for tests.
+  static List<String> friendlyPlatforms(Map<String, String>? platforms) {
+    if (platforms == null) return const [];
+    const friendly = {
+      'android-arm64': 'android',
+      'ios-arm64': 'ios',
+    };
+    final names = platforms.keys.map((p) => friendly[p] ?? p).toSet().toList()
+      ..sort();
+    return names;
   }
 }

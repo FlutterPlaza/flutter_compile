@@ -279,6 +279,73 @@ class CodePushArtifactManager {
     return versions.containsKey(flutterVersion);
   }
 
+  /// Fetch the platform-aware manifest (`versions-v2.json`).
+  ///
+  /// Returns a map of Flutter version → (target platform → build
+  /// revision), or null when the manifest is absent, empty, or not in
+  /// the expected shape — callers fall back to the flat
+  /// [fetchSupportedVersions] manifest in that case, so older servers
+  /// keep working. Every field is checked defensively: a malformed
+  /// document must degrade to the fallback, never throw.
+  Future<Map<String, Map<String, String>>?> fetchPlatformSupport() async {
+    final url = '$_baseUrl/versions-v2.json';
+    _logger.detail('Fetching platform support manifest from: $url');
+    try {
+      final client = _httpClientFactory();
+      try {
+        final request = await client.getUrl(Uri.parse(url));
+        final response = await request.close();
+        if (response.statusCode != 200) {
+          return null;
+        }
+        final body = await response.transform(utf8.decoder).join();
+        final decoded = jsonDecode(body);
+        if (decoded is! Map<String, dynamic>) return null;
+        final versions = decoded['versions'];
+        if (versions is! Map<String, dynamic>) return null;
+        final result = <String, Map<String, String>>{};
+        for (final entry in versions.entries) {
+          final value = entry.value;
+          if (value is! Map<String, dynamic>) continue;
+          final platforms = value['platforms'];
+          if (platforms is! Map<String, dynamic>) continue;
+          result[entry.key] = {
+            for (final p in platforms.entries) p.key: p.value.toString(),
+          };
+        }
+        return result.isEmpty ? null : result;
+      } finally {
+        client.close();
+      }
+    } on Exception catch (e) {
+      _logger.detail('Platform support manifest unavailable: $e');
+      return null;
+    }
+  }
+
+  /// Whether [flutterVersion] has code push artifacts for
+  /// [targetPlatform] (e.g. `android-arm64`, `ios-arm64`).
+  ///
+  /// Uses the platform-aware manifest when available; falls back to the
+  /// flat per-version manifest (which cannot distinguish platforms)
+  /// when it is not, preserving the old behavior against old servers.
+  ///
+  /// Contract: when the v2 manifest is present it is authoritative AND
+  /// complete — a version absent from it is unsupported even if the
+  /// flat manifest still lists it. The publisher must keep every
+  /// supported version in v2 once it starts publishing v2 at all.
+  Future<bool> isVersionSupportedForPlatform(
+    String flutterVersion,
+    String targetPlatform,
+  ) async {
+    final platformSupport = await fetchPlatformSupport();
+    if (platformSupport != null) {
+      return platformSupport[flutterVersion]?.containsKey(targetPlatform) ??
+          false;
+    }
+    return isVersionSupported(flutterVersion);
+  }
+
   // ── Download ──────────────────────────────────────────────────────
 
   /// Download and cache artifacts for a specific Flutter version and

@@ -492,6 +492,9 @@ class CodePushTreePanel(private val project: Project) {
                         else -> "not installed"
                     }
                     append("  $suffix", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    entry.platforms?.takeIf { it.isNotEmpty() }?.let {
+                        append("  [${it.joinToString(", ")}]", SimpleTextAttributes.GRAYED_ATTRIBUTES)
+                    }
                     entry.build_revision?.let {
                         append("  \u2022 $it", SimpleTextAttributes.GRAYED_ATTRIBUTES)
                     }

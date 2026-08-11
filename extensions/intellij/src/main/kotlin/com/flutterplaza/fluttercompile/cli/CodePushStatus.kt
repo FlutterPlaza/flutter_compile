@@ -46,6 +46,9 @@ data class CodePushVersionEntry(
     val installed: Boolean = false,
     val global: Boolean = false,
     val project_pinned: Boolean = false,
+    /** Per-target support (e.g. ["android", "ios"]); null on old CLIs
+     *  or servers without a platform-aware manifest. */
+    val platforms: List<String>? = null,
 )
 
 /** Response returned by `flutter_compile codepush versions --json`. */
