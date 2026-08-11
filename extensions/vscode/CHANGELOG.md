@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.8
+
+### Added
+
+- The supported-versions list now shows which platforms each Flutter version supports for code push (e.g. android, ios). Requires `flutter_compile` 0.19.15-rc.11 or newer to display; older CLIs keep working unchanged.
+
 ## 0.3.7
 
 ### Added
