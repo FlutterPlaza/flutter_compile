@@ -18,34 +18,29 @@ void main() {
       }
     });
 
-    test('target-less runs require iOS support only on macOS hosts', () {
-      expect(
-        CodePushSetupSubCommand.setupNeedsIosSupport(
-          targetPlatform: null,
-          isMacOsHost: true,
-        ),
-        isTrue,
-      );
-      expect(
-        CodePushSetupSubCommand.setupNeedsIosSupport(
-          targetPlatform: null,
-          isMacOsHost: false,
-        ),
-        isFalse,
-        reason: 'Linux/Windows overlay step is a no-op — a version live '
-            'for any platform may proceed',
-      );
-    });
-
-    test('explicit host targets never require iOS support', () {
-      for (final p in ['linux-x64', 'darwin-arm64', 'windows-x64', 'macos']) {
+    test('macOS hosts always require iOS support — the overlay installer '
+        'runs unconditionally there, whatever the target spelling', () {
+      for (final p in [null, 'darwin-arm64', 'macos', 'linux-x64']) {
         expect(
           CodePushSetupSubCommand.setupNeedsIosSupport(
             targetPlatform: p,
             isMacOsHost: true,
           ),
+          isTrue,
+          reason: '$p on macOS',
+        );
+      }
+    });
+
+    test('off macOS, only explicit iOS spellings gate on iOS', () {
+      for (final p in [null, 'linux-x64', 'windows-x64', 'darwin-arm64']) {
+        expect(
+          CodePushSetupSubCommand.setupNeedsIosSupport(
+            targetPlatform: p,
+            isMacOsHost: false,
+          ),
           isFalse,
-          reason: p,
+          reason: '$p off macOS — overlay step is a no-op',
         );
       }
     });

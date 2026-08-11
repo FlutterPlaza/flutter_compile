@@ -275,15 +275,19 @@ class CodePushSetupSubCommand extends Command<int> {
       }.contains(platform);
 
   /// Whether this setup run installs the iOS overlay set — and must
-  /// therefore gate on iOS support specifically. True for an explicit
-  /// iOS target, or for a target-less run on a macOS host (where the
-  /// default setup includes the iOS overlay; on other hosts the overlay
-  /// step is a no-op, so a version live for any platform may proceed).
+  /// therefore gate on iOS support specifically.
+  ///
+  /// The overlay installer runs unconditionally on macOS hosts (the
+  /// platform argument is not consulted for that decision), so on a Mac
+  /// every non-Android run needs iOS support — including explicit host
+  /// targets like `darwin-arm64`. Off macOS the overlay step is a no-op
+  /// and only an explicit iOS spelling gates on iOS (semantically the
+  /// run is about iOS even though nothing downloads).
   static bool setupNeedsIosSupport({
     required String? targetPlatform,
     required bool isMacOsHost,
   }) {
-    if (targetPlatform == null) return isMacOsHost;
+    if (isMacOsHost) return true;
     return const {'ios', 'ipa', 'ios-arm64'}.contains(targetPlatform);
   }
 
