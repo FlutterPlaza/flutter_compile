@@ -1024,11 +1024,19 @@ class CodePushBuildService {
   /// matches the app being patched, which fails at run time. The patch
   /// pipeline therefore compiles a dedicated kernel in which every
   /// external reference keeps its public shape.
+  ///
+  /// [dartDefines] should carry the same `--dart-define` set the
+  /// baseline release was built with: const environment values are
+  /// baked in at compile time, so a mismatch changes behavior of the
+  /// patched code relative to the deployed app.
+  ///
+  /// [runProcess] is a test seam; production callers omit it.
   Future<BuildStepResult> compilePatchKernel({
     required String targetPath,
     required String outputDillPath,
     List<String> dartDefines = const [],
     String? flutterRootOverride,
+    ProcessResult Function(String executable, List<String> args)? runProcess,
   }) async {
     final flutterRoot = flutterRootOverride ?? _findActiveFlutterRoot();
     if (flutterRoot == null) {
@@ -1048,7 +1056,9 @@ class CodePushBuildService {
       return const BuildStepResult(
         success: false,
         message: 'The Flutter SDK cache is missing front-end artifacts. '
-            'Run "flutter precache --ios" and retry.',
+            'Run "flutter precache --ios" and retry; if that does not '
+            'help, your Flutter SDK may be too old to ship '
+            'frontend_server_aot.dart.snapshot — upgrade Flutter.',
       );
     }
 
@@ -1070,7 +1080,7 @@ class CodePushBuildService {
         dartDefines: dartDefines,
       ),
     ];
-    final result = Process.runSync(dartAotRuntime, args);
+    final result = (runProcess ?? Process.runSync)(dartAotRuntime, args);
     final ok = result.exitCode == 0 && outputFile.existsSync();
     return BuildStepResult(
       success: ok,
