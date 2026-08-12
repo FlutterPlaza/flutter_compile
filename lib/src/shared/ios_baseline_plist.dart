@@ -46,6 +46,17 @@ void restoreIosInfoPlist(
 
 const String kDefaultBuiltIosAppPath = 'build/ios/iphoneos/Runner.app';
 
+/// Derives the `.app` bundle directory from a baseline binary path
+/// (`<app>/Frameworks/App.framework/App`), or null when the path does
+/// not point inside an app bundle. Keeping the identity read pinned to
+/// the SAME bundle the uploaded bytes come from is what prevents a
+/// stamped id from one build being attached to the binary of another.
+String? builtIosAppDirFromBinaryPath(String binaryPath) {
+  const suffix = '/Frameworks/App.framework/App';
+  if (!binaryPath.endsWith(suffix)) return null;
+  return binaryPath.substring(0, binaryPath.length - suffix.length);
+}
+
 /// Pure precedence for the baseline identity of an iOS release: the id
 /// stamped by this run's `--build`, then the explicit `--baseline-id`
 /// flag, then the id read from the built app. Empty strings count as

@@ -43,6 +43,27 @@ void main() {
     });
   });
 
+  group('builtIosAppDirFromBinaryPath', () {
+    test('derives the app bundle from a baseline binary path', () {
+      expect(
+        builtIosAppDirFromBinaryPath(
+          'build/ios/archive/Runner.xcarchive/Products/Applications/'
+          'Runner.app/Frameworks/App.framework/App',
+        ),
+        'build/ios/archive/Runner.xcarchive/Products/Applications/'
+        'Runner.app',
+      );
+    });
+
+    test('a path outside an app bundle yields no identity source', () {
+      expect(builtIosAppDirFromBinaryPath('/tmp/App'), isNull);
+      expect(
+        builtIosAppDirFromBinaryPath('.dart_tool/flutter_build/x/app.dill'),
+        isNull,
+      );
+    });
+  });
+
   group('readBaselineIdFromBuiltAppPlist', () {
     late Directory tmp;
 
