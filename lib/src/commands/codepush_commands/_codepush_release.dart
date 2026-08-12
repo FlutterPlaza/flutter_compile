@@ -251,6 +251,22 @@ class CodePushReleaseSubCommand extends Command<int> {
       // just built, then project detection — so a non-Android project
       // without --platform never routes into the Android-only branch.
       final platform = argResults?['platform'] as String?;
+      // Detection alone cannot be trusted for a dual-platform project:
+      // android/ is probed before ios/, so `flutter build ios` followed
+      // by a flagless release would route into the Android branch — and
+      // could upload a stale Android library as this version's baseline.
+      // Creating a server record deserves an explicit choice.
+      if (platform == null &&
+          builtPlatform == null &&
+          Directory('android').existsSync() &&
+          Directory('ios').existsSync()) {
+        _logger.err(
+          'This project has both android/ and ios/ — pass --platform so '
+          'the release matches the app you actually built (or use '
+          '--build, which records the platform it builds).',
+        );
+        return ExitCode.usage.code;
+      }
       final resolvedPlatform =
           platform ?? builtPlatform ?? buildService.detectPlatform() ?? 'apk';
       // On Android the uploaded baseline MUST be the stripped libapp.so
@@ -284,9 +300,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (snapshotPath == null) {
           _logger.err(
             'No built iOS app binary found to upload. Run a release build '
-            'first ("fcp codepush release --build" or "flutter build ios '
-            '--release"), or pass --snapshot with the exact '
-            'App.framework/App binary your app ships.',
+            'first ("fcp codepush release --build", "flutter build ios '
+            '--release", or "flutter build ipa") — a simulator-only build '
+            '(build/ios/iphonesimulator) does not produce one — or pass '
+            '--snapshot with the exact App.framework/App binary your app '
+            'ships.',
           );
           return ExitCode.usage.code;
         }

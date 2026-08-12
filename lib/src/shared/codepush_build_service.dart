@@ -508,6 +508,38 @@ class CodePushBuildService {
     return null;
   }
 
+  /// The built iOS baseline binary — `App.framework/App` inside the
+  /// release app — or null when no release build output exists. Both
+  /// `flutter build ios` output (`build/ios/iphoneos`) and
+  /// `flutter build ipa` output (the xcarchive) are recognized; the
+  /// newest wins when both exist.
+  ///
+  /// This is the file the release upload must carry on iOS: it is the
+  /// binary devices hash for the baseline check, and it is a few MB.
+  /// The kernel that [findSnapshotPath] falls back to is the whole
+  /// app's intermediate representation — tens of MB on real apps, over
+  /// the upload size cap (HTTP 413) — and its hash matches nothing any
+  /// device computes.
+  String? findIosBaselineAppBinaryPath() {
+    const candidates = [
+      'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+      'build/ios/archive/Runner.xcarchive/Products/Applications/'
+          'Runner.app/Frameworks/App.framework/App',
+    ];
+    String? newest;
+    DateTime? newestMtime;
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (!file.existsSync()) continue;
+      final mtime = file.statSync().modified;
+      if (newestMtime == null || mtime.isAfter(newestMtime)) {
+        newest = candidate;
+        newestMtime = mtime;
+      }
+    }
+    return newest;
+  }
+
   /// Path of the Android release AOT library exactly as it ships to
   /// devices: the stripped `libapp.so` that gets packaged into the
   /// APK/AAB. This is the file whose SHA-256 matches what an installed
@@ -526,20 +558,6 @@ class CodePushBuildService {
   /// delivered to other ABIs.
   ///
   /// Returns null when no Android release build output is present.
-  /// The built iOS baseline binary — `App.framework/App` inside the
-  /// release `Runner.app` — or null when no release build output exists.
-  ///
-  /// This is the file the release upload must carry on iOS: it is the
-  /// binary devices hash for the baseline check, and it is a few MB.
-  /// The kernel that [findSnapshotPath] falls back to is the whole
-  /// app's intermediate representation — tens of MB on real apps, over
-  /// the upload size cap (HTTP 413) — and its hash matches nothing any
-  /// device computes.
-  String? findIosBaselineAppBinaryPath() {
-    const path = 'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App';
-    return File(path).existsSync() ? path : null;
-  }
-
   String? findAndroidBaselineLibPath() {
     const abis = ['arm64-v8a', 'armeabi-v7a'];
     const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';

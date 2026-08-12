@@ -18,7 +18,8 @@ void main() {
       }
     });
 
-    test('macOS hosts always require iOS support — the overlay installer '
+    test(
+        'macOS hosts always require iOS support — the overlay installer '
         'runs unconditionally there, whatever the target spelling', () {
       for (final p in [null, 'darwin-arm64', 'macos', 'linux-x64']) {
         expect(

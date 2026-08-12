@@ -532,9 +532,11 @@ class CodePushPatchSubCommand extends Command<int> {
         final androidBaselineLib = isAndroidFallback
             ? buildService.findAndroidBaselineLibPath()
             : null;
+        final iosBaselineBinary = fallbackPlatform == 'ios'
+            ? buildService.findIosBaselineAppBinaryPath()
+            : null;
         final candidateAppFrameworks = [
-          if (fallbackPlatform == 'ios')
-            'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+          if (iosBaselineBinary != null) iosBaselineBinary,
           if (androidBaselineLib != null) androidBaselineLib,
         ];
         for (final candidate in candidateAppFrameworks) {
