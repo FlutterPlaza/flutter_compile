@@ -416,6 +416,15 @@ class CodePushBuildService {
             return false;
           }
           _logger.detail('Built app framework repaired successfully.');
+
+          // The byte copy invalidated the framework's code signature AND
+          // the app's seal over it — a device install is rejected
+          // (0xe800801c) until both are re-signed. Sign with the identity
+          // the app was already built with; an unsigned (--no-codesign)
+          // build is left alone.
+          if (!_resignAfterFrameworkSwap('build/ios/iphoneos/Runner.app')) {
+            return false;
+          }
         } else {
           _logger.detail('Built app validated — custom engine pair matched.');
         }
@@ -526,6 +535,90 @@ class CodePushBuildService {
   /// delivered to other ABIs.
   ///
   /// Returns null when no Android release build output is present.
+  /// Extracts the signing identity from `codesign -dvv` output: the
+  /// first `Authority=` line names the leaf certificate, which is the
+  /// string `codesign --sign` accepts. Returns `'-'` for ad-hoc
+  /// signatures (no Authority lines) and null when the output shows no
+  /// signature at all or nothing recognizable.
+  static String? parseCodesignIdentity(String output) {
+    if (output.contains('code object is not signed at all')) return null;
+    for (final line in output.split('\n')) {
+      final t = line.trim();
+      if (t.startsWith('Authority=')) {
+        final v = t.substring('Authority='.length).trim();
+        if (v.isNotEmpty) return v;
+      }
+      if (t == 'Signature=adhoc') return '-';
+    }
+    return null;
+  }
+
+  /// Re-signs `Flutter.framework` and re-seals the outer app after the
+  /// framework bytes were replaced post-build. Without this a device
+  /// install is rejected with 0xe800801c: the framework's signature no
+  /// longer matches its bytes, and the app's seal no longer matches the
+  /// framework. Uses the identity the app was already built with; an
+  /// unsigned (--no-codesign) app is left unsigned.
+  bool _resignAfterFrameworkSwap(String appPath) {
+    final probe = Process.runSync('codesign', ['-dvv', appPath]);
+    final probeOut = '${probe.stdout}\n${probe.stderr}';
+    if (probe.exitCode != 0 &&
+        probeOut.contains('code object is not signed at all')) {
+      _logger.detail(
+        'Built app is unsigned — skipping re-sign after framework repair.',
+      );
+      return true;
+    }
+    final identity = parseCodesignIdentity(probeOut);
+    if (identity == null) {
+      _logger.err(
+        'Could not determine the signing identity of the built app, so the '
+        'repaired framework cannot be re-signed and a device would refuse '
+        'the install. Re-sign manually (codesign --force --sign <identity> '
+        '$appPath/Frameworks/Flutter.framework, then the app) or rebuild.',
+      );
+      return false;
+    }
+    final steps = <List<String>>[
+      [
+        '--force',
+        '--sign',
+        identity,
+        '$appPath/Frameworks/Flutter.framework',
+      ],
+      [
+        '--force',
+        '--sign',
+        identity,
+        '--preserve-metadata=identifier,entitlements,flags',
+        appPath,
+      ],
+    ];
+    for (final args in steps) {
+      final r = Process.runSync('codesign', args);
+      if (r.exitCode != 0) {
+        _logger.err(
+          'codesign failed (exit ${r.exitCode}) for ${args.last}:\n'
+          '${r.stderr}',
+        );
+        return false;
+      }
+    }
+    final verify = Process.runSync(
+      'codesign',
+      ['--verify', '--deep', '--strict', appPath],
+    );
+    if (verify.exitCode != 0) {
+      _logger.err(
+        'Signature verification failed after the framework re-sign:\n'
+        '${verify.stderr}',
+      );
+      return false;
+    }
+    _logger.detail('Re-signed Flutter.framework and re-sealed the app.');
+    return true;
+  }
+
   String? findAndroidBaselineLibPath() {
     const abis = ['arm64-v8a', 'armeabi-v7a'];
     const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';
