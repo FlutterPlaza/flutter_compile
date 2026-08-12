@@ -984,6 +984,104 @@ class CodePushBuildService {
     );
   }
 
+  /// Front-end argument list for [compilePatchKernel]. Kept as a
+  /// separate pure function so tests can assert the whole-program
+  /// optimization flags stay absent.
+  static List<String> patchKernelCompilerArgs({
+    required String sdkRoot,
+    required String packagesPath,
+    required String outputDillPath,
+    required String targetPath,
+    List<String> dartDefines = const [],
+  }) {
+    return <String>[
+      '--sdk-root',
+      sdkRoot,
+      '--target=flutter',
+      '--no-print-incremental-dependencies',
+      '-Ddart.vm.profile=false',
+      '-Ddart.vm.product=true',
+      '--delete-tostring-package-uri=dart:ui',
+      '--delete-tostring-package-uri=package:flutter',
+      for (final define in dartDefines) '-D$define',
+      '--packages',
+      packagesPath,
+      '--output-dill',
+      outputDillPath,
+      '--verbosity=error',
+      targetPath,
+    ];
+  }
+
+  /// Compile the iOS patch entry into its own kernel with the Flutter
+  /// front-end, using release defines but no whole-program (`--aot`)
+  /// optimization.
+  ///
+  /// The kernel that `flutter build ios --release` produces is
+  /// whole-program optimized: call sites and signatures in it are
+  /// specialized against the one program being built. A patch payload
+  /// compiled from that kernel can carry calls whose shape no longer
+  /// matches the app being patched, which fails at run time. The patch
+  /// pipeline therefore compiles a dedicated kernel in which every
+  /// external reference keeps its public shape.
+  Future<BuildStepResult> compilePatchKernel({
+    required String targetPath,
+    required String outputDillPath,
+    List<String> dartDefines = const [],
+    String? flutterRootOverride,
+  }) async {
+    final flutterRoot = flutterRootOverride ?? _findActiveFlutterRoot();
+    if (flutterRoot == null) {
+      return const BuildStepResult(
+        success: false,
+        message: 'Could not locate the active Flutter SDK root.',
+      );
+    }
+    final dartAotRuntime = '$flutterRoot/bin/cache/dart-sdk/bin/dartaotruntime';
+    final frontendServer = '$flutterRoot/bin/cache/dart-sdk/bin/snapshots/'
+        'frontend_server_aot.dart.snapshot';
+    final sdkRoot = '$flutterRoot/bin/cache/artifacts/engine/common/'
+        'flutter_patched_sdk_product/';
+    if (!File(dartAotRuntime).existsSync() ||
+        !File(frontendServer).existsSync() ||
+        !Directory(sdkRoot).existsSync()) {
+      return const BuildStepResult(
+        success: false,
+        message: 'The Flutter SDK cache is missing front-end artifacts. '
+            'Run "flutter precache --ios" and retry.',
+      );
+    }
+
+    final outputFile = File(outputDillPath);
+    outputFile.parent.createSync(recursive: true);
+    // A stale kernel from an earlier run must never satisfy the
+    // output existence check below.
+    if (outputFile.existsSync()) {
+      outputFile.deleteSync();
+    }
+
+    final args = <String>[
+      frontendServer,
+      ...patchKernelCompilerArgs(
+        sdkRoot: sdkRoot,
+        packagesPath: '.dart_tool/package_config.json',
+        outputDillPath: outputDillPath,
+        targetPath: targetPath,
+        dartDefines: dartDefines,
+      ),
+    ];
+    final result = Process.runSync(dartAotRuntime, args);
+    final ok = result.exitCode == 0 && outputFile.existsSync();
+    return BuildStepResult(
+      success: ok,
+      message: ok ? null : 'Patch kernel compile failed.',
+      command: [dartAotRuntime, ...args],
+      exitCode: result.exitCode,
+      stdout: result.stdout as String?,
+      stderr: result.stderr as String?,
+    );
+  }
+
   /// Produce the Android/desktop patch payload from [kernelPath] by
   /// invoking the private build tool. Non-iOS only.
   Future<BuildStepResult> snapshotFromKernel({

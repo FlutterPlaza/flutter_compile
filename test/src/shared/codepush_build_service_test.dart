@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -185,6 +187,68 @@ void main() {
           result.message,
           'iOS build already finalized during prepare.',
         );
+        expect(result.command, isNull);
+      });
+    });
+
+    group('patchKernelCompilerArgs', () {
+      List<String> args({List<String> defines = const []}) =>
+          CodePushBuildService.patchKernelCompilerArgs(
+            sdkRoot: '/sdk/flutter_patched_sdk_product/',
+            packagesPath: '.dart_tool/package_config.json',
+            outputDillPath: 'build/codepush/patch_kernel.dill',
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            dartDefines: defines,
+          );
+
+      test('compiles with release defines against the flutter target', () {
+        final a = args();
+        expect(a, contains('-Ddart.vm.product=true'));
+        expect(a, contains('-Ddart.vm.profile=false'));
+        expect(a, contains('--target=flutter'));
+        expect(
+            a,
+            containsAllInOrder(<String>[
+              '--sdk-root',
+              '/sdk/flutter_patched_sdk_product/',
+            ]));
+      });
+
+      test('never enables whole-program optimization', () {
+        final a = args();
+        expect(a, isNot(contains('--aot')));
+        expect(a, isNot(contains('--tfa')));
+        // The platform must stay linked into the output kernel.
+        expect(a, isNot(contains('--no-link-platform')));
+      });
+
+      test('appends user dart-defines with the -D prefix', () {
+        final a = args(defines: ['FOO=bar', 'BAZ=1']);
+        expect(a, contains('-DFOO=bar'));
+        expect(a, contains('-DBAZ=1'));
+      });
+
+      test('ends with the entry target', () {
+        expect(args().last, 'lib/.fcp_patch_entry.dart');
+      });
+    });
+
+    group('compilePatchKernel', () {
+      test(
+          'fails with an actionable message when the SDK cache lacks '
+          'front-end artifacts', () async {
+        final tempDir =
+            Directory.systemTemp.createTempSync('fcp_patch_kernel_test_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+
+        final result = await service.compilePatchKernel(
+          targetPath: 'lib/.fcp_patch_entry.dart',
+          outputDillPath: '${tempDir.path}/patch_kernel.dill',
+          flutterRootOverride: tempDir.path,
+        );
+
+        expect(result.success, isFalse);
+        expect(result.message, contains('front-end artifacts'));
         expect(result.command, isNull);
       });
     });
