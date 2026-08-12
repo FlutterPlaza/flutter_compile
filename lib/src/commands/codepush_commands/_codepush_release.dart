@@ -269,10 +269,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     // could upload a stale Android library as this version's baseline.
     // Creating a server record deserves an explicit choice.
     final explicitPlatform = argResults?['platform'] as String?;
-    if (explicitPlatform == null &&
-        builtPlatform == null &&
-        Directory('android').existsSync() &&
-        Directory('ios').existsSync()) {
+    if (CodePushBuildService.releaseNeedsExplicitPlatform(
+      explicitPlatform: explicitPlatform,
+      builtPlatform: builtPlatform,
+      hasAndroidDir: Directory('android').existsSync(),
+      hasIosDir: Directory('ios').existsSync(),
+    )) {
       _logger.err(
         'This project has both android/ and ios/ — pass --platform so '
         'the release matches the app you actually built (or use '
