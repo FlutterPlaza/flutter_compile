@@ -6,95 +6,97 @@ import 'package:test/test.dart';
 void main() {
   group('ios_patch_entry_target', () {
     late Directory tempDir;
-    late Directory previous;
+
+    // All paths are anchored on the temp dir explicitly: mutating the
+    // process-global Directory.current is a chdir(2) that races the
+    // other concurrently-running test isolates.
+    String p(String rel) => '${tempDir.path}/$rel';
+    String libDir() => p('lib');
 
     setUp(() {
-      previous = Directory.current;
       tempDir = Directory.systemTemp.createTempSync('fcp_ios_patch_entry_');
-      Directory.current = tempDir;
-      Directory('lib/screens').createSync(recursive: true);
+      Directory(p('lib/screens')).createSync(recursive: true);
     });
 
     tearDown(() {
-      Directory.current = previous;
       if (tempDir.existsSync()) {
         tempDir.deleteSync(recursive: true);
       }
     });
 
     test('findCodePushPatchSourceCandidates returns matching lib files', () {
-      File('lib/screens/home_screen.dart').writeAsStringSync('''
+      File(p('lib/screens/home_screen.dart')).writeAsStringSync('''
 Object? codePushPatch() => const <String, Object?>{'ok': true};
 ''');
 
       expect(
-        findCodePushPatchSourceCandidates(),
+        findCodePushPatchSourceCandidates(libDirPath: libDir()),
         equals(['lib/screens/home_screen.dart']),
       );
     });
 
     test('findCodePushPatchSourceCandidates ignores generated entry file', () {
-      File('lib/$kGeneratedIosPatchEntryFilename').writeAsStringSync('''
+      File(p('lib/$kGeneratedIosPatchEntryFilename')).writeAsStringSync('''
 Object? codePushPatch() => null;
 ''');
-      File('lib/screens/home_screen.dart').writeAsStringSync('''
+      File(p('lib/screens/home_screen.dart')).writeAsStringSync('''
 Object? codePushPatch() => 1;
 ''');
 
       expect(
-        findCodePushPatchSourceCandidates(),
+        findCodePushPatchSourceCandidates(libDirPath: libDir()),
         equals(['lib/screens/home_screen.dart']),
       );
     });
 
     test('findCodePushPatchSourceCandidates ignores invocation-only wrappers',
         () {
-      File('lib/code_push_local_patch.dart').writeAsStringSync('''
+      File(p('lib/code_push_local_patch.dart')).writeAsStringSync('''
 import 'screens/home_screen.dart';
 
 @pragma('dyn-module:entry-point')
 Object? main() => codePushPatch();
 ''');
-      File('lib/screens/home_screen.dart').writeAsStringSync('''
+      File(p('lib/screens/home_screen.dart')).writeAsStringSync('''
 Object? codePushPatch() => 1;
 ''');
 
       expect(
-        findCodePushPatchSourceCandidates(),
+        findCodePushPatchSourceCandidates(libDirPath: libDir()),
         equals(['lib/screens/home_screen.dart']),
       );
     });
 
     test('findCodePushPatchSourceCandidates returns sorted matches', () {
-      File('lib/b.dart').writeAsStringSync('Object? codePushPatch() => 1;');
-      File('lib/a.dart').writeAsStringSync('Object? codePushPatch() => 2;');
+      File(p('lib/b.dart')).writeAsStringSync('Object? codePushPatch() => 1;');
+      File(p('lib/a.dart')).writeAsStringSync('Object? codePushPatch() => 2;');
 
       expect(
-        findCodePushPatchSourceCandidates(),
+        findCodePushPatchSourceCandidates(libDirPath: libDir()),
         equals(['lib/a.dart', 'lib/b.dart']),
       );
     });
 
     test('importPathForPatchSource returns lib-relative import path', () {
-      final file = File('lib/screens/home_screen.dart')
+      final file = File(p('lib/screens/home_screen.dart'))
         ..writeAsStringSync('Object? codePushPatch() => null;');
 
       expect(
-        importPathForPatchSource(file.path),
+        importPathForPatchSource(file.path, libDirPath: libDir()),
         equals('screens/home_screen.dart'),
       );
       expect(
-        importPathForPatchSource(file.absolute.path),
+        importPathForPatchSource(file.absolute.path, libDirPath: libDir()),
         equals('screens/home_screen.dart'),
       );
     });
 
     test('importPathForPatchSource rejects files outside lib', () {
-      final file = File('tool/patch.dart')
+      final file = File(p('tool/patch.dart'))
         ..createSync(recursive: true)
         ..writeAsStringSync('Object? codePushPatch() => null;');
 
-      expect(importPathForPatchSource(file.path), isNull);
+      expect(importPathForPatchSource(file.path, libDirPath: libDir()), isNull);
     });
 
     test('buildGeneratedIosPatchEntrypoint wraps codePushPatch in main', () {

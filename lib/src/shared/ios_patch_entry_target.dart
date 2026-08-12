@@ -98,12 +98,18 @@ String buildGeneratedIosPatchEntrypoint({
       "Object? main() => codePushPatch();\n";
 }
 
-String? importPathForPatchSource(String sourcePath) {
+/// [libDirPath] anchors the lib root; the default is the invoking
+/// directory's `lib/` (the CLI's normal mode). Tests pass a temp-dir
+/// path so they never mutate the process-global Directory.current.
+String? importPathForPatchSource(
+  String sourcePath, {
+  String libDirPath = 'lib',
+}) {
   final file = File(sourcePath);
   if (!file.existsSync()) return null;
 
   final absolutePath = _normalizePath(file.absolute.path);
-  final libRoot = _normalizePath(Directory('lib').absolute.path);
+  final libRoot = _normalizePath(Directory(libDirPath).absolute.path);
   final relativePath = _relativeToLibRoot(
     absolutePath: absolutePath,
     libRoot: libRoot,

@@ -636,12 +636,16 @@ class CodePushBuildService {
   /// app's intermediate representation — tens of MB on real apps, over
   /// the upload size cap (HTTP 413) — and its hash matches nothing any
   /// device computes.
-  String? findIosBaselineAppBinaryPath() {
-    const candidates = [
+  /// [projectRoot] anchors the search; the default probes the invoking
+  /// directory (the CLI's normal mode). Tests pass a temp dir so they
+  /// never mutate the process-global Directory.current, which is a
+  /// chdir(2) and races concurrent test isolates.
+  String? findIosBaselineAppBinaryPath({String projectRoot = '.'}) {
+    final candidates = [
       'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
       'build/ios/archive/Runner.xcarchive/Products/Applications/'
           'Runner.app/Frameworks/App.framework/App',
-    ];
+    ].map((rel) => projectRoot == '.' ? rel : '$projectRoot/$rel');
     String? newest;
     DateTime? newestMtime;
     for (final candidate in candidates) {
@@ -674,22 +678,29 @@ class CodePushBuildService {
   /// delivered to other ABIs.
   ///
   /// Returns null when no Android release build output is present.
-  String? findAndroidBaselineLibPath() {
+  ///
+  /// [projectRoot] anchors the search; the default probes the invoking
+  /// directory (the CLI's normal mode). Tests pass a temp dir so they
+  /// never mutate the process-global Directory.current.
+  String? findAndroidBaselineLibPath({String projectRoot = '.'}) {
     const abis = ['arm64-v8a', 'armeabi-v7a'];
     const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';
+    String anchored(String rel) =>
+        projectRoot == '.' ? rel : '$projectRoot/$rel';
     // Known layouts first: AGP 8 inserts the strip task name into the
     // path; older AGP wrote directly under out/.
     for (final abi in abis) {
       for (final path in [
-        '$strippedRoot/stripReleaseDebugSymbols/out/lib/$abi/libapp.so',
-        '$strippedRoot/out/lib/$abi/libapp.so',
+        anchored(
+            '$strippedRoot/stripReleaseDebugSymbols/out/lib/$abi/libapp.so'),
+        anchored('$strippedRoot/out/lib/$abi/libapp.so'),
       ]) {
         if (File(path).existsSync()) return path;
       }
     }
     // Fallback: scan the stripped tree so a future AGP layout change
     // degrades to a search instead of a miss.
-    final root = Directory(strippedRoot);
+    final root = Directory(anchored(strippedRoot));
     if (!root.existsSync()) return null;
     try {
       // Stat each candidate once (a vanished file just drops out), then

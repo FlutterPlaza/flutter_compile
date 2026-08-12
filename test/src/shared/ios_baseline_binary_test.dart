@@ -11,69 +11,69 @@ void main() {
   group('findIosBaselineAppBinaryPath', () {
     late CodePushBuildService service;
     late Directory tmp;
-    late Directory oldCwd;
 
     const appBinary =
         'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App';
+    const archiveBinary =
+        'build/ios/archive/Runner.xcarchive/Products/Applications/'
+        'Runner.app/Frameworks/App.framework/App';
+
+    // All paths are anchored on the temp dir explicitly: mutating the
+    // process-global Directory.current is a chdir(2) that races the
+    // other concurrently-running test isolates.
+    String p(String rel) => '${tmp.path}/$rel';
+    String? find() =>
+        service.findIosBaselineAppBinaryPath(projectRoot: tmp.path);
 
     setUp(() {
       service = CodePushBuildService(logger: MockLogger());
-      oldCwd = Directory.current;
       tmp = Directory.systemTemp.createTempSync('fcp_ios_baseline_test');
-      Directory.current = tmp;
     });
 
     tearDown(() {
-      Directory.current = oldCwd;
       tmp.deleteSync(recursive: true);
     });
 
     test('returns null when no release build output exists', () {
-      expect(service.findIosBaselineAppBinaryPath(), isNull);
+      expect(find(), isNull);
     });
 
     test('returns the App binary inside the built Runner.app', () {
-      File(appBinary)
+      File(p(appBinary))
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync(const [1, 2, 3]);
-      expect(service.findIosBaselineAppBinaryPath(), appBinary);
+      expect(find(), p(appBinary));
     });
 
     test('recognizes the xcarchive output of "flutter build ipa"', () {
-      const archiveBinary =
-          'build/ios/archive/Runner.xcarchive/Products/Applications/'
-          'Runner.app/Frameworks/App.framework/App';
-      File(archiveBinary)
+      File(p(archiveBinary))
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync(const [1, 2, 3]);
-      expect(service.findIosBaselineAppBinaryPath(), archiveBinary);
+      expect(find(), p(archiveBinary));
     });
 
     test('the newest build output wins when both layouts exist', () {
-      const archiveBinary =
-          'build/ios/archive/Runner.xcarchive/Products/Applications/'
-          'Runner.app/Frameworks/App.framework/App';
-      File(appBinary)
+      File(p(appBinary))
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync(const [1, 2, 3]);
-      File(archiveBinary)
+      File(p(archiveBinary))
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync(const [4, 5, 6]);
       // Make the archive strictly newer.
-      File(archiveBinary).setLastModifiedSync(
-        File(appBinary).statSync().modified.add(const Duration(minutes: 5)),
+      File(p(archiveBinary)).setLastModifiedSync(
+        File(p(appBinary)).statSync().modified.add(const Duration(minutes: 5)),
       );
-      expect(service.findIosBaselineAppBinaryPath(), archiveBinary);
+      expect(find(), p(archiveBinary));
     });
 
     test('a kernel without a built app is not a substitute', () {
       // The old behavior fell back to the newest app.dill — tens of MB
       // on real apps and over the upload cap. The helper must never
       // report a kernel path.
-      File('.dart_tool/flutter_build/abc123/app.dill')
+      File(p('.dart_tool/flutter_build/abc123/app.dill'))
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync(const [1, 2, 3]);
-      expect(service.findIosBaselineAppBinaryPath(), isNull);
+      expect(find(), isNull);
     });
   });
 }
