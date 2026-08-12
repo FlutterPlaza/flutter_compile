@@ -34,7 +34,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: 📚 Git Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 🎯 Setup Dart
         uses: dart-lang/setup-dart@v1
@@ -72,7 +72,7 @@ jobs:
       id-token: write
     steps:
       - name: 📚 Git Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 🎯 Setup Dart
         uses: dart-lang/setup-dart@v1
