@@ -108,21 +108,41 @@ class CodePushInitSubCommand extends Command<int> {
 
     final platform = argResults?['platform'] as String?;
     final serverUrl = await CodePushClient.getServerUrl();
-    final progress = _logger.progress('Creating app "$appName"');
 
-    // Generate the keypair BEFORE the app-create call so we can include
-    // the public key in the same POST and enable signature verification
-    // from the first patch onward. If key gen fails (openssl missing),
-    // we still create the app — it'll be grandfathered and the user
-    // can run `fcp codepush keys register` later.
+    // Generate the keypair BEFORE the app-create call so the public key
+    // rides the same POST and signature verification is on from the
+    // first patch. If key gen fails (openssl missing), we still create
+    // the app — it'll be grandfathered and the user can run
+    // `fcp codepush keys register` later.
     final home = Platform.environment['HOME'] ?? '/tmp';
     final keyDir = '$home/.flutter_codepush';
     final privateKeyPath = '$keyDir/codepush_private.pem';
     final publicKeyPath = '$keyDir/codepush_public.pem';
+    var keysGeneratedThisRun = false;
+    if (!File(privateKeyPath).existsSync()) {
+      final keyProgress = _logger.progress('Generating RSA signing key pair');
+      final buildService = CodePushBuildService(logger: _logger);
+      final keyResult = await buildService.generateSigningKey(keyDir);
+      if (keyResult != null) {
+        await CodePushClient.storeSigningKey(keyResult.$1);
+        keyProgress.complete('Signing keys generated');
+        _logger.info('  Private key: ${keyResult.$1}');
+        _logger.info('  Public key:  ${keyResult.$2}');
+        keysGeneratedThisRun = true;
+      } else {
+        keyProgress.fail('Could not generate signing keys (openssl missing?)');
+        _logger.warn(
+          'Patches will not be signed. Install openssl, then run '
+          '`fcp codepush keys generate` and `fcp codepush keys register`.',
+        );
+      }
+    }
     String? publicKeyPemForCreate;
     if (File(publicKeyPath).existsSync()) {
       publicKeyPemForCreate = File(publicKeyPath).readAsStringSync().trim();
     }
+
+    final progress = _logger.progress('Creating app "$appName"');
 
     final httpClient = HttpClient();
     try {
@@ -161,31 +181,12 @@ class CodePushInitSubCommand extends Command<int> {
       _logger.info('  App ID: $appId');
       _logger.info('  Name:   $appName');
 
-      // Generate RSA signing key pair if not already present.
-      if (!File(privateKeyPath).existsSync()) {
-        final keyProgress = _logger.progress('Generating RSA signing key pair');
-        final buildService = CodePushBuildService(logger: _logger);
-        final keyResult = await buildService.generateSigningKey(keyDir);
-        if (keyResult != null) {
-          await CodePushClient.storeSigningKey(keyResult.$1);
-          keyProgress.complete('Signing keys generated');
-          _logger.info('  Private key: ${keyResult.$1}');
-          _logger.info('  Public key:  ${keyResult.$2}');
-          _logger.warn(
-            'The app was created before these keys existed, so the server '
-            'does not yet have your public key on file. Run '
-            '`fcp codepush keys register` now to enable signature '
-            'verification.',
-          );
-        } else {
-          keyProgress
-              .fail('Could not generate signing keys (openssl missing?)');
-          _logger.warn(
-            'Patches will not be signed. Install openssl and re-run '
-            '`fcp codepush keys generate`.',
-          );
-        }
-      } else {
+      if (keysGeneratedThisRun) {
+        _logger.info(
+          '  Public key was registered with this app — signature '
+          'verification is enabled from your first patch.',
+        );
+      } else if (File(privateKeyPath).existsSync()) {
         _logger.info('  Signing key: $privateKeyPath (existing)');
         if (publicKeyPemForCreate != null) {
           _logger.info(
