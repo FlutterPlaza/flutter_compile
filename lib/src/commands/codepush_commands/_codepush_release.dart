@@ -40,6 +40,20 @@ class CodePushReleaseSubCommand extends Command<int> {
         help: 'Flutter SDK version this release was built with (e.g., 3.41.2). '
             'Auto-detected from "flutter --version" if not specified. '
             'Required for server-side patch compilation.',
+      )
+      ..addOption(
+        'baseline-id',
+        help: 'The FCPBaselineId embedded in the app being released. Needed '
+            'when releasing a pre-built iOS app without --build: devices '
+            'match releases by this id, so a release without one is never '
+            'offered an update. With --build the id is generated and '
+            'stamped automatically.',
+      )
+      ..addFlag(
+        'allow-missing-baseline',
+        help: 'Create an iOS release without a baseline identity. Devices '
+            'running modern SDKs will never match it — special cases only.',
+        negatable: false,
       );
   }
 
@@ -243,32 +257,39 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
     }
 
+    // Resolve the platform once — the baseline-identity check and the
+    // snapshot auto-detection both need it, and an explicit --snapshot
+    // must not skip the identity check. Same precedence as the build
+    // branch: explicit flag, then the platform that was just built,
+    // then project detection.
+    //
+    // Detection alone cannot be trusted for a dual-platform project:
+    // android/ is probed before ios/, so `flutter build ios` followed
+    // by a flagless release would route into the Android branch — and
+    // could upload a stale Android library as this version's baseline.
+    // Creating a server record deserves an explicit choice.
+    final explicitPlatform = argResults?['platform'] as String?;
+    if (CodePushBuildService.releaseNeedsExplicitPlatform(
+      explicitPlatform: explicitPlatform,
+      builtPlatform: builtPlatform,
+      hasAndroidDir: Directory('android').existsSync(),
+      hasIosDir: Directory('ios').existsSync(),
+    )) {
+      _logger.err(
+        'This project has both android/ and ios/ — pass --platform so '
+        'the release matches the app you actually built (or use '
+        '--build, which records the platform it builds).',
+      );
+      return ExitCode.usage.code;
+    }
+    final resolvedPlatform = explicitPlatform ??
+        builtPlatform ??
+        buildService.detectPlatform() ??
+        'apk';
+
     // Resolve snapshot path.
     var snapshotPath = argResults?['snapshot'] as String?;
     if (snapshotPath == null || snapshotPath.isEmpty) {
-      // Auto-detect from build output. Resolve the platform the same way
-      // the build branch does — explicit flag, then the platform that was
-      // just built, then project detection — so a non-Android project
-      // without --platform never routes into the Android-only branch.
-      final platform = argResults?['platform'] as String?;
-      // Detection alone cannot be trusted for a dual-platform project:
-      // android/ is probed before ios/, so `flutter build ios` followed
-      // by a flagless release would route into the Android branch — and
-      // could upload a stale Android library as this version's baseline.
-      // Creating a server record deserves an explicit choice.
-      if (platform == null &&
-          builtPlatform == null &&
-          Directory('android').existsSync() &&
-          Directory('ios').existsSync()) {
-        _logger.err(
-          'This project has both android/ and ios/ — pass --platform so '
-          'the release matches the app you actually built (or use '
-          '--build, which records the platform it builds).',
-        );
-        return ExitCode.usage.code;
-      }
-      final resolvedPlatform =
-          platform ?? builtPlatform ?? buildService.detectPlatform() ?? 'apk';
       // On Android the uploaded baseline MUST be the stripped libapp.so
       // that ships inside the APK/AAB: the server hashes these bytes and
       // devices compare against a hash of the packaged file they run.
@@ -323,6 +344,53 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (!snapshotFile.existsSync()) {
       _logger.err('Snapshot file not found: $snapshotPath');
       return ExitCode.software.code;
+    }
+
+    // Resolve the baseline identity for iOS releases that did not just
+    // stamp one (--no-build re-runs, or a build whose plist was absent).
+    // A UUID-less iOS release is a landmine: devices match releases by
+    // FCPBaselineId, so every update check would return nothing —
+    // forever, with no error anywhere.
+    //
+    // Resolved AFTER the snapshot so the identity is read from the SAME
+    // app bundle the uploaded bytes come from — never from a different
+    // (staler or newer) build whose id would not match the binary. A
+    // --snapshot pointing outside an app bundle provides no identity
+    // and must use --baseline-id.
+    if (resolvedPlatform == 'ios') {
+      final appDirForIdentity = builtIosAppDirFromBinaryPath(snapshotPath);
+      baselineId = resolveIosBaselineId(
+        stampedByBuild: baselineId,
+        explicitFlag: argResults?['baseline-id'] as String?,
+        fromBuiltApp: appDirForIdentity != null
+            ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
+            : null,
+      );
+      if (baselineId != null) {
+        _logger.detail('Using baseline id: $baselineId');
+      } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
+        if (shouldBuild) {
+          // The build ran but could not stamp: the source plist was
+          // missing (warned above). Telling the user to "re-run with
+          // --build" would send them in a circle.
+          _logger.err(
+            'The build could not stamp a baseline identity because '
+            'ios/Runner/Info.plist is missing. Restore the plist '
+            '("flutter create ." regenerates it) and re-run, or pass '
+            '--baseline-id <uuid>.',
+          );
+        } else {
+          _logger.err(
+            'This iOS release has no baseline identity. Devices match '
+            'releases by the FCPBaselineId stamped at build time; a '
+            'release without one is never offered an update. Re-run with '
+            '--build, pass --baseline-id <uuid> (the id embedded in the '
+            'app you are releasing), or pass --allow-missing-baseline if '
+            'you really want a release no modern device will match.',
+          );
+        }
+        return ExitCode.usage.code;
+      }
     }
 
     final snapshotData = snapshotFile.readAsBytesSync();

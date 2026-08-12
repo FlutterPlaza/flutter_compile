@@ -508,6 +508,25 @@ class CodePushBuildService {
     return null;
   }
 
+  /// Whether a release without a platform signal must demand an
+  /// explicit `--platform`: no explicit flag, nothing built this run,
+  /// and the project is dual-platform (both `android/` and `ios/`
+  /// exist). Applies to `--snapshot` releases too: directory detection
+  /// probes `android/` first, so an intended iOS release would
+  /// otherwise silently classify as Android — skipping the iOS
+  /// baseline-identity requirement — and a release creates a server
+  /// record, which deserves an explicit choice.
+  static bool releaseNeedsExplicitPlatform({
+    required String? explicitPlatform,
+    required String? builtPlatform,
+    required bool hasAndroidDir,
+    required bool hasIosDir,
+  }) =>
+      explicitPlatform == null &&
+      builtPlatform == null &&
+      hasAndroidDir &&
+      hasIosDir;
+
   /// The built iOS baseline binary — `App.framework/App` inside the
   /// release app — or null when no release build output exists. Both
   /// `flutter build ios` output (`build/ios/iphoneos`) and
