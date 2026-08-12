@@ -4,6 +4,45 @@ import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:test/test.dart';
 
 void main() {
+  group('resolveIosBaselineId', () {
+    test('the id stamped by this run wins over everything', () {
+      expect(
+        resolveIosBaselineId(
+          stampedByBuild: 'stamped',
+          explicitFlag: 'flag',
+          fromBuiltApp: 'built',
+        ),
+        'stamped',
+      );
+    });
+
+    test('the explicit flag wins over the built app', () {
+      expect(
+        resolveIosBaselineId(explicitFlag: 'flag', fromBuiltApp: 'built'),
+        'flag',
+      );
+    });
+
+    test('the built app is the last resort', () {
+      expect(resolveIosBaselineId(fromBuiltApp: 'built'), 'built');
+    });
+
+    test('empty strings count as absent', () {
+      expect(
+        resolveIosBaselineId(
+          stampedByBuild: '',
+          explicitFlag: '  ',
+          fromBuiltApp: 'built',
+        ),
+        'built',
+      );
+    });
+
+    test('no source at all resolves to null', () {
+      expect(resolveIosBaselineId(), isNull);
+    });
+  });
+
   group('readBaselineIdFromBuiltAppPlist', () {
     late Directory tmp;
 

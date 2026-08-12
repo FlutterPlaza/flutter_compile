@@ -46,6 +46,26 @@ void restoreIosInfoPlist(
 
 const String kDefaultBuiltIosAppPath = 'build/ios/iphoneos/Runner.app';
 
+/// Pure precedence for the baseline identity of an iOS release: the id
+/// stamped by this run's `--build`, then the explicit `--baseline-id`
+/// flag, then the id read from the built app. Empty strings count as
+/// absent. Returns null when no source provides one — the command then
+/// errors unless the caller explicitly allowed a missing identity.
+String? resolveIosBaselineId({
+  String? stampedByBuild,
+  String? explicitFlag,
+  String? fromBuiltApp,
+}) {
+  String? nonEmpty(String? s) {
+    final t = s?.trim();
+    return (t == null || t.isEmpty) ? null : t;
+  }
+
+  return nonEmpty(stampedByBuild) ??
+      nonEmpty(explicitFlag) ??
+      nonEmpty(fromBuiltApp);
+}
+
 /// Reads `FCPBaselineId` from the BUILT app's Info.plist. After
 /// `release --build` restores the source plist, the built app is the
 /// only place the stamped id survives — this is what lets a later
