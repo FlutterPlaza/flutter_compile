@@ -43,3 +43,43 @@ void restoreIosInfoPlist(
 }) {
   File(plistPath).writeAsStringSync(originalContent);
 }
+
+const String kDefaultBuiltIosAppPath = 'build/ios/iphoneos/Runner.app';
+
+/// Reads `FCPBaselineId` from the BUILT app's Info.plist. After
+/// `release --build` restores the source plist, the built app is the
+/// only place the stamped id survives — this is what lets a later
+/// `--no-build` re-release carry the identity of the app it actually
+/// ships.
+///
+/// The built plist is usually binary (Xcode converts it), so `plutil`
+/// is tried first; XML plists are parsed directly as a fallback so the
+/// helper also works where `plutil` doesn't exist.
+String? readBaselineIdFromBuiltAppPlist({
+  String appPath = kDefaultBuiltIosAppPath,
+}) {
+  final plist = File('$appPath/Info.plist');
+  if (!plist.existsSync()) return null;
+  try {
+    final result = Process.runSync(
+      'plutil',
+      ['-extract', 'FCPBaselineId', 'raw', '-o', '-', plist.path],
+    );
+    if (result.exitCode == 0) {
+      final value = (result.stdout as String).trim();
+      if (value.isNotEmpty) return value;
+    }
+  } catch (_) {
+    // plutil unavailable — fall through to XML parsing.
+  }
+  try {
+    final content = plist.readAsStringSync();
+    final match = RegExp(
+      r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
+    ).firstMatch(content);
+    final value = match?.group(1)?.trim();
+    return (value == null || value.isEmpty) ? null : value;
+  } catch (_) {
+    return null;
+  }
+}
