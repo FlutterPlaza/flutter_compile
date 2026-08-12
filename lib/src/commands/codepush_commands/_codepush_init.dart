@@ -122,7 +122,15 @@ class CodePushInitSubCommand extends Command<int> {
     if (!File(privateKeyPath).existsSync()) {
       final keyProgress = _logger.progress('Generating RSA signing key pair');
       final buildService = CodePushBuildService(logger: _logger);
-      final keyResult = await buildService.generateSigningKey(keyDir);
+      // Process.runSync throws (rather than exiting nonzero) when the
+      // openssl executable is missing entirely — and this block now runs
+      // outside the command's main try/catch, so degrade in place.
+      (String, String)? keyResult;
+      try {
+        keyResult = await buildService.generateSigningKey(keyDir);
+      } catch (_) {
+        keyResult = null;
+      }
       if (keyResult != null) {
         await CodePushClient.storeSigningKey(keyResult.$1);
         keyProgress.complete('Signing keys generated');
