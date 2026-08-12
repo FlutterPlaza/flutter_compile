@@ -526,6 +526,20 @@ class CodePushBuildService {
   /// delivered to other ABIs.
   ///
   /// Returns null when no Android release build output is present.
+  /// The built iOS baseline binary — `App.framework/App` inside the
+  /// release `Runner.app` — or null when no release build output exists.
+  ///
+  /// This is the file the release upload must carry on iOS: it is the
+  /// binary devices hash for the baseline check, and it is a few MB.
+  /// The kernel that [findSnapshotPath] falls back to is the whole
+  /// app's intermediate representation — tens of MB on real apps, over
+  /// the upload size cap (HTTP 413) — and its hash matches nothing any
+  /// device computes.
+  String? findIosBaselineAppBinaryPath() {
+    const path = 'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App';
+    return File(path).existsSync() ? path : null;
+  }
+
   String? findAndroidBaselineLibPath() {
     const abis = ['arm64-v8a', 'armeabi-v7a'];
     const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';

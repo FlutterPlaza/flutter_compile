@@ -273,6 +273,24 @@ class CodePushReleaseSubCommand extends Command<int> {
           return ExitCode.usage.code;
         }
       }
+      // On iOS the uploaded baseline MUST be the built App.framework/App
+      // binary: it is what devices hash for the baseline check, and it
+      // is a few MB. The kernel findSnapshotPath falls back to is tens
+      // of MB on real apps — over the upload size cap (HTTP 413) — and
+      // its hash matches nothing any device computes. A missing built
+      // app is an error here, never a silent kernel upload.
+      if (resolvedPlatform == 'ios') {
+        snapshotPath = buildService.findIosBaselineAppBinaryPath();
+        if (snapshotPath == null) {
+          _logger.err(
+            'No built iOS app binary found to upload. Run a release build '
+            'first ("fcp codepush release --build" or "flutter build ios '
+            '--release"), or pass --snapshot with the exact '
+            'App.framework/App binary your app ships.',
+          );
+          return ExitCode.usage.code;
+        }
+      }
       snapshotPath ??= buildService.findSnapshotPath(resolvedPlatform);
       if (snapshotPath == null) {
         _logger.err(
