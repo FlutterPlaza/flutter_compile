@@ -32,6 +32,20 @@ Info.plist entries=32
       expect(CodePushBuildService.parseCodesignIdentity(output), '-');
     });
 
+    test('an unresolvable certificate chain returns null, not a literal', () {
+      // codesign prints 'Authority=(unavailable)' when the signature is
+      // present but the chain cannot be retrieved; signing with that
+      // literal fails with a misleading 'no identity found'.
+      const output = '''
+Executable=/x/Runner.app/Runner
+Identifier=com.example.app
+Signature size=4795
+Authority=(unavailable)
+TeamIdentifier=KF76DSB8GZ
+''';
+      expect(CodePushBuildService.parseCodesignIdentity(output), isNull);
+    });
+
     test('unsigned output returns null', () {
       const output = '/x/Runner.app: code object is not signed at all';
       expect(CodePushBuildService.parseCodesignIdentity(output), isNull);

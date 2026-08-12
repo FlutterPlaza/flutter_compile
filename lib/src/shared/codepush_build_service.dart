@@ -517,35 +517,20 @@ class CodePushBuildService {
     return null;
   }
 
-  /// Path of the Android release AOT library exactly as it ships to
-  /// devices: the stripped `libapp.so` that gets packaged into the
-  /// APK/AAB. This is the file whose SHA-256 matches what an installed
-  /// app can compute from its own package, so it is the only correct
-  /// source for release/baseline hashing on Android.
-  ///
-  /// The pre-strip copies (`intermediates/flutter/release/**/app.so`,
-  /// `merged_native_libs/**/libapp.so`) are the same size but not the
-  /// same bytes — the strip step rewrites the file in place — so
-  /// hashing those produces a value no installed device can match.
-  ///
-  /// A release stores a single baseline identity, and with arm64-v8a
-  /// preferred that is the arm64 identity. On a multi-ABI upload an
-  /// armeabi-v7a device runs different bytes and will not match it —
-  /// which is correct: patches are built for arm64 and must not be
-  /// delivered to other ABIs.
-  ///
-  /// Returns null when no Android release build output is present.
   /// Extracts the signing identity from `codesign -dvv` output: the
   /// first `Authority=` line names the leaf certificate, which is the
   /// string `codesign --sign` accepts. Returns `'-'` for ad-hoc
   /// signatures (no Authority lines) and null when the output shows no
-  /// signature at all or nothing recognizable.
+  /// signature at all, an unresolvable certificate chain
+  /// (`Authority=(unavailable)` — signing with that literal fails with
+  /// a misleading 'no identity found'), or nothing recognizable.
   static String? parseCodesignIdentity(String output) {
     if (output.contains('code object is not signed at all')) return null;
     for (final line in output.split('\n')) {
       final t = line.trim();
       if (t.startsWith('Authority=')) {
         final v = t.substring('Authority='.length).trim();
+        if (v == '(unavailable)') return null;
         if (v.isNotEmpty) return v;
       }
       if (t == 'Signature=adhoc') return '-';
@@ -575,7 +560,8 @@ class CodePushBuildService {
         'Could not determine the signing identity of the built app, so the '
         'repaired framework cannot be re-signed and a device would refuse '
         'the install. Re-sign manually (codesign --force --sign <identity> '
-        '$appPath/Frameworks/Flutter.framework, then the app) or rebuild.',
+        '$appPath/Frameworks/Flutter.framework, then the app) or rebuild.\n'
+        'codesign reported:\n$probeOut',
       );
       return false;
     }
@@ -619,6 +605,24 @@ class CodePushBuildService {
     return true;
   }
 
+  /// Path of the Android release AOT library exactly as it ships to
+  /// devices: the stripped `libapp.so` that gets packaged into the
+  /// APK/AAB. This is the file whose SHA-256 matches what an installed
+  /// app can compute from its own package, so it is the only correct
+  /// source for release/baseline hashing on Android.
+  ///
+  /// The pre-strip copies (`intermediates/flutter/release/**/app.so`,
+  /// `merged_native_libs/**/libapp.so`) are the same size but not the
+  /// same bytes — the strip step rewrites the file in place — so
+  /// hashing those produces a value no installed device can match.
+  ///
+  /// A release stores a single baseline identity, and with arm64-v8a
+  /// preferred that is the arm64 identity. On a multi-ABI upload an
+  /// armeabi-v7a device runs different bytes and will not match it —
+  /// which is correct: patches are built for arm64 and must not be
+  /// delivered to other ABIs.
+  ///
+  /// Returns null when no Android release build output is present.
   String? findAndroidBaselineLibPath() {
     const abis = ['arm64-v8a', 'armeabi-v7a'];
     const strippedRoot = 'build/app/intermediates/stripped_native_libs/release';
