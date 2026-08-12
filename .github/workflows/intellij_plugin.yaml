@@ -42,7 +42,7 @@ jobs:
         run: ./gradlew buildPlugin
 
       - name: 📤 Upload Plugin Artifact
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: intellij-plugin
           path: extensions/intellij/build/distributions/*.zip
@@ -72,7 +72,7 @@ jobs:
 
       - name: 📤 Upload Verifier Reports
         if: always()
-        uses: actions/upload-artifact@v8
+        uses: actions/upload-artifact@v7
         with:
           name: plugin-verifier-reports
           path: extensions/intellij/build/reports/pluginVerifier
