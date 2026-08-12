@@ -266,15 +266,31 @@ class CodePushPatchSubCommand extends Command<int> {
           final bytecodeProgress = _logger.progress('Building iOS patch');
           const bytecodeOutput = 'build/codepush/patch.bytecode';
 
-          final inputDill = buildService.findSnapshotPath('ios');
-          if (inputDill == null) {
-            bytecodeProgress.fail('Could not locate iOS build input');
-            _logger.err(
-              'Expected a build artifact under .dart_tool/flutter_build/. '
-              'Run `flutter build ios --release` first.',
-            );
+          // The release build's kernel is whole-program optimized and
+          // must not feed the patch compiler: its call shapes are
+          // specialized to the app that was just built, not to the app
+          // being patched. Compile a dedicated patch kernel instead
+          // (release defines, no whole-program optimization).
+          final iosPatchTarget = generatedIosTargetPath;
+          if (iosPatchTarget == null) {
+            bytecodeProgress.fail('No iOS patch entry target');
             return ExitCode.software.code;
           }
+          const patchKernelOutput = 'build/codepush/patch_kernel.dill';
+          final kernelResult = await buildService.compilePatchKernel(
+            targetPath: iosPatchTarget,
+            outputDillPath: patchKernelOutput,
+            dartDefines: dartDefines,
+          );
+          if (!kernelResult.success) {
+            bytecodeProgress.fail(
+              kernelResult.message ?? 'Patch kernel compile failed',
+            );
+            final diag = kernelResult.formatDiagnostics();
+            if (diag.isNotEmpty) _logger.err(diag);
+            return ExitCode.software.code;
+          }
+          const inputDill = patchKernelOutput;
 
           // Package URI prefix: either user-supplied or auto-detected
           // from pubspec.yaml.

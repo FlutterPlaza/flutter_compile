@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -186,6 +188,169 @@ void main() {
           'iOS build already finalized during prepare.',
         );
         expect(result.command, isNull);
+      });
+    });
+
+    group('patchKernelCompilerArgs', () {
+      List<String> args({List<String> defines = const []}) =>
+          CodePushBuildService.patchKernelCompilerArgs(
+            sdkRoot: '/sdk/flutter_patched_sdk_product/',
+            packagesPath: '.dart_tool/package_config.json',
+            outputDillPath: 'build/codepush/patch_kernel.dill',
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            dartDefines: defines,
+          );
+
+      test('compiles with release defines against the flutter target', () {
+        final a = args();
+        expect(a, contains('-Ddart.vm.product=true'));
+        expect(a, contains('-Ddart.vm.profile=false'));
+        expect(a, contains('--target=flutter'));
+        expect(
+            a,
+            containsAllInOrder(<String>[
+              '--sdk-root',
+              '/sdk/flutter_patched_sdk_product/',
+            ]));
+      });
+
+      test('never enables whole-program optimization', () {
+        final a = args();
+        expect(a, isNot(contains('--aot')));
+        expect(a, isNot(contains('--tfa')));
+        // The platform must stay linked into the output kernel.
+        expect(a, isNot(contains('--no-link-platform')));
+      });
+
+      test('appends user dart-defines with the -D prefix', () {
+        final a = args(defines: ['FOO=bar', 'BAZ=1']);
+        expect(a, contains('-DFOO=bar'));
+        expect(a, contains('-DBAZ=1'));
+      });
+
+      test('ends with the entry target', () {
+        expect(args().last, 'lib/.fcp_patch_entry.dart');
+      });
+    });
+
+    group('compilePatchKernel', () {
+      test(
+          'fails with an actionable message when the SDK cache lacks '
+          'front-end artifacts', () async {
+        final tempDir =
+            Directory.systemTemp.createTempSync('fcp_patch_kernel_test_');
+        addTearDown(() => tempDir.deleteSync(recursive: true));
+
+        final result = await service.compilePatchKernel(
+          targetPath: 'lib/.fcp_patch_entry.dart',
+          outputDillPath: '${tempDir.path}/patch_kernel.dill',
+          flutterRootOverride: tempDir.path,
+        );
+
+        expect(result.success, isFalse);
+        expect(result.message, contains('front-end artifacts'));
+        expect(result.command, isNull);
+      });
+
+      group('orchestration', () {
+        late Directory root;
+        late String dartAotRuntime;
+        late String frontendServer;
+        late String outputDill;
+
+        setUp(() {
+          root = Directory.systemTemp.createTempSync('fcp_patch_kernel_orch_');
+          dartAotRuntime = '${root.path}/bin/cache/dart-sdk/bin/dartaotruntime';
+          frontendServer = '${root.path}/bin/cache/dart-sdk/bin/snapshots/'
+              'frontend_server_aot.dart.snapshot';
+          final sdkRoot = '${root.path}/bin/cache/artifacts/engine/common/'
+              'flutter_patched_sdk_product';
+          File(dartAotRuntime).createSync(recursive: true);
+          File(frontendServer).createSync(recursive: true);
+          Directory(sdkRoot).createSync(recursive: true);
+          outputDill = '${root.path}/out/patch_kernel.dill';
+        });
+
+        tearDown(() => root.deleteSync(recursive: true));
+
+        test(
+            'runs the front-end snapshot via dartaotruntime and succeeds '
+            'when the output is written', () async {
+          final calls = <List<String>>[];
+          final result = await service.compilePatchKernel(
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            outputDillPath: outputDill,
+            dartDefines: ['FOO=bar'],
+            flutterRootOverride: root.path,
+            runProcess: (executable, args) {
+              calls.add([executable, ...args]);
+              File(outputDill).writeAsStringSync('dill');
+              return ProcessResult(0, 0, '', '');
+            },
+          );
+
+          expect(result.success, isTrue);
+          expect(calls, hasLength(1));
+          expect(calls.single.first, dartAotRuntime);
+          expect(calls.single[1], frontendServer);
+          // The computed inputs must actually reach the subprocess.
+          expect(
+            calls.single,
+            containsAll(<String>[
+              '--sdk-root',
+              '${root.path}/bin/cache/artifacts/engine/common/'
+                  'flutter_patched_sdk_product/',
+              '--packages',
+              '.dart_tool/package_config.json',
+              '--output-dill',
+              outputDill,
+              '-DFOO=bar',
+              'lib/.fcp_patch_entry.dart',
+            ]),
+          );
+        });
+
+        test(
+            'deletes a stale output before compiling and fails when the '
+            'compiler writes nothing', () async {
+          File(outputDill)
+            ..createSync(recursive: true)
+            ..writeAsStringSync('stale');
+
+          var staleGoneAtCallTime = false;
+          final result = await service.compilePatchKernel(
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            outputDillPath: outputDill,
+            flutterRootOverride: root.path,
+            runProcess: (executable, args) {
+              staleGoneAtCallTime = !File(outputDill).existsSync();
+              return ProcessResult(0, 0, '', '');
+            },
+          );
+
+          expect(staleGoneAtCallTime, isTrue,
+              reason: 'a stale kernel must be deleted before the compile');
+          expect(result.success, isFalse,
+              reason: 'exit 0 without an output file is not a success');
+        });
+
+        test(
+            'fails on a non-zero compiler exit even when an output '
+            'exists', () async {
+          final result = await service.compilePatchKernel(
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            outputDillPath: outputDill,
+            flutterRootOverride: root.path,
+            runProcess: (executable, args) {
+              File(outputDill).writeAsStringSync('partial');
+              return ProcessResult(0, 1, '', 'compile error');
+            },
+          );
+
+          expect(result.success, isFalse);
+          expect(result.exitCode, 1);
+          expect(result.stderr, contains('compile error'));
+        });
       });
     });
   });
