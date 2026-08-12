@@ -280,6 +280,7 @@ void main() {
           final result = await service.compilePatchKernel(
             targetPath: 'lib/.fcp_patch_entry.dart',
             outputDillPath: outputDill,
+            dartDefines: ['FOO=bar'],
             flutterRootOverride: root.path,
             runProcess: (executable, args) {
               calls.add([executable, ...args]);
@@ -292,6 +293,21 @@ void main() {
           expect(calls, hasLength(1));
           expect(calls.single.first, dartAotRuntime);
           expect(calls.single[1], frontendServer);
+          // The computed inputs must actually reach the subprocess.
+          expect(
+            calls.single,
+            containsAll(<String>[
+              '--sdk-root',
+              '${root.path}/bin/cache/artifacts/engine/common/'
+                  'flutter_patched_sdk_product/',
+              '--packages',
+              '.dart_tool/package_config.json',
+              '--output-dill',
+              outputDill,
+              '-DFOO=bar',
+              'lib/.fcp_patch_entry.dart',
+            ]),
+          );
         });
 
         test(
