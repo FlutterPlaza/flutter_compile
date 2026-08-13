@@ -905,6 +905,33 @@ void _interfaceFreeze() {
       expect(calls.single.first, contains('dartaotruntime'));
     });
   });
+  group('frontendSupportsDynamicInterface', () {
+    test('true when the snapshot embeds the option name', () {
+      final root = Directory.systemTemp.createTempSync('probe_test');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final snap = File(
+        '${root.path}/bin/cache/dart-sdk/bin/snapshots/'
+        'frontend_server_aot.dart.snapshot',
+      )..createSync(recursive: true);
+      snap.writeAsBytesSync(
+        [0, 1, 2, ...'dynamic-interface'.codeUnits, 3, 4],
+      );
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface(root.path),
+        true,
+      );
+      snap.writeAsBytesSync([0, 1, 2, 3, 4]);
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface(root.path),
+        false,
+      );
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface('/nope'),
+        false,
+      );
+    });
+  });
+
   group('flutterLibrariesFromClosure', () {
     test('includes only candidates present in the closure', () {
       final libs = CodePushBuildService.flutterLibrariesFromClosure({

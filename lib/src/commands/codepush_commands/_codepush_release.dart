@@ -50,6 +50,14 @@ class CodePushReleaseSubCommand extends Command<int> {
             'stamped automatically.',
       )
       ..addFlag(
+        'interface-freeze',
+        defaultsTo: true,
+        help: 'Preserve public call shapes in the built iOS app so '
+            'later patches can call them reliably. Disable only to '
+            'work around a build issue: a release built with '
+            '--no-interface-freeze may not be reliably patchable.',
+      )
+      ..addFlag(
         'allow-missing-baseline',
         help: 'Create an iOS release without a baseline identity. Devices '
             'running modern SDKs will never match it — special cases only.',
@@ -213,9 +221,16 @@ class CodePushReleaseSubCommand extends Command<int> {
               CodePushBuildService.withIosReleaseGenSnapshotOptions(
             extraBuildArgs,
           );
-          final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
-          if (freezeArgs == null) return ExitCode.software.code;
-          releaseBuildArgs = freezeArgs(releaseBuildArgs);
+          if (argResults?['interface-freeze'] as bool? ?? true) {
+            final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
+            if (freezeArgs == null) return ExitCode.software.code;
+            releaseBuildArgs = freezeArgs(releaseBuildArgs);
+          } else {
+            _logger.warn(
+              'Interface freeze disabled (--no-interface-freeze): this '
+              'release may not be reliably patchable.',
+            );
+          }
         }
 
         final buildProgress = _logger.progress('Building release ($platform)');
@@ -561,6 +576,19 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(
         'The project path contains a comma, which the build toolchain '
         'cannot pass through. Move the project to a comma-free path.',
+      );
+      return null;
+    }
+    final flutterRoot = buildService.findFlutterRootForProbe();
+    if (flutterRoot == null ||
+        !CodePushBuildService.frontendSupportsDynamicInterface(
+          flutterRoot,
+        )) {
+      _logger.err(
+        'This Flutter SDK\'s compiler does not support preserving call '
+        'shapes for code push. Upgrade Flutter (3.41+), or pass '
+        '--no-interface-freeze to build without it (such a release may '
+        'not be reliably patchable).',
       );
       return null;
     }

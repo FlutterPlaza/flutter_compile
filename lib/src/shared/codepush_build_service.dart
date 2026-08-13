@@ -540,6 +540,9 @@ class CodePushBuildService {
 
   /// Locate the active Flutter SDK root directory by resolving the
   /// `flutter` binary path and walking up to the SDK root.
+  /// Public wrapper so commands can locate the SDK root for probes.
+  String? findFlutterRootForProbe() => _findActiveFlutterRoot();
+
   static String? _findActiveFlutterRoot() {
     final which = Process.runSync('which', ['flutter']);
     if (which.exitCode != 0) return null;
@@ -1395,6 +1398,29 @@ class CodePushBuildService {
   /// optimization. Returns the set of source paths in the closure, or
   /// null on failure (with diagnostics logged). Used to generate the
   /// iOS interface freeze from what the build actually contains.
+  /// Whether the SDK's front-end snapshot recognises the
+  /// `--dynamic-interface` option, probed by scanning the snapshot for
+  /// the option name (AOT snapshots embed their option strings).
+  /// Returns false for SDKs that predate the option, where passing it
+  /// would fail the build with an opaque option error.
+  static bool frontendSupportsDynamicInterface(String flutterRoot) {
+    final snapshot = File(
+      '$flutterRoot/bin/cache/dart-sdk/bin/snapshots/'
+      'frontend_server_aot.dart.snapshot',
+    );
+    if (!snapshot.existsSync()) return false;
+    final needle = 'dynamic-interface'.codeUnits;
+    final bytes = snapshot.readAsBytesSync();
+    outer:
+    for (var i = 0; i <= bytes.length - needle.length; i++) {
+      for (var j = 0; j < needle.length; j++) {
+        if (bytes[i + j] != needle[j]) continue outer;
+      }
+      return true;
+    }
+    return false;
+  }
+
   /// Whether `.dart_tool/package_config.json` under [projectRoot] is
   /// missing or older than the pubspec, i.e. `pub get` is needed before
   /// a front-end compile can resolve packages.
