@@ -134,7 +134,15 @@ fcp status                                    # engine config overview
 
 ## Code Push
 
-Ship Dart-only updates to your Flutter app without resubmitting to the app stores. Signed patches, staged rollouts, and one-tap rollbacks — all driven from the CLI.
+Ship Dart-only fixes to your Flutter app between store releases. Signed patches, staged rollouts, and one-tap rollbacks — all driven from the CLI.
+
+### Before you ship
+
+Code push updates your app's Dart code at runtime through a virtual-machine-based update mechanism. Your app's native code, resources, and permissions are never modified — the app itself is only ever updated through the store.
+
+Store policies govern this kind of mechanism, and you are the developer of record for your app. Review [Google Play's Device and Network Abuse policy](https://support.google.com/googleplay/android-developer/answer/9888379) and [App Store Review Guideline 3.3.2](https://developer.apple.com/app-store/review/guidelines/), and make your own distribution decision. Distribution channels outside the app stores (enterprise/MDM, alternative stores, direct APK) carry no such restriction.
+
+If you want over-the-air updates disabled specifically for Play Store installs, set `disableOnPlayStoreInstalls: true` when initializing the SDK — the app then updates only through the store on Play-installed devices, while other channels keep code push.
 
 ```sh
 fcp codepush setup                         # one-time toolchain setup
