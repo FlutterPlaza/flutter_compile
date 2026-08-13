@@ -558,8 +558,7 @@ void _versionResolution() {
       service = CodePushBuildService(logger: logger);
     });
 
-    test('accepts the stored version when the manifest supports it',
-        () async {
+    test('accepts the stored version when the manifest supports it', () async {
       final manager = _FakeArtifactManager(
         logger: logger,
         support: {
