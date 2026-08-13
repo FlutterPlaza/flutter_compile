@@ -10,6 +10,7 @@ class MockLogger extends Mock implements Logger {}
 
 void main() {
   _signingGuards();
+  _versionResolution();
   group('CodePushBuildService', () {
     late MockLogger logger;
     late CodePushBuildService service;
@@ -455,6 +456,164 @@ void main() {
       expect(diag, contains('exit code: 1'));
       expect(diag, isNot(contains('stderr:')));
       expect(diag, isNot(contains('stdout:')));
+    });
+  });
+}
+
+// ── Flutter version resolution ──────────────────────────────────────
+class _FakeArtifactManager extends CodePushArtifactManager {
+  _FakeArtifactManager({required super.logger, this.support});
+
+  final Map<String, Map<String, String>>? support;
+
+  @override
+  Future<Map<String, Map<String, String>>?> fetchPlatformSupport() async =>
+      support;
+}
+
+void _versionResolution() {
+  group('detectFlutterVersion retry', () {
+    late CodePushBuildService service;
+    late bool flutterOnPath;
+
+    setUp(() {
+      service = CodePushBuildService(logger: MockLogger());
+      flutterOnPath = service.findFlutterBin() != null;
+    });
+
+    ProcessResult ok(String stdout) => ProcessResult(0, 0, stdout, '');
+    ProcessResult fail() => ProcessResult(0, 1, '', 'boom');
+
+    test('retries once after a failed run and returns the parsed version',
+        () async {
+      if (!flutterOnPath) return;
+      var calls = 0;
+      final version = await service.detectFlutterVersion(
+        runProcess: (_, __) async {
+          calls++;
+          return calls == 1
+              ? fail()
+              : ok('Flutter 3.41.6 • channel stable • ...');
+        },
+      );
+      expect(calls, 2);
+      expect(version, '3.41.6');
+    });
+
+    test('retries once after a thrown ProcessException', () async {
+      if (!flutterOnPath) return;
+      var calls = 0;
+      final version = await service.detectFlutterVersion(
+        runProcess: (_, __) async {
+          calls++;
+          if (calls == 1) throw ProcessException('flutter', ['--version']);
+          return ok('Flutter 3.41.6 • channel stable • ...');
+        },
+      );
+      expect(calls, 2);
+      expect(version, '3.41.6');
+    });
+
+    test('returns null after two failed attempts (no third try)', () async {
+      if (!flutterOnPath) return;
+      var calls = 0;
+      final version = await service.detectFlutterVersion(
+        runProcess: (_, __) async {
+          calls++;
+          return fail();
+        },
+      );
+      expect(calls, 2);
+      expect(version, isNull);
+    });
+  });
+
+  group('artifactTargetForBuildPlatform', () {
+    test('maps mobile build platforms to manifest platforms', () {
+      expect(
+        CodePushBuildService.artifactTargetForBuildPlatform('ios'),
+        'ios-arm64',
+      );
+      for (final p in ['apk', 'appbundle', 'android']) {
+        expect(
+          CodePushBuildService.artifactTargetForBuildPlatform(p),
+          'android-arm64',
+        );
+      }
+    });
+
+    test('returns null for untracked (desktop) platforms', () {
+      for (final p in ['macos', 'linux', 'windows-x64']) {
+        expect(CodePushBuildService.artifactTargetForBuildPlatform(p), isNull);
+      }
+    });
+  });
+
+  group('guardStoredVersion', () {
+    late MockLogger logger;
+    late CodePushBuildService service;
+
+    setUp(() {
+      logger = MockLogger();
+      service = CodePushBuildService(logger: logger);
+    });
+
+    test('accepts the stored version when the manifest supports it',
+        () async {
+      final manager = _FakeArtifactManager(
+        logger: logger,
+        support: {
+          '3.41.6': {'ios-arm64': 'rev'},
+        },
+      );
+      final result = await service.guardStoredVersion(
+        stored: '3.41.6',
+        buildPlatform: 'ios',
+        artifactManager: manager,
+      );
+      expect(result, '3.41.6');
+    });
+
+    test('rejects the stored version when the manifest lacks the platform',
+        () async {
+      final manager = _FakeArtifactManager(
+        logger: logger,
+        support: {
+          '3.41.6': {'android-arm64': 'rev'},
+        },
+      );
+      final result = await service.guardStoredVersion(
+        stored: '3.41.6',
+        buildPlatform: 'ios',
+        artifactManager: manager,
+      );
+      expect(result, isNull);
+    });
+
+    test('accepts unchecked when the manifest is unavailable', () async {
+      final manager = _FakeArtifactManager(logger: logger, support: null);
+      final result = await service.guardStoredVersion(
+        stored: '3.41.6',
+        buildPlatform: 'ios',
+        artifactManager: manager,
+      );
+      expect(result, '3.41.6');
+    });
+
+    test('accepts unchecked for untracked platforms and missing manager',
+        () async {
+      expect(
+        await service.guardStoredVersion(stored: '3.41.6'),
+        '3.41.6',
+      );
+      expect(
+        await service.guardStoredVersion(
+          stored: '3.41.6',
+          buildPlatform: 'macos',
+          artifactManager: _FakeArtifactManager(logger: logger, support: {}),
+        ),
+        '3.41.6',
+      );
     });
   });
 }
