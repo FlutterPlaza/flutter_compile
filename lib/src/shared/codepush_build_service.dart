@@ -1381,37 +1381,6 @@ class CodePushBuildService {
     return merged;
   }
 
-  /// List the app's own library URIs (`package:<name>/<path>`) for
-  /// every Dart file under `lib/`, for [buildIosInterfaceFreezeYaml].
-  /// Returns null when [projectRoot] has no readable pubspec name.
-  static List<String>? listAppLibraryUris(String projectRoot) {
-    final pubspec = File('$projectRoot/pubspec.yaml');
-    if (!pubspec.existsSync()) return null;
-    final nameMatch = RegExp(
-      r'^name:\s*(\S+)\s*$',
-      multiLine: true,
-    ).firstMatch(pubspec.readAsStringSync());
-    if (nameMatch == null) return null;
-    final name = nameMatch.group(1);
-    final libDir = Directory('$projectRoot/lib');
-    if (!libDir.existsSync()) return null;
-    final uris = <String>[];
-    for (final entity in libDir.listSync(recursive: true)) {
-      if (entity is! File || !entity.path.endsWith('.dart')) continue;
-      final rel =
-          entity.path.substring(libDir.path.length + 1).replaceAll(r'\', '/');
-      // Only real libraries may be listed: a `part of` file is not a
-      // library and listing one fails the whole build. Dotfiles are
-      // generated helpers, also skipped.
-      if (rel.split('/').last.startsWith('.')) continue;
-      final head = entity.readAsStringSync();
-      if (RegExp(r'^part\s+of\s', multiLine: true).hasMatch(head)) continue;
-      uris.add('package:$name/$rel');
-    }
-    uris.sort();
-    return uris;
-  }
-
   /// Discover the app's compile closure by running a fast front-end
   /// compile of [targetPath] with a depfile, without whole-program
   /// optimization. Returns the set of source paths in the closure, or
@@ -1435,6 +1404,18 @@ class CodePushBuildService {
         'frontend_server_aot.dart.snapshot';
     final sdkRoot = '$flutterRoot/bin/cache/artifacts/engine/common/'
         'flutter_patched_sdk_product/';
+    if (runProcess == null &&
+        (!File(dartAotRuntime).existsSync() ||
+            !File(frontendServer).existsSync() ||
+            !Directory(sdkRoot).existsSync())) {
+      _logger.err(
+        'The Flutter SDK cache is missing front-end artifacts. '
+        'Run "flutter precache --ios" and retry; if that does not '
+        'help, your Flutter SDK may be too old to ship '
+        'frontend_server_aot.dart.snapshot — upgrade Flutter.',
+      );
+      return null;
+    }
     final args = <String>[
       frontendServer,
       ...patchKernelCompilerArgs(
@@ -1446,7 +1427,13 @@ class CodePushBuildService {
       '--depfile',
       depfilePath,
     ];
-    final result = (runProcess ?? Process.runSync)(dartAotRuntime, args);
+    final ProcessResult result;
+    try {
+      result = (runProcess ?? Process.runSync)(dartAotRuntime, args);
+    } on ProcessException catch (e) {
+      _logger.err('Closure discovery compile could not start: $e');
+      return null;
+    }
     final depfile = File(depfilePath);
     if (result.exitCode != 0 || !depfile.existsSync()) {
       _logger.err(

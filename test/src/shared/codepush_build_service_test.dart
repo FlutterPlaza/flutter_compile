@@ -758,6 +758,54 @@ void _interfaceFreeze() {
     });
   });
 
+  group('discoverCompileClosure', () {
+    late Directory tmp;
+    late CodePushBuildService service;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('closure_test');
+      service = CodePushBuildService(logger: MockLogger());
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('parses the depfile on success', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        runProcess: (exe, args) {
+          expect(exe, contains('dartaotruntime'));
+          expect(args, contains('--depfile'));
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart /c/d.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(closure, {'/a/b.dart', '/c/d.dart'});
+    });
+
+    test('returns null on a non-zero exit', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        runProcess: (exe, args) => ProcessResult(0, 1, '', 'boom'),
+      );
+      expect(closure, isNull);
+    });
+
+    test('returns null when the compile writes no depfile', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        runProcess: (exe, args) => ProcessResult(0, 0, '', ''),
+      );
+      expect(closure, isNull);
+    });
+  });
+
   group('flutterLibrariesFromClosure', () {
     test('includes only candidates present in the closure', () {
       final libs = CodePushBuildService.flutterLibrariesFromClosure({
