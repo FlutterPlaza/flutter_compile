@@ -137,38 +137,135 @@ class CodePushBuildService {
 
   /// Detect the installed Flutter SDK version by running `flutter --version`
   /// and passing its stdout through [parseFlutterVersionOutput]. Returns
-  /// null if `flutter` is not on PATH, the subprocess fails, or the output
-  /// can't be parsed.
-  Future<String?> detectFlutterVersion() async {
+  /// null if `flutter` is not on PATH, the subprocess fails twice, or the
+  /// output can't be parsed.
+  ///
+  /// The subprocess is retried once: a transient `flutter --version`
+  /// failure (first run after a cache clean, filesystem contention) must
+  /// not silently hand version resolution to the stored fallback, which
+  /// may point at a different platform lane than the current build. The
+  /// retry also covers a run whose output fails to parse — unlikely to
+  /// change on a second run, but cheap and keeps the loop uniform.
+  ///
+  /// [runProcess] is a test seam; production callers omit it.
+  Future<String?> detectFlutterVersion({
+    Future<ProcessResult> Function(String executable, List<String> args)?
+        runProcess,
+  }) async {
     final flutterBin = findFlutterBin();
     if (flutterBin == null) return null;
-    try {
-      final result = await Process.run(flutterBin, ['--version']);
-      if (result.exitCode != 0) return null;
-      return parseFlutterVersionOutput(result.stdout as String);
-    } catch (_) {
-      return null;
+    final run = runProcess ?? Process.run;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        final result = await run(flutterBin, ['--version']);
+        if (result.exitCode == 0) {
+          final parsed = parseFlutterVersionOutput(result.stdout as String);
+          if (parsed != null) return parsed;
+        }
+      } catch (_) {
+        // Fall through to the retry (or to null after the last attempt).
+      }
     }
+    return null;
+  }
+
+  /// Map a `flutter build` platform to the device-target artifact
+  /// platform tracked by the platform-aware version manifest, or null
+  /// for platforms the manifest does not track (desktop targets).
+  static String? artifactTargetForBuildPlatform(String buildPlatform) {
+    switch (buildPlatform) {
+      case 'ios':
+        return 'ios-arm64';
+      case 'apk':
+      case 'appbundle':
+      case 'android':
+        return 'android-arm64';
+      default:
+        return null;
+    }
+  }
+
+  /// Validate the stored-config fallback version for the platform being
+  /// built. Called by [resolveFlutterVersion] when resolution reaches the
+  /// `~/.flutter_compilerc` fallback; public so tests can drive the
+  /// fallback branch directly (detection cannot be forced to fail in a
+  /// test environment with a working `flutter` on PATH).
+  ///
+  /// Returns [stored] when it is usable for [buildPlatform], or null —
+  /// with an actionable error logged — when the platform-aware manifest
+  /// is available and says [stored] has no artifacts for this platform.
+  /// When the manifest is unavailable (offline, old server) the stored
+  /// value is accepted unchecked, preserving the old behavior.
+  Future<String?> guardStoredVersion({
+    required String stored,
+    String? buildPlatform,
+    CodePushArtifactManager? artifactManager,
+  }) async {
+    _logger.warn(
+      'flutter --version was unavailable; falling back to the stored '
+      'engine version $stored from ~/.flutter_compilerc.',
+    );
+    final targetPlatform = buildPlatform == null
+        ? null
+        : artifactTargetForBuildPlatform(buildPlatform);
+    if (targetPlatform == null || artifactManager == null) return stored;
+    final support = await artifactManager.fetchPlatformSupport();
+    if (support == null) return stored;
+    final versionEntry = support[stored];
+    if (versionEntry != null && versionEntry.containsKey(targetPlatform)) {
+      return stored;
+    }
+    if (versionEntry == null) {
+      _logger.err(
+        'The stored engine version $stored (from ~/.flutter_compilerc) is '
+        'not a supported code push version, so it cannot be used for this '
+        'build. Pass --flutter-version <version> or ensure '
+        '"flutter --version" works in this shell.',
+      );
+    } else {
+      _logger.err(
+        'The stored engine version $stored (from ~/.flutter_compilerc) has '
+        'no $buildPlatform artifacts, so it cannot be used for this build. '
+        'It was likely stored by a setup for a different platform. Pass '
+        '--flutter-version <version>, ensure "flutter --version" works in '
+        'this shell, or run "fcp codepush setup" for this platform.',
+      );
+    }
+    return null;
   }
 
   /// Resolve the Flutter SDK version to use for code push build steps.
   ///
   /// Precedence:
   ///   1. [explicit] — typically from a `--flutter-version` CLI flag.
-  ///   2. `flutter --version` output ([detectFlutterVersion]).
+  ///   2. `flutter --version` output ([detectFlutterVersion], retried once).
   ///   3. `codepush_engine_flutter_version` in `~/.flutter_compilerc`
-  ///      ([CodePushClient.getStoredEngineFlutterVersion]).
+  ///      ([CodePushClient.getStoredEngineFlutterVersion]) — validated
+  ///      against the platform-aware version manifest via
+  ///      [guardStoredVersion] when [buildPlatform] and [artifactManager]
+  ///      are provided, so a stored value from a different platform lane
+  ///      fails with an actionable error instead of a confusing download
+  ///      failure later.
   ///
-  /// Returns null only when all three sources yield an empty/missing value.
-  /// Callers should treat null as a user-facing error and tell the user to
-  /// pass `--flutter-version` explicitly or run `fcp codepush setup`.
-  Future<String?> resolveFlutterVersion({String? explicit}) async {
+  /// Returns null when all three sources yield an empty/missing value, or
+  /// when the stored fallback is rejected for [buildPlatform]. Callers
+  /// should treat null as a user-facing error and tell the user to pass
+  /// `--flutter-version` explicitly or run `fcp codepush setup`.
+  Future<String?> resolveFlutterVersion({
+    String? explicit,
+    String? buildPlatform,
+    CodePushArtifactManager? artifactManager,
+  }) async {
     if (explicit != null && explicit.isNotEmpty) return explicit;
     final detected = await detectFlutterVersion();
     if (detected != null && detected.isNotEmpty) return detected;
     final stored = await CodePushClient.getStoredEngineFlutterVersion();
-    if (stored != null && stored.isNotEmpty) return stored;
-    return null;
+    if (stored == null || stored.isEmpty) return null;
+    return guardStoredVersion(
+      stored: stored,
+      buildPlatform: buildPlatform,
+      artifactManager: artifactManager,
+    );
   }
 
   /// Find the `dart` executable.
