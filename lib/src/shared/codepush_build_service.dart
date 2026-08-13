@@ -1399,6 +1399,23 @@ class CodePushBuildService {
       _logger.err('Could not locate the active Flutter SDK root.');
       return null;
     }
+    // `flutter build` runs an implicit `pub get` (which also writes the
+    // synthetic localization package into package_config.json); this
+    // pre-pass runs before it, so it must do the same or a fresh clone
+    // and gen_l10n apps fail here despite being buildable.
+    if (runProcess == null) {
+      final flutterBin = findFlutterBin();
+      if (flutterBin != null) {
+        final pubGet = Process.runSync(flutterBin, ['pub', 'get']);
+        if (pubGet.exitCode != 0) {
+          _logger.err(
+            'flutter pub get failed before the release pre-pass:\n'
+            '${pubGet.stderr}',
+          );
+          return null;
+        }
+      }
+    }
     final dartAotRuntime = '$flutterRoot/bin/cache/dart-sdk/bin/dartaotruntime';
     final frontendServer = '$flutterRoot/bin/cache/dart-sdk/bin/snapshots/'
         'frontend_server_aot.dart.snapshot';
