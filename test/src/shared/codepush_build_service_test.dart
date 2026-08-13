@@ -966,17 +966,17 @@ void _interfaceFreeze() {
         appLibraries: const ['package:app/a.dart'],
         includeExtendable: true,
       );
-      expect(yaml, contains('extendable:'));
-      expect(
-        yaml,
-        contains(
-          "  - library: "
-          "'package:flutter/src/widgets/framework.dart'",
-        ),
-      );
+      // Assert the exact block so mispaired library/class lines fail.
+      final expectedBlock = StringBuffer('extendable:\n');
       for (final cls in CodePushBuildService.kIosExtendableFrameworkClasses) {
-        expect(yaml, contains("    class: '$cls'"));
+        expectedBlock
+          ..writeln(
+            "  - library: "
+            "'package:flutter/src/widgets/framework.dart'",
+          )
+          ..writeln("    class: '$cls'");
       }
+      expect(yaml, endsWith(expectedBlock.toString()));
       expect(
         yaml.indexOf('callable:'),
         lessThan(yaml.indexOf('extendable:')),
