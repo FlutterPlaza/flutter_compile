@@ -992,6 +992,60 @@ void _interfaceFreeze() {
     });
   });
 
+  group('writeIosInterfaceFreezeSpec', () {
+    late Directory tmp;
+    late CodePushBuildService service;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('spec_test');
+      service = CodePushBuildService(logger: MockLogger());
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/main.dart').writeAsStringSync('void main() {}');
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('framework in closure => extendable section reaches the file', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '/sdk/packages/flutter/lib/widgets.dart',
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      final yaml = File(spec!).readAsStringSync();
+      expect(yaml, contains('extendable:'));
+      expect(yaml, contains("  - library: 'package:demo/main.dart'"));
+    });
+
+    test('no framework in closure => extendable omitted in the file', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(File(spec!).readAsStringSync(), isNot(contains('extendable:')));
+    });
+
+    test('no mappable app libraries => null, nothing written', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: const {'/elsewhere/lib/x.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(spec, isNull);
+      expect(
+        File('${tmp.path}/dynamic_interface.yaml').existsSync(),
+        false,
+      );
+    });
+  });
+
   group('closureHasExtendableFramework', () {
     test('true only when the framework library file is in the closure', () {
       expect(

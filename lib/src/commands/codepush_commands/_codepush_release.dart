@@ -601,19 +601,18 @@ class CodePushReleaseSubCommand extends Command<int> {
       progress.fail('Could not analyze the app for the release build');
       return null;
     }
-    final appLibraries = CodePushBuildService.appLibrariesFromClosure(
+    final writtenSpec = buildService.writeIosInterfaceFreezeSpec(
       closurePaths: closure,
       projectRoot: projectRoot,
       packageName: packageName,
+      specDirPath: specDir.path,
       onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
     );
-    final flutterLibraries =
-        CodePushBuildService.flutterLibrariesFromClosure(closure);
     // The compile target lib/main.dart is always in its own closure, so
-    // an empty mapping means the path-prefix match failed, not that the
-    // app has no libraries. Shipping without the app's own shapes
-    // frozen silently defeats the feature - hard stop.
-    if (appLibraries.isEmpty) {
+    // a null here means the path-prefix match failed, not that the app
+    // has no libraries. Shipping without the app's own shapes frozen
+    // silently defeats the feature - hard stop.
+    if (writtenSpec == null) {
       progress.fail('Could not map the app libraries for the release');
       _logger.err(
         'No app libraries were mapped into the interface freeze; '
@@ -622,31 +621,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
-    // Extendable widget bases are included whenever the app compiles
-    // the framework library: without them, a patch that declares a new
-    // widget class fails at first use on device.
-    final includeExtendable =
-        CodePushBuildService.closureHasExtendableFramework(closure);
-    _logger.detail(
-      includeExtendable
-          ? 'Interface spec: widget base classes marked extendable.'
-          : 'Interface spec: framework library not in the compile; '
-              'extendable section omitted.',
-    );
-    File(specPath).writeAsStringSync(
-      CodePushBuildService.buildIosInterfaceFreezeYaml(
-        flutterLibraries: flutterLibraries,
-        appLibraries: appLibraries,
-        includeExtendable: includeExtendable,
-      ),
-    );
-    progress.complete(
-      'Interface: ${appLibraries.length} app + ${flutterLibraries.length} '
-      'framework libraries',
-    );
+    progress.complete('Interface spec written');
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,
-          freezeSpecPath: specPath,
+          freezeSpecPath: writtenSpec,
           reportPath: reportPath,
         );
   }

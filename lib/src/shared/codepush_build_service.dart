@@ -1331,7 +1331,14 @@ class CodePushBuildService {
   /// dispatch on these hierarchies so instances of classes registered
   /// after the build dispatch correctly. The caller decides inclusion
   /// (see [closureHasExtendableFramework]); [buildIosInterfaceFreezeYaml]
-  /// itself defaults the section off. Kept minimal — each entry
+  /// itself defaults the section off.
+  ///
+  /// Deliberate v1 scope: patches may subclass these three bases only.
+  /// InheritedWidget / RenderObjectWidget share the failure mode but
+  /// sit on the hottest dispatch surfaces in the framework — guarding
+  /// them costs every app on every build for a capability no patch
+  /// uses yet. Grow this list from patch reality, like the callable
+  /// list, and re-run the device validation when it grows. Kept minimal — each entry
   /// disables devirtualization for its hierarchy.
   static const String kIosExtendableFrameworkLibrary =
       'package:flutter/src/widgets/framework.dart';
@@ -1373,6 +1380,45 @@ class CodePushBuildService {
       }
     }
     return buffer.toString();
+  }
+
+  /// Write the interface-freeze spec derived from [closurePaths] into
+  /// [specDir], returning the spec path. Pulls together the gate
+  /// ([closureHasExtendableFramework]), the library mapping, and the
+  /// yaml emission so the whole closure→file chain is testable.
+  /// Returns null (nothing written) when no app libraries map — the
+  /// caller treats that as fatal.
+  String? writeIosInterfaceFreezeSpec({
+    required Set<String> closurePaths,
+    required String projectRoot,
+    required String packageName,
+    required String specDirPath,
+    void Function(String path, String reason)? onSkip,
+  }) {
+    final appLibraries = appLibrariesFromClosure(
+      closurePaths: closurePaths,
+      projectRoot: projectRoot,
+      packageName: packageName,
+      onSkip: onSkip,
+    );
+    if (appLibraries.isEmpty) return null;
+    final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
+    final includeExtendable = closureHasExtendableFramework(closurePaths);
+    _logger.detail(
+      includeExtendable
+          ? 'Interface spec: widget base classes marked extendable.'
+          : 'Interface spec: framework library not in the compile; '
+              'extendable section omitted.',
+    );
+    final specPath = '$specDirPath/dynamic_interface.yaml';
+    File(specPath).writeAsStringSync(
+      buildIosInterfaceFreezeYaml(
+        flutterLibraries: flutterLibraries,
+        appLibraries: appLibraries,
+        includeExtendable: includeExtendable,
+      ),
+    );
+    return specPath;
   }
 
   /// Whether the compile closure contains the framework library whose
