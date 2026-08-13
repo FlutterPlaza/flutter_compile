@@ -841,6 +841,26 @@ void _interfaceFreeze() {
       expect(closure, isNull);
     });
 
+    test('runs gen-l10n before the compile when l10n.yaml exists', () async {
+      File('${tmp.path}/l10n.yaml').writeAsStringSync('arb-dir: lib/l10n\n');
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          if (args.first == 'gen-l10n') return ProcessResult(0, 0, '', '');
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls.first, ['flutter', 'gen-l10n']);
+      expect(calls, hasLength(2));
+    });
+
     test('skips pub get when package_config is fresh', () async {
       File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
       Directory('${tmp.path}/.dart_tool').createSync();

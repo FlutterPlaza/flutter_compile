@@ -1441,6 +1441,30 @@ class CodePushBuildService {
         }
       }
     }
+    // Localization sources (`package:flutter_gen/gen_l10n/...`) are
+    // emitted by codegen, not by pub get; `flutter build` runs it
+    // implicitly, so the pre-pass must too or l10n apps fail here.
+    if (File('$projectRoot/l10n.yaml').existsSync()) {
+      final flutterBin = runProcess != null ? 'flutter' : findFlutterBin();
+      if (flutterBin != null) {
+        try {
+          final genL10n = (runProcess ?? Process.runSync)(
+            flutterBin,
+            ['gen-l10n'],
+          );
+          if (genL10n.exitCode != 0) {
+            _logger.err(
+              'flutter gen-l10n failed before the release pre-pass:\n'
+              '${genL10n.stderr}',
+            );
+            return null;
+          }
+        } on ProcessException catch (e) {
+          _logger.err('flutter gen-l10n could not start: $e');
+          return null;
+        }
+      }
+    }
     final dartAotRuntime = '$flutterRoot/bin/cache/dart-sdk/bin/dartaotruntime';
     final frontendServer = '$flutterRoot/bin/cache/dart-sdk/bin/snapshots/'
         'frontend_server_aot.dart.snapshot';
