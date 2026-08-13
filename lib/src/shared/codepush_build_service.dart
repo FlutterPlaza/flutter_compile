@@ -1329,8 +1329,9 @@ class CodePushBuildService {
   /// Widget base classes marked extendable so a patch may declare new
   /// subclasses (new screens/widgets): the compiler then guards
   /// dispatch on these hierarchies so instances of classes registered
-  /// after the build dispatch correctly. Included only when the app's
-  /// compile contains the framework library. Kept minimal — each entry
+  /// after the build dispatch correctly. The caller decides inclusion
+  /// (see [closureHasExtendableFramework]); [buildIosInterfaceFreezeYaml]
+  /// itself defaults the section off. Kept minimal — each entry
   /// disables devirtualization for its hierarchy.
   static const String kIosExtendableFrameworkLibrary =
       'package:flutter/src/widgets/framework.dart';
@@ -1361,14 +1362,28 @@ class CodePushBuildService {
       buffer.writeln("  - library: '$lib'");
     }
     if (includeExtendable) {
-      buffer
-        ..writeln('extendable:')
-        ..writeln("  - library: '$kIosExtendableFrameworkLibrary'")
-        ..writeln(
-          '    class: [${kIosExtendableFrameworkClasses.join(', ')}]',
-        );
+      // One scalar entry per class: the schema's battle-tested form
+      // (the list form exists in the parser but is coverage-ignored
+      // upstream).
+      buffer.writeln('extendable:');
+      for (final cls in kIosExtendableFrameworkClasses) {
+        buffer
+          ..writeln("  - library: '$kIosExtendableFrameworkLibrary'")
+          ..writeln("    class: '$cls'");
+      }
     }
     return buffer.toString();
+  }
+
+  /// Whether the compile closure contains the framework library whose
+  /// widget base classes we mark extendable — derived from
+  /// [kIosExtendableFrameworkLibrary] so the two can never drift.
+  static bool closureHasExtendableFramework(Set<String> closurePaths) {
+    final suffix = kIosExtendableFrameworkLibrary.replaceFirst(
+      'package:flutter/',
+      '/flutter/lib/',
+    );
+    return closurePaths.any((p) => p.endsWith(suffix));
   }
 
   /// Return [extraArgs] with `--extra-front-end-options` carrying the

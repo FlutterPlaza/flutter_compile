@@ -974,10 +974,9 @@ void _interfaceFreeze() {
           "'package:flutter/src/widgets/framework.dart'",
         ),
       );
-      expect(
-        yaml,
-        contains('    class: [StatelessWidget, StatefulWidget, State]'),
-      );
+      for (final cls in CodePushBuildService.kIosExtendableFrameworkClasses) {
+        expect(yaml, contains("    class: '$cls'"));
+      }
       expect(
         yaml.indexOf('callable:'),
         lessThan(yaml.indexOf('extendable:')),
@@ -990,6 +989,24 @@ void _interfaceFreeze() {
         appLibraries: const [],
       );
       expect(yaml, isNot(contains('extendable:')));
+    });
+  });
+
+  group('closureHasExtendableFramework', () {
+    test('true only when the framework library file is in the closure', () {
+      expect(
+        CodePushBuildService.closureHasExtendableFramework({
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        }),
+        true,
+      );
+      expect(
+        CodePushBuildService.closureHasExtendableFramework({
+          '/sdk/packages/flutter/lib/widgets.dart',
+          '/app/lib/main.dart',
+        }),
+        false,
+      );
     });
   });
 
