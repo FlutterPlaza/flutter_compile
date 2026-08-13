@@ -208,7 +208,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         final buildProgress = _logger.progress('Building release ($platform)');
         final buildOk = await buildService.buildRelease(
           platform: platform,
-          extraArgs: extraBuildArgs,
+          extraArgs: platform == 'ios'
+              ? CodePushBuildService.withIosReleaseGenSnapshotOptions(
+                  extraBuildArgs,
+                )
+              : extraBuildArgs,
           artifactManager: artifactManager,
           flutterVersion: flutterVersion,
         );

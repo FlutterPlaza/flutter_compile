@@ -1013,6 +1013,40 @@ class CodePushBuildService {
     ];
   }
 
+  /// gen_snapshot options required on iOS code push release builds.
+  ///
+  /// A release compiled without these can ship an app whose compiled
+  /// code is not reliably callable from a delivered patch, which fails
+  /// at run time. Applied by `fcp codepush release --build` on iOS only;
+  /// patch builds are unaffected (their build output is not shipped).
+  static const String kIosReleaseGenSnapshotOptions = '--no_use_register_cc';
+
+  /// Return [extraArgs] with `--extra-gen-snapshot-options` carrying
+  /// [kIosReleaseGenSnapshotOptions].
+  ///
+  /// Appends the argument when absent; merges into an existing
+  /// `--extra-gen-snapshot-options=<list>` occurrence otherwise, since
+  /// `flutter build` expects a single comma-separated list and a second
+  /// occurrence would replace the first. Kept as a separate pure
+  /// function so tests can pin the exact argv shape.
+  static List<String> withIosReleaseGenSnapshotOptions(
+    List<String> extraArgs,
+  ) {
+    const prefix = '--extra-gen-snapshot-options=';
+    final merged = [...extraArgs];
+    final index = merged.indexWhere((arg) => arg.startsWith(prefix));
+    if (index < 0) {
+      return merged..add('$prefix$kIosReleaseGenSnapshotOptions');
+    }
+    final existing = merged[index].substring(prefix.length);
+    final options = existing.split(',').where((o) => o.isNotEmpty).toList();
+    if (!options.contains(kIosReleaseGenSnapshotOptions)) {
+      options.add(kIosReleaseGenSnapshotOptions);
+    }
+    merged[index] = '$prefix${options.join(',')}';
+    return merged;
+  }
+
   /// Compile the iOS patch entry into its own kernel with the Flutter
   /// front-end, using release defines but no whole-program (`--aot`)
   /// optimization.
