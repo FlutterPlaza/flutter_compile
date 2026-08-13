@@ -1144,6 +1144,320 @@ class CodePushBuildService {
     return merged;
   }
 
+  /// `dart:` libraries whose public call shapes are frozen in iOS
+  /// release builds (see [buildIosInterfaceFreezeYaml]). Always safe to
+  /// list: every entry ships in the product platform kernel, so it is
+  /// present in every compile. Scoped to the surface app patches
+  /// realistically call — each listed library is retained whole in the
+  /// built app, so growing this list grows the shipped binary.
+  static const List<String> kIosInterfaceFreezeDartLibraries = [
+    'dart:core',
+    'dart:async',
+    'dart:collection',
+    'dart:convert',
+    'dart:math',
+    'dart:typed_data',
+    'dart:ui',
+  ];
+
+  /// `package:flutter` libraries frozen WHEN the app's compile actually
+  /// contains them ([flutterLibrariesFromClosure]). Listing a library
+  /// the compile does not contain hard-fails the build, so these are
+  /// candidates, not unconditional entries — a widgets-only app must
+  /// not have material/cupertino forced in.
+  static const List<String> kIosInterfaceFreezeFlutterCandidates = [
+    'package:flutter/foundation.dart',
+    'package:flutter/widgets.dart',
+    'package:flutter/material.dart',
+    'package:flutter/cupertino.dart',
+    'package:flutter/services.dart',
+  ];
+
+  /// Parse the package name out of pubspec content. Handles optional
+  /// single/double quotes and trailing comments; returns null when no
+  /// valid name line exists.
+  static String? parsePubspecName(String pubspecContent) {
+    final match = RegExp(
+      '''^name:\\s*['"]?([A-Za-z0-9_]+)['"]?\\s*(#.*)?\$''',
+      multiLine: true,
+    ).firstMatch(pubspecContent);
+    return match?.group(1);
+  }
+
+  /// Placeholder for escaped spaces while splitting depfile entries.
+  static const String _depfileSpace = '\u0000';
+
+  /// Parse a Makefile-style depfile (`out: src src...`) written by the
+  /// front-end into the set of source paths, unescaping `\ `.
+
+  static Set<String> parseDepfileSources(String depfileContent) {
+    final colon = depfileContent.indexOf(': ');
+    if (colon < 0) return const {};
+    final body = depfileContent
+        .substring(colon + 2)
+        .replaceAll('\\\n', ' ')
+        .replaceAll(r'\ ', _depfileSpace);
+    return body
+        .split(RegExp(r'\s+'))
+        .where((s) => s.isNotEmpty)
+        .map((s) => s.replaceAll(_depfileSpace, ' '))
+        .toSet();
+  }
+
+  /// Whether Dart source [content] is a `part of` file (not a library).
+  /// Scans directive position only — comments and blank lines are
+  /// skipped, so a "part of" inside a string literal or doc text deeper
+  /// in the file cannot misclassify a real library.
+  static bool dartSourceIsPart(String content) {
+    var inBlockComment = false;
+    for (var line in content.split('\n')) {
+      line = line.replaceFirst('﻿', '').trim();
+      if (inBlockComment) {
+        final end = line.indexOf('*/');
+        if (end < 0) continue;
+        line = line.substring(end + 2).trim();
+      }
+      inBlockComment = false;
+      while (line.startsWith('/*')) {
+        final end = line.indexOf('*/', 2);
+        if (end < 0) {
+          inBlockComment = true;
+          line = '';
+          break;
+        }
+        line = line.substring(end + 2).trim();
+      }
+      if (line.isEmpty || line.startsWith('//')) continue;
+      // First significant line: only directives can precede code, so
+      // this decides. `library x;`, annotations, and comments may come
+      // before `part of`, but never executable code.
+      if (line.startsWith('part of ') || line.startsWith('part of;')) {
+        return true;
+      }
+      if (line.startsWith('library ') ||
+          line.startsWith('@') ||
+          line.startsWith('library;')) {
+        continue;
+      }
+      return false;
+    }
+    return false;
+  }
+
+  /// Map the compile closure's source paths to the app's own library
+  /// URIs. Only files that the compile actually contains are listed —
+  /// dead files, flavor entrypoints, and untaken conditional-import
+  /// branches never enter the freeze, so they can never fail the build.
+  /// Part files are excluded ([dartSourceIsPart]); URIs with characters
+  /// outside the import-safe set are skipped and reported via [onSkip].
+  static List<String> appLibrariesFromClosure({
+    required Set<String> closurePaths,
+    required String projectRoot,
+    required String packageName,
+    void Function(String path, String reason)? onSkip,
+  }) {
+    final libPrefixes = <String>{
+      '$projectRoot/lib/',
+      // The front-end may write resolved (symlink-free) paths.
+      '${_tryResolve(projectRoot)}/lib/',
+    };
+    final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
+    final uris = <String>[];
+    for (final path in closurePaths) {
+      if (!path.endsWith('.dart')) continue;
+      final prefix = libPrefixes.firstWhere(
+        path.startsWith,
+        orElse: () => '',
+      );
+      if (prefix.isEmpty) continue;
+      final rel = path.substring(prefix.length).replaceAll(r'\', '/');
+      if (rel.split('/').any((seg) => seg.startsWith('.'))) continue;
+      if (!safe.hasMatch(rel)) {
+        onSkip?.call(path, 'unsupported characters in path');
+        continue;
+      }
+      String content;
+      try {
+        content = utf8.decode(
+          File(path).readAsBytesSync(),
+          allowMalformed: true,
+        );
+      } on FileSystemException {
+        onSkip?.call(path, 'unreadable');
+        continue;
+      }
+      if (dartSourceIsPart(content)) continue;
+      uris.add('package:$packageName/$rel');
+    }
+    uris.sort();
+    return uris;
+  }
+
+  static String _tryResolve(String path) {
+    try {
+      return Directory(path).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      return path;
+    }
+  }
+
+  /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
+  /// file appears in the compile closure.
+  static List<String> flutterLibrariesFromClosure(Set<String> closurePaths) {
+    return [
+      for (final candidate in kIosInterfaceFreezeFlutterCandidates)
+        if (closurePaths.any(
+          (p) => p.endsWith(
+            '/flutter/lib/${candidate.split('/').last}',
+          ),
+        ))
+          candidate,
+    ];
+  }
+
+  /// Build the interface-freeze specification for an iOS release build:
+  /// the compiler keeps the listed libraries' public call shapes intact
+  /// (no signature specialization) so code delivered later can call
+  /// them reliably. Pure so tests can pin the exact document produced.
+  static String buildIosInterfaceFreezeYaml({
+    required List<String> flutterLibraries,
+    required List<String> appLibraries,
+  }) {
+    final buffer = StringBuffer()
+      ..writeln('# Generated by fcp codepush release. Do not edit.')
+      ..writeln('# Freezes public call shapes for OTA compatibility.')
+      ..writeln('callable:');
+    for (final lib in [
+      ...kIosInterfaceFreezeDartLibraries,
+      ...flutterLibraries,
+      ...appLibraries,
+    ]) {
+      buffer.writeln("  - library: '$lib'");
+    }
+    return buffer.toString();
+  }
+
+  /// Return [extraArgs] with `--extra-front-end-options` carrying the
+  /// interface-freeze flags for an iOS release build.
+  ///
+  /// [freezeSpecPath] is the yaml written by
+  /// [buildIosInterfaceFreezeYaml]; [reportPath], when given, asks the
+  /// compiler to also write a machine-readable report of what was
+  /// frozen (used as a post-build verification gate). Both paths must
+  /// not contain commas: the surrounding tooling joins and re-splits
+  /// this option list on commas, so a comma in a path silently corrupts
+  /// every option after it. Callers must reject such paths first.
+  ///
+  /// Same merge semantics as [withIosReleaseGenSnapshotOptions]: append
+  /// when absent, merge into an existing occurrence otherwise.
+  static List<String> withIosReleaseFrontEndOptions(
+    List<String> extraArgs, {
+    required String freezeSpecPath,
+    String? reportPath,
+  }) {
+    const prefix = '--extra-front-end-options=';
+    final added = [
+      '--dynamic-interface=$freezeSpecPath',
+      if (reportPath != null) '--dump-detailed-dynamic-interface=$reportPath',
+    ];
+    final merged = [...extraArgs];
+    final index = merged.indexWhere((arg) => arg.startsWith(prefix));
+    if (index < 0) {
+      return merged..add('$prefix${added.join(',')}');
+    }
+    final existing = merged[index].substring(prefix.length);
+    final options = existing.split(',').where((o) => o.isNotEmpty).toList();
+    for (final option in added) {
+      // Dedupe by option NAME, not exact string: a user-supplied
+      // `--dynamic-interface=<their path>` wins — appending a second one
+      // would silently override theirs (last occurrence wins in the
+      // front-end), taking away the only escape hatch.
+      final name = option.substring(0, option.indexOf('=') + 1);
+      if (!options.any((o) => o.startsWith(name))) {
+        options.add(option);
+      }
+    }
+    merged[index] = '$prefix${options.join(',')}';
+    return merged;
+  }
+
+  /// List the app's own library URIs (`package:<name>/<path>`) for
+  /// every Dart file under `lib/`, for [buildIosInterfaceFreezeYaml].
+  /// Returns null when [projectRoot] has no readable pubspec name.
+  static List<String>? listAppLibraryUris(String projectRoot) {
+    final pubspec = File('$projectRoot/pubspec.yaml');
+    if (!pubspec.existsSync()) return null;
+    final nameMatch = RegExp(
+      r'^name:\s*(\S+)\s*$',
+      multiLine: true,
+    ).firstMatch(pubspec.readAsStringSync());
+    if (nameMatch == null) return null;
+    final name = nameMatch.group(1);
+    final libDir = Directory('$projectRoot/lib');
+    if (!libDir.existsSync()) return null;
+    final uris = <String>[];
+    for (final entity in libDir.listSync(recursive: true)) {
+      if (entity is! File || !entity.path.endsWith('.dart')) continue;
+      final rel =
+          entity.path.substring(libDir.path.length + 1).replaceAll(r'\', '/');
+      // Only real libraries may be listed: a `part of` file is not a
+      // library and listing one fails the whole build. Dotfiles are
+      // generated helpers, also skipped.
+      if (rel.split('/').last.startsWith('.')) continue;
+      final head = entity.readAsStringSync();
+      if (RegExp(r'^part\s+of\s', multiLine: true).hasMatch(head)) continue;
+      uris.add('package:$name/$rel');
+    }
+    uris.sort();
+    return uris;
+  }
+
+  /// Discover the app's compile closure by running a fast front-end
+  /// compile of [targetPath] with a depfile, without whole-program
+  /// optimization. Returns the set of source paths in the closure, or
+  /// null on failure (with diagnostics logged). Used to generate the
+  /// iOS interface freeze from what the build actually contains.
+  Future<Set<String>?> discoverCompileClosure({
+    required String targetPath,
+    required String workDirPath,
+    String? flutterRootOverride,
+    ProcessResult Function(String executable, List<String> args)? runProcess,
+  }) async {
+    final depfilePath = '$workDirPath/closure.d';
+    final dillPath = '$workDirPath/closure.dill';
+    final flutterRoot = flutterRootOverride ?? _findActiveFlutterRoot();
+    if (flutterRoot == null) {
+      _logger.err('Could not locate the active Flutter SDK root.');
+      return null;
+    }
+    final dartAotRuntime = '$flutterRoot/bin/cache/dart-sdk/bin/dartaotruntime';
+    final frontendServer = '$flutterRoot/bin/cache/dart-sdk/bin/snapshots/'
+        'frontend_server_aot.dart.snapshot';
+    final sdkRoot = '$flutterRoot/bin/cache/artifacts/engine/common/'
+        'flutter_patched_sdk_product/';
+    final args = <String>[
+      frontendServer,
+      ...patchKernelCompilerArgs(
+        sdkRoot: sdkRoot,
+        packagesPath: '.dart_tool/package_config.json',
+        outputDillPath: dillPath,
+        targetPath: targetPath,
+      ),
+      '--depfile',
+      depfilePath,
+    ];
+    final result = (runProcess ?? Process.runSync)(dartAotRuntime, args);
+    final depfile = File(depfilePath);
+    if (result.exitCode != 0 || !depfile.existsSync()) {
+      _logger.err(
+        'Closure discovery compile failed '
+        '(exit ${result.exitCode}).\n${result.stderr}',
+      );
+      return null;
+    }
+    return parseDepfileSources(depfile.readAsStringSync());
+  }
+
   /// Compile the iOS patch entry into its own kernel with the Flutter
   /// front-end, using release defines but no whole-program (`--aot`)
   /// optimization.

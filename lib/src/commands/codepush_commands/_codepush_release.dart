@@ -207,14 +207,21 @@ class CodePushReleaseSubCommand extends Command<int> {
           }
         }
 
+        var releaseBuildArgs = extraBuildArgs;
+        if (platform == 'ios') {
+          releaseBuildArgs =
+              CodePushBuildService.withIosReleaseGenSnapshotOptions(
+            extraBuildArgs,
+          );
+          final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
+          if (freezeArgs == null) return ExitCode.software.code;
+          releaseBuildArgs = freezeArgs(releaseBuildArgs);
+        }
+
         final buildProgress = _logger.progress('Building release ($platform)');
         final buildOk = await buildService.buildRelease(
           platform: platform,
-          extraArgs: platform == 'ios'
-              ? CodePushBuildService.withIosReleaseGenSnapshotOptions(
-                  extraBuildArgs,
-                )
-              : extraBuildArgs,
+          extraArgs: releaseBuildArgs,
           artifactManager: artifactManager,
           flutterVersion: flutterVersion,
         );
@@ -521,6 +528,74 @@ class CodePushReleaseSubCommand extends Command<int> {
     } finally {
       client.close();
     }
+  }
+
+  /// Write the interface-freeze spec for this iOS release build and
+  /// return a function that adds the front-end flags for it, or null
+  /// (with an error logged) when the freeze cannot be set up — building
+  /// without it would ship a baseline that later patches cannot call
+  /// reliably, so that is a hard failure, not a warning.
+  ///
+  /// The spec lists only libraries the compile actually contains
+  /// (discovered via a fast front-end pre-pass), because a listed
+  /// library that is absent from the compile fails the whole build.
+  Future<List<String> Function(List<String>)?> _prepareIosInterfaceFreeze(
+      CodePushBuildService buildService) async {
+    final projectRoot = Directory.current.path;
+    final pubspec = File('$projectRoot/pubspec.yaml');
+    final packageName = pubspec.existsSync()
+        ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
+        : null;
+    if (packageName == null) {
+      _logger.err(
+        'Could not read the package name from pubspec.yaml; cannot '
+        'prepare the iOS release build.',
+      );
+      return null;
+    }
+    final specDir = Directory('$projectRoot/build/codepush')
+      ..createSync(recursive: true);
+    final specPath = '${specDir.path}/dynamic_interface.yaml';
+    final reportPath = '${specDir.path}/dynamic_interface_report.json';
+    if (specPath.contains(',') || reportPath.contains(',')) {
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
+      );
+      return null;
+    }
+    final progress = _logger.progress('Analyzing app libraries');
+    final closure = await buildService.discoverCompileClosure(
+      targetPath: 'lib/main.dart',
+      workDirPath: specDir.path,
+    );
+    if (closure == null) {
+      progress.fail('Could not analyze the app for the release build');
+      return null;
+    }
+    final appLibraries = CodePushBuildService.appLibrariesFromClosure(
+      closurePaths: closure,
+      projectRoot: projectRoot,
+      packageName: packageName,
+      onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
+    );
+    final flutterLibraries =
+        CodePushBuildService.flutterLibrariesFromClosure(closure);
+    File(specPath).writeAsStringSync(
+      CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: flutterLibraries,
+        appLibraries: appLibraries,
+      ),
+    );
+    progress.complete(
+      'Interface: ${appLibraries.length} app + ${flutterLibraries.length} '
+      'framework libraries',
+    );
+    return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
+          args,
+          freezeSpecPath: specPath,
+          reportPath: reportPath,
+        );
   }
 
   void _saveIosBaselineApp({required String baselineId}) {
