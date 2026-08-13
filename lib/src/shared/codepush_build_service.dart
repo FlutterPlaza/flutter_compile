@@ -180,6 +180,29 @@ class CodePushBuildService {
     return null;
   }
 
+  /// Arguments for the `flutter build` invocation used by
+  /// [buildRelease].
+  ///
+  /// On iOS the build passes the gen_snapshot options the baseline
+  /// needs in order to accept code push patches; without them a patch
+  /// that calls into the app's built-in code can crash or misbehave at
+  /// load time.
+  static List<String> releaseBuildArgs({
+    required String platform,
+    String? target,
+    List<String> extraArgs = const [],
+  }) {
+    return <String>[
+      'build',
+      platform,
+      '--release',
+      if (platform == 'ios')
+        '--extra-gen-snapshot-options=--no_use_register_cc',
+      if (target != null && target.isNotEmpty) ...['--target', target],
+      ...extraArgs,
+    ];
+  }
+
   /// Build a Flutter app in release mode.
   ///
   /// On iOS, guarantees a matched custom engine pair in the built app:
@@ -278,13 +301,11 @@ class CodePushBuildService {
     }
 
     // --- Run flutter build ---
-    final args = [
-      'build',
-      platform,
-      '--release',
-      if (target != null && target.isNotEmpty) ...['--target', target],
-      ...extraArgs,
-    ];
+    final args = releaseBuildArgs(
+      platform: platform,
+      target: target,
+      extraArgs: extraArgs,
+    );
     _logger.detail('Running: flutter ${args.join(' ')}');
 
     final process = await Process.start(

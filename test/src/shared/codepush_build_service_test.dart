@@ -408,6 +408,69 @@ void main() {
       expect(diag, isNot(contains('stdout:')));
     });
   });
+
+  group('releaseBuildArgs', () {
+    test('iOS injects the baseline gen_snapshot options', () {
+      final args = CodePushBuildService.releaseBuildArgs(platform: 'ios');
+      expect(
+        args,
+        equals([
+          'build',
+          'ios',
+          '--release',
+          '--extra-gen-snapshot-options=--no_use_register_cc',
+        ]),
+      );
+    });
+
+    test('iOS keeps option ordering: injected flag, target, extras', () {
+      final args = CodePushBuildService.releaseBuildArgs(
+        platform: 'ios',
+        target: 'lib/main_patch.dart',
+        extraArgs: ['--no-codesign', '--dart-define=FOO=bar'],
+      );
+      expect(
+        args,
+        equals([
+          'build',
+          'ios',
+          '--release',
+          '--extra-gen-snapshot-options=--no_use_register_cc',
+          '--target',
+          'lib/main_patch.dart',
+          '--no-codesign',
+          '--dart-define=FOO=bar',
+        ]),
+      );
+    });
+
+    test('non-iOS platforms are untouched', () {
+      for (final platform in ['apk', 'appbundle', 'android', 'macos']) {
+        final args = CodePushBuildService.releaseBuildArgs(
+          platform: platform,
+          extraArgs: ['--dart-define=FOO=bar'],
+        );
+        expect(
+          args,
+          equals([
+            'build',
+            platform,
+            '--release',
+            '--dart-define=FOO=bar',
+          ]),
+          reason: 'platform $platform must not gain gen_snapshot options',
+        );
+      }
+    });
+
+    test('empty target is omitted', () {
+      final args = CodePushBuildService.releaseBuildArgs(
+        platform: 'ios',
+        target: '',
+      );
+      expect(args, isNot(contains('--target')));
+    });
+  });
 }
 
 // ── Patch signing (finding #4) ──────────────────────────────────────
