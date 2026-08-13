@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
+import 'exception.dart';
 import 'codepush_client.dart';
 
 /// Outcome of a build-tool subprocess step.
@@ -1387,7 +1388,9 @@ class CodePushBuildService {
   /// ([closureHasExtendableFramework]), the library mapping, and the
   /// yaml emission so the whole closure→file chain is testable.
   /// Returns null (nothing written) when no app libraries map — the
-  /// caller treats that as fatal.
+  /// caller treats that as fatal. A filesystem failure writing the
+  /// spec throws [FlutterCompileException] instead of returning null,
+  /// so the two failure classes stay distinguishable.
   String? writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
     required String projectRoot,
@@ -1411,13 +1414,23 @@ class CodePushBuildService {
               'extendable section omitted.',
     );
     final specPath = '$specDirPath/dynamic_interface.yaml';
-    File(specPath).writeAsStringSync(
-      buildIosInterfaceFreezeYaml(
-        flutterLibraries: flutterLibraries,
-        appLibraries: appLibraries,
-        includeExtendable: includeExtendable,
-      ),
-    );
+    try {
+      File(specPath).writeAsStringSync(
+        buildIosInterfaceFreezeYaml(
+          flutterLibraries: flutterLibraries,
+          appLibraries: appLibraries,
+          includeExtendable: includeExtendable,
+        ),
+      );
+    } on FileSystemException catch (e) {
+      // A disk/permission problem must not masquerade as the caller's
+      // "no app libraries mapped" null: raise the CLI's own exception,
+      // which the runner reports with guidance instead of a stack trace.
+      throw FlutterCompileException(
+        'Could not write $specPath (${e.osError?.message ?? e.message}). '
+        'Check permissions and free space on the build directory.',
+      );
+    }
     return specPath;
   }
 

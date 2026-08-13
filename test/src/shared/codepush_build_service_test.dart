@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -1029,6 +1030,21 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(File(spec!).readAsStringSync(), isNot(contains('extendable:')));
+    });
+
+    test('unwritable spec dir => FlutterCompileException, not null', () {
+      final roDir = Directory('${tmp.path}/ro')..createSync();
+      Process.runSync('chmod', ['555', roDir.path]);
+      addTearDown(() => Process.runSync('chmod', ['755', roDir.path]));
+      expect(
+        () => service.writeIosInterfaceFreezeSpec(
+          closurePaths: {'${tmp.path}/lib/main.dart'},
+          projectRoot: tmp.path,
+          packageName: 'demo',
+          specDirPath: roDir.path,
+        ),
+        throwsA(isA<FlutterCompileException>()),
+      );
     });
 
     test('no mappable app libraries => null, nothing written', () {
