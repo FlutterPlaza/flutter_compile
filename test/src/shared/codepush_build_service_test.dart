@@ -774,6 +774,7 @@ void _interfaceFreeze() {
         targetPath: 'lib/main.dart',
         workDirPath: tmp.path,
         flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
         runProcess: (exe, args) {
           expect(exe, contains('dartaotruntime'));
           expect(args, contains('--depfile'));
@@ -790,6 +791,7 @@ void _interfaceFreeze() {
         targetPath: 'lib/main.dart',
         workDirPath: tmp.path,
         flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
         runProcess: (exe, args) => ProcessResult(0, 1, '', 'boom'),
       );
       expect(closure, isNull);
@@ -800,12 +802,70 @@ void _interfaceFreeze() {
         targetPath: 'lib/main.dart',
         workDirPath: tmp.path,
         flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
         runProcess: (exe, args) => ProcessResult(0, 0, '', ''),
       );
       expect(closure, isNull);
     });
-  });
+    test('runs pub get first when package_config is stale', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          if (args.first == 'pub') return ProcessResult(0, 0, '', '');
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls.first, ['flutter', 'pub', 'get']);
+      expect(calls, hasLength(2));
+    });
 
+    test('aborts when pub get fails', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) => args.first == 'pub'
+            ? ProcessResult(0, 65, '', 'offline')
+            : ProcessResult(0, 0, '', ''),
+      );
+      expect(closure, isNull);
+    });
+
+    test('skips pub get when package_config is fresh', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      Directory('${tmp.path}/.dart_tool').createSync();
+      final config = File('${tmp.path}/.dart_tool/package_config.json')
+        ..writeAsStringSync('{}');
+      config.setLastModifiedSync(
+        DateTime.now().add(const Duration(minutes: 1)),
+      );
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls, hasLength(1));
+      expect(calls.single.first, contains('dartaotruntime'));
+    });
+  });
   group('flutterLibrariesFromClosure', () {
     test('includes only candidates present in the closure', () {
       final libs = CodePushBuildService.flutterLibrariesFromClosure({

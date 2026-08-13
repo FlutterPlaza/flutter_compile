@@ -1386,10 +1386,25 @@ class CodePushBuildService {
   /// optimization. Returns the set of source paths in the closure, or
   /// null on failure (with diagnostics logged). Used to generate the
   /// iOS interface freeze from what the build actually contains.
+  /// Whether `.dart_tool/package_config.json` under [projectRoot] is
+  /// missing or older than the pubspec, i.e. `pub get` is needed before
+  /// a front-end compile can resolve packages.
+  static bool packageConfigStale(String projectRoot) {
+    final config = File('$projectRoot/.dart_tool/package_config.json');
+    if (!config.existsSync()) {
+      // No pubspec → nothing to fetch; treat as not stale.
+      return File('$projectRoot/pubspec.yaml').existsSync();
+    }
+    final pubspec = File('$projectRoot/pubspec.yaml');
+    if (!pubspec.existsSync()) return false;
+    return pubspec.lastModifiedSync().isAfter(config.lastModifiedSync());
+  }
+
   Future<Set<String>?> discoverCompileClosure({
     required String targetPath,
     required String workDirPath,
     String? flutterRootOverride,
+    String? projectRootOverride,
     ProcessResult Function(String executable, List<String> args)? runProcess,
   }) async {
     final depfilePath = '$workDirPath/closure.d';
@@ -1402,16 +1417,26 @@ class CodePushBuildService {
     // `flutter build` runs an implicit `pub get` (which also writes the
     // synthetic localization package into package_config.json); this
     // pre-pass runs before it, so it must do the same or a fresh clone
-    // and gen_l10n apps fail here despite being buildable.
-    if (runProcess == null) {
-      final flutterBin = findFlutterBin();
+    // and gen_l10n apps fail here despite being buildable. Gated on
+    // staleness so an up-to-date tree never touches the network.
+    final projectRoot = projectRootOverride ?? Directory.current.path;
+    if (packageConfigStale(projectRoot)) {
+      final flutterBin = runProcess != null ? 'flutter' : findFlutterBin();
       if (flutterBin != null) {
-        final pubGet = Process.runSync(flutterBin, ['pub', 'get']);
-        if (pubGet.exitCode != 0) {
-          _logger.err(
-            'flutter pub get failed before the release pre-pass:\n'
-            '${pubGet.stderr}',
+        try {
+          final pubGet = (runProcess ?? Process.runSync)(
+            flutterBin,
+            ['pub', 'get'],
           );
+          if (pubGet.exitCode != 0) {
+            _logger.err(
+              'flutter pub get failed before the release pre-pass:\n'
+              '${pubGet.stderr}',
+            );
+            return null;
+          }
+        } on ProcessException catch (e) {
+          _logger.err('flutter pub get could not start: $e');
           return null;
         }
       }
