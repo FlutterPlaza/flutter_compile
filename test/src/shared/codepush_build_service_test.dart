@@ -233,6 +233,55 @@ void main() {
       });
     });
 
+    group('withIosReleaseGenSnapshotOptions', () {
+      const flag = CodePushBuildService.kIosReleaseGenSnapshotOptions;
+
+      test('appends the gen_snapshot argument when absent', () {
+        final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
+          ['--dart-define=FOO=bar'],
+        );
+        expect(args, [
+          '--dart-define=FOO=bar',
+          '--extra-gen-snapshot-options=$flag',
+        ]);
+      });
+
+      test('merges into an existing --extra-gen-snapshot-options list', () {
+        final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
+          ['--extra-gen-snapshot-options=--dwarf-stack-traces'],
+        );
+        expect(args, [
+          '--extra-gen-snapshot-options=--dwarf-stack-traces,$flag',
+        ]);
+        // flutter build accepts one comma-separated list; a duplicate
+        // argument occurrence must never be produced.
+        expect(
+          args.where((a) => a.startsWith('--extra-gen-snapshot-options=')),
+          hasLength(1),
+        );
+      });
+
+      test('does not duplicate an already-present option', () {
+        final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
+          ['--extra-gen-snapshot-options=$flag'],
+        );
+        expect(args, ['--extra-gen-snapshot-options=$flag']);
+      });
+
+      test('normalizes an empty existing option list', () {
+        final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
+          ['--extra-gen-snapshot-options='],
+        );
+        expect(args, ['--extra-gen-snapshot-options=$flag']);
+      });
+
+      test('does not mutate its input', () {
+        final input = ['--dart-define=FOO=bar'];
+        CodePushBuildService.withIosReleaseGenSnapshotOptions(input);
+        expect(input, ['--dart-define=FOO=bar']);
+      });
+    });
+
     group('compilePatchKernel', () {
       test(
           'fails with an actionable message when the SDK cache lacks '
