@@ -50,6 +50,14 @@ class CodePushReleaseSubCommand extends Command<int> {
             'stamped automatically.',
       )
       ..addFlag(
+        'interface-freeze',
+        defaultsTo: true,
+        help: 'Preserve public call shapes in the built iOS app so '
+            'later patches can call them reliably. Disable only to '
+            'work around a build issue: a release built with '
+            '--no-interface-freeze may not be reliably patchable.',
+      )
+      ..addFlag(
         'allow-missing-baseline',
         help: 'Create an iOS release without a baseline identity. Devices '
             'running modern SDKs will never match it — special cases only.',
@@ -207,14 +215,28 @@ class CodePushReleaseSubCommand extends Command<int> {
           }
         }
 
+        var releaseBuildArgs = extraBuildArgs;
+        if (platform == 'ios') {
+          releaseBuildArgs =
+              CodePushBuildService.withIosReleaseGenSnapshotOptions(
+            extraBuildArgs,
+          );
+          if (argResults?['interface-freeze'] as bool? ?? true) {
+            final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
+            if (freezeArgs == null) return ExitCode.software.code;
+            releaseBuildArgs = freezeArgs(releaseBuildArgs);
+          } else {
+            _logger.warn(
+              'Interface freeze disabled (--no-interface-freeze): this '
+              'release may not be reliably patchable.',
+            );
+          }
+        }
+
         final buildProgress = _logger.progress('Building release ($platform)');
         final buildOk = await buildService.buildRelease(
           platform: platform,
-          extraArgs: platform == 'ios'
-              ? CodePushBuildService.withIosReleaseGenSnapshotOptions(
-                  extraBuildArgs,
-                )
-              : extraBuildArgs,
+          extraArgs: releaseBuildArgs,
           artifactManager: artifactManager,
           flutterVersion: flutterVersion,
         );
@@ -521,6 +543,100 @@ class CodePushReleaseSubCommand extends Command<int> {
     } finally {
       client.close();
     }
+  }
+
+  /// Write the interface-freeze spec for this iOS release build and
+  /// return a function that adds the front-end flags for it, or null
+  /// (with an error logged) when the freeze cannot be set up — building
+  /// without it would ship a baseline that later patches cannot call
+  /// reliably, so that is a hard failure, not a warning.
+  ///
+  /// The spec lists only libraries the compile actually contains
+  /// (discovered via a fast front-end pre-pass), because a listed
+  /// library that is absent from the compile fails the whole build.
+  Future<List<String> Function(List<String>)?> _prepareIosInterfaceFreeze(
+      CodePushBuildService buildService) async {
+    final projectRoot = Directory.current.path;
+    final pubspec = File('$projectRoot/pubspec.yaml');
+    final packageName = pubspec.existsSync()
+        ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
+        : null;
+    if (packageName == null) {
+      _logger.err(
+        'Could not read the package name from pubspec.yaml; cannot '
+        'prepare the iOS release build.',
+      );
+      return null;
+    }
+    final specDir = Directory('$projectRoot/build/codepush')
+      ..createSync(recursive: true);
+    final specPath = '${specDir.path}/dynamic_interface.yaml';
+    final reportPath = '${specDir.path}/dynamic_interface_report.json';
+    if (specPath.contains(',') || reportPath.contains(',')) {
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
+      );
+      return null;
+    }
+    final flutterRoot = buildService.findFlutterRootForProbe();
+    if (flutterRoot == null ||
+        !CodePushBuildService.frontendSupportsDynamicInterface(
+          flutterRoot,
+        )) {
+      _logger.err(
+        'This Flutter SDK\'s compiler does not support preserving call '
+        'shapes for code push. Upgrade Flutter (3.41+), or pass '
+        '--no-interface-freeze to build without it (such a release may '
+        'not be reliably patchable).',
+      );
+      return null;
+    }
+    final progress = _logger.progress('Analyzing app libraries');
+    final closure = await buildService.discoverCompileClosure(
+      targetPath: 'lib/main.dart',
+      workDirPath: specDir.path,
+    );
+    if (closure == null) {
+      progress.fail('Could not analyze the app for the release build');
+      return null;
+    }
+    final appLibraries = CodePushBuildService.appLibrariesFromClosure(
+      closurePaths: closure,
+      projectRoot: projectRoot,
+      packageName: packageName,
+      onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
+    );
+    final flutterLibraries =
+        CodePushBuildService.flutterLibrariesFromClosure(closure);
+    // The compile target lib/main.dart is always in its own closure, so
+    // an empty mapping means the path-prefix match failed, not that the
+    // app has no libraries. Shipping without the app's own shapes
+    // frozen silently defeats the feature - hard stop.
+    if (appLibraries.isEmpty) {
+      progress.fail('Could not map the app libraries for the release');
+      _logger.err(
+        'No app libraries were mapped into the interface freeze; '
+        'building anyway would ship an app whose own code cannot be '
+        'reliably patched. Please report this with your project layout.',
+      );
+      return null;
+    }
+    File(specPath).writeAsStringSync(
+      CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: flutterLibraries,
+        appLibraries: appLibraries,
+      ),
+    );
+    progress.complete(
+      'Interface: ${appLibraries.length} app + ${flutterLibraries.length} '
+      'framework libraries',
+    );
+    return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
+          args,
+          freezeSpecPath: specPath,
+          reportPath: reportPath,
+        );
   }
 
   void _saveIosBaselineApp({required String baselineId}) {

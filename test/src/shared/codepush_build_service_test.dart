@@ -11,6 +11,7 @@ class MockLogger extends Mock implements Logger {}
 void main() {
   _signingGuards();
   _versionResolution();
+  _interfaceFreeze();
   group('CodePushBuildService', () {
     late MockLogger logger;
     late CodePushBuildService service;
@@ -628,6 +629,382 @@ void _versionResolution() {
         ),
         '3.41.6',
       );
+    });
+  });
+}
+
+// ── iOS interface freeze ────────────────────────────────────────────
+void _interfaceFreeze() {
+  group('parsePubspecName', () {
+    test('plain, quoted, and trailing-comment forms', () {
+      expect(CodePushBuildService.parsePubspecName('name: demo\n'), 'demo');
+      expect(
+        CodePushBuildService.parsePubspecName('name: "demo"\n'),
+        'demo',
+      );
+      expect(
+        CodePushBuildService.parsePubspecName("name: 'demo'\n"),
+        'demo',
+      );
+      expect(
+        CodePushBuildService.parsePubspecName('name: demo # my app\n'),
+        'demo',
+      );
+      expect(CodePushBuildService.parsePubspecName('# empty\n'), isNull);
+    });
+  });
+
+  group('parseDepfileSources', () {
+    test('parses entries and unescapes spaces', () {
+      final sources = CodePushBuildService.parseDepfileSources(
+        'out.dill: /a/b.dart /c\\ d/e.dart \\\n /f/g.dart\n',
+      );
+      expect(sources, {'/a/b.dart', '/c d/e.dart', '/f/g.dart'});
+    });
+
+    test('returns empty on malformed input', () {
+      expect(CodePushBuildService.parseDepfileSources('no colon'), isEmpty);
+    });
+  });
+
+  group('dartSourceIsPart', () {
+    test('detects real part-of directives', () {
+      expect(CodePushBuildService.dartSourceIsPart("part of 'a.dart';"), true);
+      expect(
+        CodePushBuildService.dartSourceIsPart(
+          '// header\n/* block */\npart of my.lib;\n',
+        ),
+        true,
+      );
+      expect(
+        CodePushBuildService.dartSourceIsPart(
+          '@Deprecated("x")\nlibrary a;\npart of b;\n',
+        ),
+        true,
+      );
+    });
+
+    test('detects a multi-line part-of directive', () {
+      expect(
+        CodePushBuildService.dartSourceIsPart("part of\n'a.dart';\n"),
+        true,
+      );
+    });
+
+    test('does not misfire on part-of text inside code', () {
+      expect(
+        CodePushBuildService.dartSourceIsPart(
+          "const help = '''\npart of the setup flow\n''';\n",
+        ),
+        false,
+      );
+      expect(CodePushBuildService.dartSourceIsPart('void main() {}'), false);
+      expect(
+        CodePushBuildService.dartSourceIsPart("part 'impl.dart';"),
+        false,
+      );
+    });
+  });
+
+  group('appLibrariesFromClosure', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('freeze_test');
+      Directory('${tmp.path}/lib/src').createSync(recursive: true);
+      File('${tmp.path}/lib/main.dart').writeAsStringSync('void main() {}');
+      File('${tmp.path}/lib/src/util.dart').writeAsStringSync('int x = 1;');
+      File('${tmp.path}/lib/src/util.g.dart')
+          .writeAsStringSync("part of 'util.dart';");
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('lists only closure files under lib/, excluding parts', () {
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/src/util.dart',
+          '${tmp.path}/lib/src/util.g.dart',
+          '${tmp.path}/test/x.dart',
+          '/other/package/lib/y.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+      );
+      expect(uris, [
+        'package:demo/main.dart',
+        'package:demo/src/util.dart',
+      ]);
+    });
+
+    test('relative depfile entries map and read correctly', () async {
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'lib/main.dart', 'lib/src/util.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+      );
+      expect(uris, [
+        'package:demo/main.dart',
+        'package:demo/src/util.dart',
+      ]);
+    });
+
+    test('a dead file NOT in the closure is never listed', () {
+      File('${tmp.path}/lib/main_dev.dart').writeAsStringSync('void m() {}');
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+      );
+      expect(uris, ['package:demo/main.dart']);
+    });
+
+    test('hidden-directory files and unsafe paths are excluded', () {
+      Directory('${tmp.path}/lib/.history').createSync(recursive: true);
+      File('${tmp.path}/lib/.history/old.dart').writeAsStringSync('int a=1;');
+      final skips = <String>[];
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/.history/old.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        onSkip: (p, r) => skips.add(r),
+      );
+      expect(uris, ['package:demo/main.dart']);
+    });
+  });
+
+  group('discoverCompileClosure', () {
+    late Directory tmp;
+    late CodePushBuildService service;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('closure_test');
+      service = CodePushBuildService(logger: MockLogger());
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('parses the depfile on success', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          expect(exe, contains('dartaotruntime'));
+          expect(args, contains('--depfile'));
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart /c/d.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(closure, {'/a/b.dart', '/c/d.dart'});
+    });
+
+    test('returns null on a non-zero exit', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) => ProcessResult(0, 1, '', 'boom'),
+      );
+      expect(closure, isNull);
+    });
+
+    test('returns null when the compile writes no depfile', () async {
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) => ProcessResult(0, 0, '', ''),
+      );
+      expect(closure, isNull);
+    });
+    test('runs pub get first when package_config is stale', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          if (args.first == 'pub') return ProcessResult(0, 0, '', '');
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls.first, ['flutter', 'pub', 'get']);
+      expect(calls, hasLength(2));
+    });
+
+    test('aborts when pub get fails', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final closure = await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) => args.first == 'pub'
+            ? ProcessResult(0, 65, '', 'offline')
+            : ProcessResult(0, 0, '', ''),
+      );
+      expect(closure, isNull);
+    });
+
+    test('runs gen-l10n before the compile when l10n.yaml exists', () async {
+      File('${tmp.path}/l10n.yaml').writeAsStringSync('arb-dir: lib/l10n\n');
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          if (args.first == 'gen-l10n') return ProcessResult(0, 0, '', '');
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls.first, ['flutter', 'gen-l10n']);
+      expect(calls, hasLength(2));
+    });
+
+    test('skips pub get when package_config is fresh', () async {
+      File('${tmp.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      Directory('${tmp.path}/.dart_tool').createSync();
+      final config = File('${tmp.path}/.dart_tool/package_config.json')
+        ..writeAsStringSync('{}');
+      config.setLastModifiedSync(
+        DateTime.now().add(const Duration(minutes: 1)),
+      );
+      final calls = <List<String>>[];
+      await service.discoverCompileClosure(
+        targetPath: 'lib/main.dart',
+        workDirPath: tmp.path,
+        flutterRootOverride: '/fake/flutter',
+        projectRootOverride: tmp.path,
+        runProcess: (exe, args) {
+          calls.add([exe, ...args]);
+          File('${tmp.path}/closure.d')
+              .writeAsStringSync('out.dill: /a/b.dart\n');
+          return ProcessResult(0, 0, '', '');
+        },
+      );
+      expect(calls, hasLength(1));
+      expect(calls.single.first, contains('dartaotruntime'));
+    });
+  });
+  group('frontendSupportsDynamicInterface', () {
+    test('true when the snapshot embeds the option name', () {
+      final root = Directory.systemTemp.createTempSync('probe_test');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final snap = File(
+        '${root.path}/bin/cache/dart-sdk/bin/snapshots/'
+        'frontend_server_aot.dart.snapshot',
+      )..createSync(recursive: true);
+      snap.writeAsBytesSync(
+        [0, 1, 2, ...'dynamic-interface'.codeUnits, 3, 4],
+      );
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface(root.path),
+        true,
+      );
+      snap.writeAsBytesSync([0, 1, 2, 3, 4]);
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface(root.path),
+        false,
+      );
+      expect(
+        CodePushBuildService.frontendSupportsDynamicInterface('/nope'),
+        false,
+      );
+    });
+  });
+
+  group('flutterLibrariesFromClosure', () {
+    test('includes only candidates present in the closure', () {
+      final libs = CodePushBuildService.flutterLibrariesFromClosure({
+        '/sdk/packages/flutter/lib/widgets.dart',
+        '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+      });
+      expect(libs, ['package:flutter/widgets.dart']);
+      expect(libs, isNot(contains('package:flutter/material.dart')));
+    });
+  });
+
+  group('buildIosInterfaceFreezeYaml', () {
+    test('lists dart, flutter, then app libraries under callable', () {
+      final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: const ['package:flutter/widgets.dart'],
+        appLibraries: const ['package:app/a.dart'],
+      );
+      expect(yaml, contains('callable:'));
+      for (final lib in CodePushBuildService.kIosInterfaceFreezeDartLibraries) {
+        expect(yaml, contains("  - library: '$lib'"));
+      }
+      expect(yaml, contains("  - library: 'package:flutter/widgets.dart'"));
+      expect(yaml, contains("  - library: 'package:app/a.dart'"));
+      expect(yaml, isNot(contains('material.dart')));
+    });
+  });
+
+  group('withIosReleaseFrontEndOptions', () {
+    test('appends the option when absent', () {
+      final args = CodePushBuildService.withIosReleaseFrontEndOptions(
+        ['--dart-define=A=1'],
+        freezeSpecPath: '/p/spec.yaml',
+        reportPath: '/p/report.json',
+      );
+      expect(args, [
+        '--dart-define=A=1',
+        '--extra-front-end-options=--dynamic-interface=/p/spec.yaml,'
+            '--dump-detailed-dynamic-interface=/p/report.json',
+      ]);
+    });
+
+    test('merges into an existing occurrence without duplicating', () {
+      final args = CodePushBuildService.withIosReleaseFrontEndOptions(
+        ['--extra-front-end-options=--foo'],
+        freezeSpecPath: '/p/spec.yaml',
+      );
+      expect(args.single,
+          '--extra-front-end-options=--foo,--dynamic-interface=/p/spec.yaml');
+      final again = CodePushBuildService.withIosReleaseFrontEndOptions(
+        args,
+        freezeSpecPath: '/p/spec.yaml',
+      );
+      expect(again, args);
+    });
+
+    test('a user-supplied --dynamic-interface wins over ours', () {
+      final args = CodePushBuildService.withIosReleaseFrontEndOptions(
+        ['--extra-front-end-options=--dynamic-interface=/user/own.yaml'],
+        freezeSpecPath: '/p/spec.yaml',
+        reportPath: '/p/report.json',
+      );
+      expect(args.single, contains('/user/own.yaml'));
+      expect(args.single, isNot(contains('/p/spec.yaml')));
+      expect(args.single, contains('--dump-detailed-dynamic-interface='));
+    });
+
+    test('does not mutate its input', () {
+      final input = ['--a'];
+      CodePushBuildService.withIosReleaseFrontEndOptions(
+        input,
+        freezeSpecPath: '/p/s.yaml',
+      );
+      expect(input, ['--a']);
     });
   });
 }
