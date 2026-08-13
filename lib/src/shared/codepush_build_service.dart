@@ -1231,7 +1231,9 @@ class CodePushBuildService {
       // First significant line: only directives can precede code, so
       // this decides. `library x;`, annotations, and comments may come
       // before `part of`, but never executable code.
-      if (line.startsWith('part of ') || line.startsWith('part of;')) {
+      if (line.startsWith('part of ') ||
+          line.startsWith('part of;') ||
+          line == 'part of') {
         return true;
       }
       if (line.startsWith('library ') ||
@@ -1250,6 +1252,9 @@ class CodePushBuildService {
   /// branches never enter the freeze, so they can never fail the build.
   /// Part files are excluded ([dartSourceIsPart]); URIs with characters
   /// outside the import-safe set are skipped and reported via [onSkip].
+  /// Known scope limit: only the main package's own `lib/` is frozen —
+  /// path/git dependency packages are not, so their shapes are still
+  /// specialized like any unfrozen library.
   static List<String> appLibrariesFromClosure({
     required Set<String> closurePaths,
     required String projectRoot,
@@ -1258,8 +1263,10 @@ class CodePushBuildService {
   }) {
     final libPrefixes = <String>{
       '$projectRoot/lib/',
-      // The front-end may write resolved (symlink-free) paths.
+      // The front-end may write resolved (symlink-free) paths...
       '${_tryResolve(projectRoot)}/lib/',
+      // ...or relative ones, depending on version.
+      'lib/',
     };
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
@@ -1276,10 +1283,11 @@ class CodePushBuildService {
         onSkip?.call(path, 'unsupported characters in path');
         continue;
       }
+      final readPath = path.startsWith('/') ? path : '$projectRoot/$path';
       String content;
       try {
         content = utf8.decode(
-          File(path).readAsBytesSync(),
+          File(readPath).readAsBytesSync(),
           allowMalformed: true,
         );
       } on FileSystemException {
@@ -1343,7 +1351,8 @@ class CodePushBuildService {
   /// [freezeSpecPath] is the yaml written by
   /// [buildIosInterfaceFreezeYaml]; [reportPath], when given, asks the
   /// compiler to also write a machine-readable report of what was
-  /// frozen (used as a post-build verification gate). Both paths must
+  /// frozen (kept as a build artifact for inspection; nothing reads it
+  /// programmatically today). Both paths must
   /// not contain commas: the surrounding tooling joins and re-splits
   /// this option list on commas, so a comma in a path silently corrupts
   /// every option after it. Callers must reject such paths first.
@@ -1501,14 +1510,22 @@ class CodePushBuildService {
       return null;
     }
     final depfile = File(depfilePath);
-    if (result.exitCode != 0 || !depfile.existsSync()) {
-      _logger.err(
-        'Closure discovery compile failed '
-        '(exit ${result.exitCode}).\n${result.stderr}',
-      );
-      return null;
+    try {
+      if (result.exitCode != 0 || !depfile.existsSync()) {
+        _logger.err(
+          'Closure discovery compile failed '
+          '(exit ${result.exitCode}).\n${result.stderr}',
+        );
+        return null;
+      }
+      return parseDepfileSources(depfile.readAsStringSync());
+    } finally {
+      // Discovery scratch files must not linger next to shipped
+      // artifacts in build/codepush/.
+      for (final scratch in [depfile, File(dillPath)]) {
+        if (scratch.existsSync()) scratch.deleteSync();
+      }
     }
-    return parseDepfileSources(depfile.readAsStringSync());
   }
 
   /// Compile the iOS patch entry into its own kernel with the Flutter

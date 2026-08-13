@@ -583,13 +583,16 @@ class CodePushReleaseSubCommand extends Command<int> {
         CodePushBuildService.flutterLibrariesFromClosure(closure);
     // The compile target lib/main.dart is always in its own closure, so
     // an empty mapping means the path-prefix match failed, not that the
-    // app has no libraries.
+    // app has no libraries. Shipping without the app's own shapes
+    // frozen silently defeats the feature - hard stop.
     if (appLibraries.isEmpty) {
-      _logger.warn(
-        'No app libraries were mapped into the interface freeze — the '
-        'app\'s own public shapes will not be preserved. This usually '
-        'means the project path shape is unexpected; please report it.',
+      progress.fail('Could not map the app libraries for the release');
+      _logger.err(
+        'No app libraries were mapped into the interface freeze; '
+        'building anyway would ship an app whose own code cannot be '
+        'reliably patched. Please report this with your project layout.',
       );
+      return null;
     }
     File(specPath).writeAsStringSync(
       CodePushBuildService.buildIosInterfaceFreezeYaml(

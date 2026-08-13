@@ -684,6 +684,13 @@ void _interfaceFreeze() {
       );
     });
 
+    test('detects a multi-line part-of directive', () {
+      expect(
+        CodePushBuildService.dartSourceIsPart("part of\n'a.dart';\n"),
+        true,
+      );
+    });
+
     test('does not misfire on part-of text inside code', () {
       expect(
         CodePushBuildService.dartSourceIsPart(
@@ -722,6 +729,18 @@ void _interfaceFreeze() {
           '${tmp.path}/test/x.dart',
           '/other/package/lib/y.dart',
         },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+      );
+      expect(uris, [
+        'package:demo/main.dart',
+        'package:demo/src/util.dart',
+      ]);
+    });
+
+    test('relative depfile entries map and read correctly', () async {
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'lib/main.dart', 'lib/src/util.dart'},
         projectRoot: tmp.path,
         packageName: 'demo',
       );
