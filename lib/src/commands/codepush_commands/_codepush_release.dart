@@ -622,10 +622,17 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
+    // Extendable widget bases are included whenever the app compiles
+    // the framework library: without them, a patch that declares a new
+    // widget class fails at first use on device.
+    final includeExtendable = closure.any(
+      (p) => p.endsWith('/flutter/lib/src/widgets/framework.dart'),
+    );
     File(specPath).writeAsStringSync(
       CodePushBuildService.buildIosInterfaceFreezeYaml(
         flutterLibraries: flutterLibraries,
         appLibraries: appLibraries,
+        includeExtendable: includeExtendable,
       ),
     );
     progress.complete(

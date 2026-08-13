@@ -959,6 +959,40 @@ void _interfaceFreeze() {
     });
   });
 
+  group('buildIosInterfaceFreezeYaml extendable section', () {
+    test('included on request with the widget base classes', () {
+      final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: const ['package:flutter/widgets.dart'],
+        appLibraries: const ['package:app/a.dart'],
+        includeExtendable: true,
+      );
+      expect(yaml, contains('extendable:'));
+      expect(
+        yaml,
+        contains(
+          "  - library: "
+          "'package:flutter/src/widgets/framework.dart'",
+        ),
+      );
+      expect(
+        yaml,
+        contains('    class: [StatelessWidget, StatefulWidget, State]'),
+      );
+      expect(
+        yaml.indexOf('callable:'),
+        lessThan(yaml.indexOf('extendable:')),
+      );
+    });
+
+    test('omitted by default', () {
+      final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: const [],
+        appLibraries: const [],
+      );
+      expect(yaml, isNot(contains('extendable:')));
+    });
+  });
+
   group('withIosReleaseFrontEndOptions', () {
     test('appends the option when absent', () {
       final args = CodePushBuildService.withIosReleaseFrontEndOptions(
