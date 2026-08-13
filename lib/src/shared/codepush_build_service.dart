@@ -143,7 +143,9 @@ class CodePushBuildService {
   /// The subprocess is retried once: a transient `flutter --version`
   /// failure (first run after a cache clean, filesystem contention) must
   /// not silently hand version resolution to the stored fallback, which
-  /// may point at a different platform lane than the current build.
+  /// may point at a different platform lane than the current build. The
+  /// retry also covers a run whose output fails to parse — unlikely to
+  /// change on a second run, but cheap and keeps the loop uniform.
   ///
   /// [runProcess] is a test seam; production callers omit it.
   Future<String?> detectFlutterVersion({
@@ -209,15 +211,26 @@ class CodePushBuildService {
     if (targetPlatform == null || artifactManager == null) return stored;
     final support = await artifactManager.fetchPlatformSupport();
     if (support == null) return stored;
-    final supported = support[stored]?.containsKey(targetPlatform) ?? false;
-    if (supported) return stored;
-    _logger.err(
-      'The stored engine version $stored (from ~/.flutter_compilerc) has '
-      'no $buildPlatform artifacts, so it cannot be used for this build. '
-      'It was likely stored by a setup for a different platform. Pass '
-      '--flutter-version <version>, ensure "flutter --version" works in '
-      'this shell, or run "fcp codepush setup" for this platform.',
-    );
+    final versionEntry = support[stored];
+    if (versionEntry != null && versionEntry.containsKey(targetPlatform)) {
+      return stored;
+    }
+    if (versionEntry == null) {
+      _logger.err(
+        'The stored engine version $stored (from ~/.flutter_compilerc) is '
+        'not a supported code push version, so it cannot be used for this '
+        'build. Pass --flutter-version <version> or ensure '
+        '"flutter --version" works in this shell.',
+      );
+    } else {
+      _logger.err(
+        'The stored engine version $stored (from ~/.flutter_compilerc) has '
+        'no $buildPlatform artifacts, so it cannot be used for this build. '
+        'It was likely stored by a setup for a different platform. Pass '
+        '--flutter-version <version>, ensure "flutter --version" works in '
+        'this shell, or run "fcp codepush setup" for this platform.',
+      );
+    }
     return null;
   }
 

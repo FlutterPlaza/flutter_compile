@@ -589,6 +589,21 @@ void _versionResolution() {
       expect(result, isNull);
     });
 
+    test('rejects a version absent from the manifest entirely', () async {
+      final manager = _FakeArtifactManager(
+        logger: logger,
+        support: {
+          '3.41.2': {'ios-arm64': 'rev'},
+        },
+      );
+      final result = await service.guardStoredVersion(
+        stored: '3.41.6',
+        buildPlatform: 'ios',
+        artifactManager: manager,
+      );
+      expect(result, isNull);
+    });
+
     test('accepts unchecked when the manifest is unavailable', () async {
       final manager = _FakeArtifactManager(logger: logger, support: null);
       final result = await service.guardStoredVersion(

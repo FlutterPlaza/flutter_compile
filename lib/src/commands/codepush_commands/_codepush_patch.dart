@@ -137,6 +137,8 @@ class CodePushPatchSubCommand extends Command<int> {
 
         final flutterVersion = await buildService.resolveFlutterVersion(
           explicit: argResults?['flutter-version'] as String?,
+          buildPlatform: platform,
+          artifactManager: artifactManager,
         );
         if (flutterVersion == null) {
           _logger.err(
