@@ -1287,7 +1287,9 @@ class CodePushBuildService {
         onSkip?.call(path, 'unsupported characters in path');
         continue;
       }
-      final readPath = path.startsWith('/') ? path : '$projectRoot/$path';
+      final isAbsolute =
+          path.startsWith('/') || RegExp(r'^[A-Za-z]:[/\\]').hasMatch(path);
+      final readPath = isAbsolute ? path : '$projectRoot/$path';
       String content;
       try {
         content = utf8.decode(
@@ -1424,12 +1426,16 @@ class CodePushBuildService {
       );
     } on FileSystemException catch (e) {
       // A disk/permission problem must not masquerade as the caller's
-      // "no app libraries mapped" null: raise the CLI's own exception,
-      // which the runner reports with guidance instead of a stack trace.
-      throw FlutterCompileException(
-        'Could not write $specPath (${e.osError?.message ?? e.message}). '
-        'Check permissions and free space on the build directory.',
-      );
+      // "no app libraries mapped" null. Log the guidance here — the
+      // runner's FlutterCompileException handler sets the exit code but
+      // prints nothing (throwers log first by convention) — then raise
+      // the typed exception so the failure classes stay distinct.
+      final reason = e.osError?.message ?? e.message;
+      final message =
+          'Could not write $specPath ($reason). Check permissions and '
+          'free space on the build directory.';
+      _logger.err(message);
+      throw FlutterCompileException(message);
     }
     return specPath;
   }

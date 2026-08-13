@@ -1036,6 +1036,15 @@ void _interfaceFreeze() {
       final roDir = Directory('${tmp.path}/ro')..createSync();
       Process.runSync('chmod', ['555', roDir.path]);
       addTearDown(() => Process.runSync('chmod', ['755', roDir.path]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File('${roDir.path}/probe').writeAsStringSync('x');
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the directory really is unwritable.
+      }
       expect(
         () => service.writeIosInterfaceFreezeSpec(
           closurePaths: {'${tmp.path}/lib/main.dart'},
@@ -1060,7 +1069,7 @@ void _interfaceFreeze() {
         false,
       );
     });
-  });
+  }, skip: Platform.isWindows ? 'POSIX path and permission semantics' : null);
 
   group('closureHasExtendableFramework', () {
     test('true only when the framework library file is in the closure', () {
