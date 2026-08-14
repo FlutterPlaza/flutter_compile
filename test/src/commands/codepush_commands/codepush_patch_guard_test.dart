@@ -78,9 +78,13 @@ void main() {
     test('off-shapes from a type-mismatched server still warn', () {
       // The deployed server returns real booleans; a string or int
       // echo must degrade to a FIRED warning, not an inert feature.
+      // '0' is the string echo of a tinyint column; 0.0 rides on num
+      // equality with the 0 row.
       command.warnIfUnguardedRelease({'extendable_widgets': 'false'});
       command.warnIfUnguardedRelease({'interface_freeze': 0});
-      verify(() => logger.warn(any())).called(2);
+      command.warnIfUnguardedRelease({'extendable_widgets': '0'});
+      command.warnIfUnguardedRelease({'interface_freeze': 0.0});
+      verify(() => logger.warn(any())).called(4);
     });
 
     test(

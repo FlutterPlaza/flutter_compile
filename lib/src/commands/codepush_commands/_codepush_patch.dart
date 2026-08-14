@@ -123,8 +123,11 @@ class CodePushPatchSubCommand extends Command<int> {
     // real JSON booleans (verified live), but a string or int echo
     // from some future server must degrade to a FIRED warning, not a
     // silently inert feature. Only a definite off-shape warns.
+    // ('0' is the string echo of the int echo — a tinyint column
+    // serialized as text. 0.0 needs no clause: num equality already
+    // makes it == 0. 'FALSE'/'off'/etc. stay deliberately unknown.)
     bool isOff(Object? value) =>
-        value == false || value == 'false' || value == 0;
+        value == false || value == 'false' || value == 0 || value == '0';
     if (isOff(release['interface_freeze'])) {
       // Freeze off implies guarding off too — warn once, naming the
       // root cause, not a flag the user never passed.
@@ -222,15 +225,30 @@ class CodePushPatchSubCommand extends Command<int> {
     CodePushClient? client;
 
     try {
-      // Fetch the target release's metadata FIRST: several minutes of
-      // build work must not precede the news that the target cannot
-      // safely take a widget-adding patch — the acknowledgement flag
-      // should be a decision, not a post-hoc apology. Best-effort:
-      // getRelease returns null on any failure (old server, offline)
-      // and every consumer below degrades.
+      // Resolve the build platform BEFORE the release fetch: the
+      // unguarded-release warning must not fire for a run that then
+      // exits on argument validation — nothing was ever at risk.
+      if (shouldBuild) {
+        var resolvedPlatform = argResults?['platform'] as String?;
+        resolvedPlatform ??= buildService.detectPlatform();
+        if (resolvedPlatform == null) {
+          _logger.err(
+            'Cannot detect platform. '
+            'Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
+          );
+          return ExitCode.usage.code;
+        }
+        builtPlatform = resolvedPlatform;
+      }
+
+      // Fetch the target release's metadata next — still ahead of any
+      // build work: several minutes of building must not precede the
+      // news that the target cannot safely take a widget-adding patch;
+      // the acknowledgement flag should be a decision, not a post-hoc
+      // apology. Best-effort: getRelease returns null on any failure
+      // (old server, offline) and every consumer below degrades.
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
-      _logger.detail('Reading release $releaseId…');
       final releaseInfo = await readTargetRelease(
         client: client,
         token: token,
@@ -238,16 +256,7 @@ class CodePushPatchSubCommand extends Command<int> {
       );
 
       if (shouldBuild) {
-        var platform = argResults?['platform'] as String?;
-        platform ??= buildService.detectPlatform();
-        if (platform == null) {
-          _logger.err(
-            'Cannot detect platform. '
-            'Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
-          );
-          return ExitCode.usage.code;
-        }
-        builtPlatform = platform;
+        final platform = builtPlatform!;
 
         final artifactManager = CodePushArtifactManager(logger: _logger);
 

@@ -249,12 +249,31 @@ class CodePushClient {
         '/api/v1/releases?release_id=${Uri.encodeQueryComponent(releaseId)}',
         token: token,
       );
-      final releases = info['releases'] as List?;
-      if (releases == null || releases.isEmpty) return null;
-      return releases.first as Map<String, dynamic>;
+      return releaseFromListing(info, releaseId);
     } catch (_) {
       return null;
     }
+  }
+
+  /// Picks the requested release out of a listing response, or null.
+  /// The id check is load-bearing: every hardened read the caller
+  /// makes on this map (guarding verdicts, the stored baseline hash)
+  /// presumes the map IS the release the user named, and a server
+  /// that ignored the `release_id` filter — an unparseable id
+  /// treated as an absent optional, a filter regression, a cached
+  /// list — otherwise lands in the success path as a confident
+  /// verdict about someone else's release. Assumes the record's id
+  /// key is `id` (the server's Release JSON). Extracted (and static)
+  /// so the check is testable without an HTTP seam.
+  static Map<String, dynamic>? releaseFromListing(
+    Map<String, dynamic> info,
+    String releaseId,
+  ) {
+    final releases = info['releases'] as List?;
+    if (releases == null || releases.isEmpty) return null;
+    final release = releases.first as Map<String, dynamic>;
+    if (release['id']?.toString() != releaseId) return null;
+    return release;
   }
 
   /// GET /api/v1/patches?release_id=...
@@ -370,14 +389,10 @@ class CodePushClient {
     required String token,
     required String releaseId,
   }) async {
-    // First get the release info to find the snapshot URL.
-    final info =
-        await _get('/api/v1/releases?release_id=$releaseId', token: token);
-    final releases = info['releases'] as List?;
-    if (releases == null || releases.isEmpty) return null;
-
-    final release = releases.first as Map<String, dynamic>;
-    final snapshotUrl = release['snapshot_url'] as String?;
+    // First get the release info to find the snapshot URL — through
+    // [getRelease], so the id check and query encoding apply here too.
+    final release = await getRelease(token: token, releaseId: releaseId);
+    final snapshotUrl = release?['snapshot_url'] as String?;
     if (snapshotUrl == null) return null;
 
     // Download the snapshot bytes.

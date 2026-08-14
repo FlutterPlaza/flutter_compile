@@ -50,4 +50,50 @@ void main() {
       expect(params.containsKey('extendable_widgets'), isFalse);
     });
   });
+
+  group('CodePushClient.releaseFromListing', () {
+    test('the requested id is the premise — a mismatch is null', () {
+      // A server that ignored the release_id filter (unparseable id
+      // treated as absent, filter regression, cached list) must
+      // degrade to unknown, never to a confident verdict about
+      // someone else's release.
+      final info = {
+        'releases': [
+          {'id': 'other-release', 'snapshot_hash': 'a' * 64},
+        ],
+      };
+      expect(
+        CodePushClient.releaseFromListing(info, 'wanted-release'),
+        isNull,
+      );
+    });
+
+    test('a matching id passes the release through', () {
+      final release = {'id': 'r-1', 'snapshot_hash': 'a' * 64};
+      final info = {
+        'releases': [release],
+      };
+      expect(
+        CodePushClient.releaseFromListing(info, 'r-1'),
+        same(release),
+      );
+    });
+
+    test('empty, absent, and id-less listings are null', () {
+      expect(
+        CodePushClient.releaseFromListing({'releases': <Object?>[]}, 'r-1'),
+        isNull,
+      );
+      expect(CodePushClient.releaseFromListing({}, 'r-1'), isNull);
+      expect(
+        CodePushClient.releaseFromListing(
+          {
+            'releases': [<String, dynamic>{}],
+          },
+          'r-1',
+        ),
+        isNull,
+      );
+    });
+  });
 }
