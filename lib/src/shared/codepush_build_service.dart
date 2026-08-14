@@ -1257,6 +1257,11 @@ class CodePushBuildService {
     return false;
   }
 
+  /// Separator-normalize closure entries so every consumer agrees even
+  /// when handed a closure that skipped [parseDepfileSources].
+  static Iterable<String> _normalizeClosure(Set<String> closurePaths) =>
+      closurePaths.map((p) => p.replaceAll(r'\', '/'));
+
   static final RegExp _windowsDrivePrefix = RegExp(r'^[A-Za-z]:[/\\]');
 
   /// Whether [path] is absolute on any supported host (POSIX `/…` or a
@@ -1336,9 +1341,10 @@ class CodePushBuildService {
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
   /// file appears in the compile closure.
   static List<String> flutterLibrariesFromClosure(Set<String> closurePaths) {
+    final normalized = _normalizeClosure(closurePaths);
     return [
       for (final candidate in kIosInterfaceFreezeFlutterCandidates)
-        if (closurePaths.any(
+        if (normalized.any(
           (p) => p.endsWith(
             '/flutter/lib/${candidate.split('/').last}',
           ),
@@ -1470,7 +1476,7 @@ class CodePushBuildService {
       'package:flutter/',
       '/flutter/lib/',
     );
-    return closurePaths.any((p) => p.endsWith(suffix));
+    return _normalizeClosure(closurePaths).any((p) => p.endsWith(suffix));
   }
 
   /// Return [extraArgs] with `--extra-front-end-options` carrying the
@@ -1518,11 +1524,6 @@ class CodePushBuildService {
     return merged;
   }
 
-  /// Discover the app's compile closure by running a fast front-end
-  /// compile of [targetPath] with a depfile, without whole-program
-  /// optimization. Returns the set of source paths in the closure, or
-  /// null on failure (with diagnostics logged). Used to generate the
-  /// iOS interface freeze from what the build actually contains.
   /// Instance wrapper over [frontendSupportsDynamicInterface] so
   /// command-level tests can stub the probe.
   bool frontendSupportsFreeze(String flutterRoot) =>
@@ -1565,6 +1566,11 @@ class CodePushBuildService {
     return pubspec.lastModifiedSync().isAfter(config.lastModifiedSync());
   }
 
+  /// Discover the app's compile closure by running a fast front-end
+  /// compile of [targetPath] with a depfile, without whole-program
+  /// optimization. Returns the set of source paths in the closure, or
+  /// null on failure (with diagnostics logged). Used to generate the
+  /// iOS interface freeze from what the build actually contains.
   Future<Set<String>?> discoverCompileClosure({
     required String targetPath,
     required String workDirPath,

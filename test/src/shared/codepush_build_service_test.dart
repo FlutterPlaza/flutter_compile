@@ -1125,6 +1125,21 @@ void _interfaceFreeze() {
   });
 
   group('closureHasExtendableFramework', () {
+    test('accepts backslashed closure entries like its siblings', () {
+      expect(
+        CodePushBuildService.closureHasExtendableFramework({
+          r'C:\sdk\packages\flutter\lib\src\widgets\framework.dart',
+        }),
+        true,
+      );
+      expect(
+        CodePushBuildService.flutterLibrariesFromClosure({
+          r'C:\sdk\packages\flutter\lib\widgets.dart',
+        }),
+        ['package:flutter/widgets.dart'],
+      );
+    });
+
     test('true only when the framework library file is in the closure', () {
       expect(
         CodePushBuildService.closureHasExtendableFramework({
