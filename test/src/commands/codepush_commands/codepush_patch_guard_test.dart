@@ -34,7 +34,6 @@ void main() {
     test('guarding off => loud warn naming the consequence and the flag', () {
       command.warnIfUnguardedRelease(
         {'extendable_widgets': false, 'interface_freeze': true},
-        platform: 'ios',
       );
       verify(
         () => logger.warn(
@@ -49,79 +48,66 @@ void main() {
       ).called(1);
     });
 
-    test('freeze off => its own warn', () {
+    test(
+        'freeze off => ONE warn naming the root cause, not a flag the '
+        'user never passed', () {
+      // --no-interface-freeze records extendable_widgets false too;
+      // the guarding warn must not fire alongside.
       command.warnIfUnguardedRelease(
-        {'interface_freeze': false},
-        platform: 'ios',
+        {'interface_freeze': false, 'extendable_widgets': false},
       );
       verify(
         () => logger.warn(
           any(
             that: allOf(
               contains('without the interface freeze'),
+              contains('will crash'),
               contains('--allow-unguarded-release'),
             ),
           ),
         ),
       ).called(1);
-      verifyNever(
-        () => logger.warn(any(that: contains('widget guarding'))),
-      );
+      verifyNever(() => logger.warn(any()));
     });
 
-    test('both off => both warns', () {
-      command.warnIfUnguardedRelease(
-        {'extendable_widgets': false, 'interface_freeze': false},
-        platform: 'ios',
-      );
+    test('off-shapes from a type-mismatched server still warn', () {
+      // The deployed server returns real booleans; a string or int
+      // echo must degrade to a FIRED warning, not an inert feature.
+      command.warnIfUnguardedRelease({'extendable_widgets': 'false'});
+      command.warnIfUnguardedRelease({'interface_freeze': 0});
       verify(() => logger.warn(any())).called(2);
     });
 
     test(
         'unknown stays silent: true, null values, absent keys, '
-        'null release, non-iOS', () {
+        'null release', () {
       command.warnIfUnguardedRelease(
         {'extendable_widgets': true, 'interface_freeze': true},
-        platform: 'ios',
       );
       command.warnIfUnguardedRelease(
         {'extendable_widgets': null, 'interface_freeze': null},
-        platform: 'ios',
       );
-      // Absent keys: every pre-metadata release and every old server.
-      command.warnIfUnguardedRelease(
-        {'snapshot_hash': 'abc'},
-        platform: 'ios',
-      );
-      command.warnIfUnguardedRelease(null, platform: 'ios');
-      // Non-iOS: the interface concept does not apply.
-      command.warnIfUnguardedRelease(
-        {'extendable_widgets': false},
-        platform: 'apk',
-      );
-      command.warnIfUnguardedRelease(
-        {'extendable_widgets': false},
-        platform: null,
-      );
+      // Absent keys: every pre-metadata release and every old server —
+      // including every Android release, which never attests.
+      command.warnIfUnguardedRelease({'snapshot_hash': 'abc'});
+      command.warnIfUnguardedRelease(null);
+      // Truthy-but-not-off garbage is unknown, not off.
+      command.warnIfUnguardedRelease({'extendable_widgets': 'FALSE'});
       verifyNever(() => logger.warn(any()));
     });
 
-    test('--allow-unguarded-release, parsed for real, silences both', () {
+    test('--allow-unguarded-release, parsed for real, silences it', () {
       final cmd = ParsedArgsPatchCommand(logger);
       cmd.parsedArgs = cmd.argParser.parse(['--allow-unguarded-release']);
       cmd.warnIfUnguardedRelease(
         {'extendable_widgets': false, 'interface_freeze': false},
-        platform: 'ios',
       );
       verifyNever(() => logger.warn(any()));
 
       // And the default parse still warns — the flag read is live.
       final unacknowledged = ParsedArgsPatchCommand(logger);
       unacknowledged.parsedArgs = unacknowledged.argParser.parse([]);
-      unacknowledged.warnIfUnguardedRelease(
-        {'extendable_widgets': false},
-        platform: 'ios',
-      );
+      unacknowledged.warnIfUnguardedRelease({'extendable_widgets': false});
       verify(() => logger.warn(any())).called(1);
     });
 

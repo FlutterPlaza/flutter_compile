@@ -103,34 +103,43 @@ class CodePushPatchSubCommand extends Command<int> {
   final Logger _logger;
 
   /// Warn when the target [release] (its server JSON, or null when it
-  /// could not be fetched) was recorded as built without widget
-  /// guarding or without the interface freeze. Reads the
+  /// could not be fetched) was recorded as built without the
+  /// interface freeze or without widget guarding. Reads the
   /// `--allow-unguarded-release` acknowledgement itself so the flag
-  /// link is testable with real parsed args. Absent/null fields stay
-  /// silent — every pre-metadata release, old server, or fetch
-  /// failure is unknown, not unguarded. Public for tests ([run]
-  /// cannot be cheaply exercised).
-  void warnIfUnguardedRelease(
-    Map<String, dynamic>? release, {
-    required String? platform,
-  }) {
-    if (platform != 'ios' || release == null) return;
+  /// link is testable with real parsed args. No platform gate: only
+  /// iOS release builds ever attest these keys, so a definite value
+  /// is itself proof this is an iOS release — a gate on the patch's
+  /// own platform flag would make the warning unreachable for plain
+  /// `--patch-file` uploads. Absent/null fields stay silent — every
+  /// pre-metadata release, old server, or fetch failure is unknown,
+  /// not unguarded. Public for tests ([run] cannot be cheaply
+  /// exercised).
+  void warnIfUnguardedRelease(Map<String, dynamic>? release) {
+    if (release == null) return;
     final acknowledged =
         argResults?['allow-unguarded-release'] as bool? ?? false;
     if (acknowledged) return;
-    if (release['extendable_widgets'] == false) {
+    // Tolerant "off" read: the deployed server stores and returns
+    // real JSON booleans (verified live), but a string or int echo
+    // from some future server must degrade to a FIRED warning, not a
+    // silently inert feature. Only a definite off-shape warns.
+    bool isOff(Object? value) =>
+        value == false || value == 'false' || value == 0;
+    if (isOff(release['interface_freeze'])) {
+      // Freeze off implies guarding off too — warn once, naming the
+      // root cause, not a flag the user never passed.
+      _logger.warn(
+        'This release was built without the interface freeze '
+        '(--no-interface-freeze): it may not be reliably patchable, '
+        'and patches that declare new widget subclasses will crash on '
+        'it. Pass --allow-unguarded-release to acknowledge and '
+        'silence this warning.',
+      );
+    } else if (isOff(release['extendable_widgets'])) {
       _logger.warn(
         'This release was built without widget guarding '
         '(--no-extendable-widgets): a patch that declares new widget '
         'subclasses — for example, a new screen — will crash on it. '
-        'Pass --allow-unguarded-release to acknowledge and silence '
-        'this warning.',
-      );
-    }
-    if (release['interface_freeze'] == false) {
-      _logger.warn(
-        'This release was built without the interface freeze '
-        '(--no-interface-freeze): it may not be reliably patchable. '
         'Pass --allow-unguarded-release to acknowledge and silence '
         'this warning.',
       );
@@ -164,6 +173,20 @@ class CodePushPatchSubCommand extends Command<int> {
     CodePushClient? client;
 
     try {
+      // Fetch the target release's metadata FIRST: several minutes of
+      // build work must not precede the news that the target cannot
+      // safely take a widget-adding patch — the acknowledgement flag
+      // should be a decision, not a post-hoc apology. Best-effort:
+      // getRelease returns null on any failure (old server, offline)
+      // and every consumer below degrades.
+      final serverUrl = await CodePushClient.getServerUrl();
+      client = CodePushClient(serverUrl: serverUrl);
+      final releaseInfo = await client.getRelease(
+        token: token,
+        releaseId: releaseId,
+      );
+      warnIfUnguardedRelease(releaseInfo);
+
       if (shouldBuild) {
         var platform = argResults?['platform'] as String?;
         platform ??= buildService.detectPlatform();
@@ -546,29 +569,13 @@ class CodePushPatchSubCommand extends Command<int> {
       final patchData = patchFile.readAsBytesSync();
       _logger.detail('Patch size: ${patchData.length} bytes');
 
-      final serverUrl = await CodePushClient.getServerUrl();
-      client = CodePushClient(serverUrl: serverUrl);
-
       // The baseline_hash must match what the DEVICE is running (the
       // release binary), not the binary we just built (post-edit).
-      // When --release-id is provided, fetch the release's stored
-      // hash from the server so hashes always agree with the
-      // device's installed baseline.
-      // The patch's platform: explicit flag or the one this invocation
-      // just built. Also gates the unguarded-release warning below.
+      // The release was fetched before the build; its stored hash
+      // always agrees with the device's installed baseline.
       final patchPlatform =
           (argResults?['platform'] as String?) ?? builtPlatform;
-      String? baselineHash;
-      try {
-        final releaseInfo = await client.getRelease(
-          token: token,
-          releaseId: releaseId,
-        );
-        warnIfUnguardedRelease(releaseInfo, platform: patchPlatform);
-        baselineHash = releaseInfo?['snapshot_hash'] as String?;
-      } catch (_) {
-        // Best-effort — fall through to local computation.
-      }
+      var baselineHash = releaseInfo?['snapshot_hash'] as String?;
 
       if (baselineHash != null) {
         _logger.detail(

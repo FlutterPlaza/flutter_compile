@@ -764,5 +764,98 @@ void main() {
         () => progress.fail('Could not analyze the app for the release build'),
       ).called(1);
     });
+
+    test(
+        'interfaceAttestation: only an un-overridden iOS build this '
+        'run attests', () {
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = true;
+
+      // The one direction the feature must never fail in: an explicit
+      // --snapshot uploads bytes the build did not produce — foreign
+      // bytes must attest NOTHING, never true.
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: true,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: false,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'apk',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      // The honest build attests the record's truth.
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
+
+    test(
+        'interfaceAttestation: freeze off is a fact; contradicted '
+        'evidence is unknown', () {
+      // --no-interface-freeze: intent and fact agree — false, false.
+      command.writtenInterfaceSpec = null;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: false, extendableWidgets: false),
+      );
+
+      // Changed spec + no compiler report = the suspected-SDK-drift
+      // state: the server record must not out-claim the archive.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.changed
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+
+      // The same changed spec WITH its report is evidence — attest.
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
   });
 }

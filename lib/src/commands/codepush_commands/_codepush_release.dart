@@ -561,12 +561,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       'Creating release v$version for $appId$versionSuffix',
     );
 
-    // Attest the interface state only for a build THIS run performed
-    // on iOS: writtenInterfaceSpec is non-null exactly when the freeze
-    // prep succeeded (a failed prep exits earlier), null when it was
-    // skipped via --no-interface-freeze. Snapshot uploads and Android
-    // builds attest nothing — unknown, never false.
-    final attestInterface = shouldBuild && builtPlatform == 'ios';
+    final attestation = interfaceAttestation(
+      shouldBuild: shouldBuild,
+      builtPlatform: builtPlatform,
+      usedExplicitSnapshot:
+          (argResults?['snapshot'] as String?)?.isNotEmpty ?? false,
+    );
     try {
       final result = await client.createRelease(
         token: token,
@@ -575,10 +575,8 @@ class CodePushReleaseSubCommand extends Command<int> {
         snapshotData: snapshotData,
         flutterVersion: flutterVersion,
         baselineId: baselineId,
-        interfaceFreeze: attestInterface ? writtenInterfaceSpec != null : null,
-        extendableWidgets: attestInterface
-            ? (writtenInterfaceSpec?.extendable ?? false)
-            : null,
+        interfaceFreeze: attestation.interfaceFreeze,
+        extendableWidgets: attestation.extendableWidgets,
       );
 
       final statusCode = result['status_code'] as int;
@@ -892,6 +890,36 @@ class CodePushReleaseSubCommand extends Command<int> {
         'failure above mentions the dynamic interface, retry with '
         '$flags (a release built without it may not be reliably '
         'patchable).';
+  }
+
+  /// The interface attestation for THIS run's upload. Nulls (unknown)
+  /// unless the uploaded bytes came from an iOS build this run
+  /// performed — and an explicit `--snapshot` OVERRIDES the built
+  /// artifact, so it un-attests: recording `true` for foreign bytes
+  /// would silence the patch-time warning on a release that most
+  /// needs it. Nulls again when the evidence contradicts the intent:
+  /// a changed spec whose compiler report never appeared is the
+  /// suspected-SDK-drift state ([checkInterfaceReportAfterBuild]),
+  /// and the server record must tell the same story as the archive.
+  /// With the freeze deliberately off, intent and fact agree: false.
+  /// Public for tests ([run] cannot be cheaply exercised).
+  ({bool? interfaceFreeze, bool? extendableWidgets}) interfaceAttestation({
+    required bool shouldBuild,
+    required String? builtPlatform,
+    required bool usedExplicitSnapshot,
+  }) {
+    if (!shouldBuild || builtPlatform != 'ios' || usedExplicitSnapshot) {
+      return (interfaceFreeze: null, extendableWidgets: null);
+    }
+    final spec = writtenInterfaceSpec;
+    if (spec == null) {
+      return (interfaceFreeze: false, extendableWidgets: false);
+    }
+    if (spec.specChange == freeze_files.InterfaceSpecChange.changed &&
+        !interfaceReportObservedAfterBuild) {
+      return (interfaceFreeze: null, extendableWidgets: null);
+    }
+    return (interfaceFreeze: true, extendableWidgets: spec.extendable);
   }
 
   /// Archive the saved baseline for [releaseId], attesting the spec

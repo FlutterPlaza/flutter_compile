@@ -230,15 +230,6 @@ class CodePushClient {
     }
   }
 
-  /// Get the stored hash for a release, if available.
-  Future<String?> getReleaseHash({
-    required String token,
-    required String releaseId,
-  }) async {
-    final release = await getRelease(token: token, releaseId: releaseId);
-    return release?['snapshot_hash'] as String?;
-  }
-
   /// GET /api/v1/patches?release_id=...
   Future<Map<String, dynamic>> listPatches({
     required String token,
