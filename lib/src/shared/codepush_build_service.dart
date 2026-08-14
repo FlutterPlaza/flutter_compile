@@ -1337,7 +1337,18 @@ class CodePushBuildService {
           allowMalformed: true,
         );
       } on FileSystemException {
-        onSkip?.call(path, 'unreadable');
+        // When the raw entry carried a backslash that normalization
+        // folded away, the unreadable path is the fold's doing — name
+        // that, so the operator is not chasing a permissions ghost.
+        // A backslashed entry whose normalized file EXISTS (Windows
+        // Make-escaping) still maps above; only the failure is
+        // re-attributed.
+        onSkip?.call(
+          path,
+          rawPath.contains(r'\')
+              ? 'path contains a backslash (unsupported)'
+              : 'unreadable',
+        );
         continue;
       }
       if (dartSourceIsPart(content)) continue;
@@ -1475,15 +1486,33 @@ class CodePushBuildService {
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
     final includeExtendable =
         allowExtendable && closureHasExtendableFramework(closurePaths);
-    final specPath = '$specDirPath/$kInterfaceSpecFilename';
+    final yaml = buildIosInterfaceFreezeYaml(
+      flutterLibraries: flutterLibraries,
+      appLibraries: appLibraries,
+      includeExtendable: includeExtendable,
+    );
+    // Content-addressed name: the build fingerprint includes the
+    // front-end option STRING, not the spec file's bytes, so a
+    // same-path spec with changed contents would be silently ignored
+    // by a cached kernel step. Hashing the content into the name makes
+    // any spec change bust the cache. Stale siblings (hashed or the
+    // legacy fixed name) are swept so the directory holds one spec.
+    final specPath =
+        '$specDirPath/${freeze_files.interfaceSpecFilenameFor(yaml)}';
     try {
-      File(specPath).writeAsStringSync(
-        buildIosInterfaceFreezeYaml(
-          flutterLibraries: flutterLibraries,
-          appLibraries: appLibraries,
-          includeExtendable: includeExtendable,
-        ),
-      );
+      for (final entity in Directory(specDirPath).listSync()) {
+        final name = entity.uri.pathSegments.last;
+        if (entity is File &&
+            name.startsWith(freeze_files.kInterfaceSpecFilenamePrefix) &&
+            name.endsWith('.yaml')) {
+          entity.deleteSync();
+        }
+      }
+    } on FileSystemException {
+      // Sweep is best-effort; the write below is the guarded step.
+    }
+    try {
+      File(specPath).writeAsStringSync(yaml);
     } on FileSystemException catch (e) {
       // A disk/permission problem must not masquerade as the caller's
       // "no app libraries mapped" null. The message travels on the
@@ -1566,7 +1595,11 @@ class CodePushBuildService {
       // Dedupe by option NAME, not exact string: a user-supplied
       // `--dynamic-interface=<their path>` wins — appending a second one
       // would silently override theirs (last occurrence wins in the
-      // front-end), taking away the only escape hatch.
+      // front-end), taking away the only escape hatch. If a CLI path
+      // ever routes a user-supplied value through here, the command's
+      // attestation (writtenInterfaceSpec) must be cleared in lockstep:
+      // it assumes fcp's own spec is the one the build consumed.
+      // Unreachable today — extraBuildArgs carries only --dart-define.
       final name = option.substring(0, option.indexOf('=') + 1);
       if (!options.any((o) => o.startsWith(name))) {
         options.add(option);

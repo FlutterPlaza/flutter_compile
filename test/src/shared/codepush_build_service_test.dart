@@ -1142,9 +1142,64 @@ void _interfaceFreeze() {
       );
       expect(spec, isNull);
       expect(
+        tmp.listSync().whereType<File>().where(
+              (f) => f.uri.pathSegments.last.startsWith('dynamic_interface'),
+            ),
+        isEmpty,
+      );
+    });
+
+    test('spec filename is content-addressed and stale specs are swept', () {
+      // A leftover from an older fcp (fixed name) and a stale hashed
+      // spec must both disappear: the build fingerprint keys on the
+      // option STRING, so only a changed filename busts the cache.
+      File('${tmp.path}/dynamic_interface.yaml').writeAsStringSync('old\n');
+      File('${tmp.path}/dynamic_interface_deadbeef.yaml')
+          .writeAsStringSync('old\n');
+
+      final first = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(
+        first!.specPath,
+        matches(RegExp(r'dynamic_interface_[0-9a-f]{8}\.yaml$')),
+      );
+      expect(
         File('${tmp.path}/dynamic_interface.yaml').existsSync(),
         false,
       );
+      expect(
+        File('${tmp.path}/dynamic_interface_deadbeef.yaml').existsSync(),
+        false,
+      );
+
+      // Same inputs => same name (a cache hit stays a cache hit).
+      final again = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(again!.specPath, first.specPath);
+
+      // Changed contents => changed name, previous spec swept.
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/extra.dart').writeAsStringSync('class E {}');
+      final changed = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/extra.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(changed!.specPath, isNot(first.specPath));
+      expect(File(first.specPath).existsSync(), false);
+      expect(File(changed.specPath).existsSync(), true);
     });
   });
 

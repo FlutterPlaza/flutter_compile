@@ -450,25 +450,47 @@ void main() {
         real,
         projectRootOverride: tmp.path,
       );
-      final specFile =
-          File('${tmp.path}/build/codepush/dynamic_interface.yaml');
+      final specPath = cmd.writtenInterfaceSpec!.path;
+      expect(
+        specPath,
+        matches(
+          RegExp(r'build/codepush/dynamic_interface_[0-9a-f]{8}\.yaml$'),
+        ),
+      );
+      final specFile = File(specPath);
       expect(specFile.existsSync(), true);
       expect(specFile.readAsStringSync(), contains('extendable:'));
       final args = freeze!(<String>[]).join(' ');
-      expect(args, contains('--dynamic-interface=${specFile.path}'));
+      expect(args, contains('--dynamic-interface=$specPath'));
       expect(
         args,
         contains('${tmp.path}/build/codepush/dynamic_interface_report.json'),
       );
-      expect(
-        cmd.writtenInterfaceSpec,
-        (
-          path: specFile.path,
-          reportPath: '${tmp.path}/build/codepush/'
-              'dynamic_interface_report.json',
-          extendable: true
-        ),
+      expect(cmd.writtenInterfaceSpec!.extendable, true);
+    });
+
+    test('checkInterfaceReportAfterBuild warns only when no report exists', () {
+      // No freeze applied: silent no-op.
+      command.checkInterfaceReportAfterBuild();
+      expect(command.interfaceReportObservedAfterBuild, false);
+      verifyNever(() => logger.warn(any()));
+
+      final report = File('${tmp.path}/dynamic_interface_report.json');
+      command.writtenInterfaceSpec = (
+        path: '${tmp.path}/dynamic_interface_abcd1234.yaml',
+        reportPath: report.path,
+        extendable: true
       );
+      command.checkInterfaceReportAfterBuild();
+      expect(command.interfaceReportObservedAfterBuild, false);
+      verify(
+        () => logger.warn(any(that: contains('no interface report'))),
+      ).called(1);
+
+      report.writeAsStringSync('{}');
+      command.checkInterfaceReportAfterBuild();
+      expect(command.interfaceReportObservedAfterBuild, true);
+      verifyNever(() => logger.warn(any()));
     });
 
     test('the attested spec reaches the archive service', () {
@@ -480,6 +502,7 @@ void main() {
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: any(named: 'interfaceSpecPath'),
           interfaceReportPath: any(named: 'interfaceReportPath'),
+          interfaceReportWasProduced: any(named: 'interfaceReportWasProduced'),
           interfaceSpecExtendable: any(named: 'interfaceSpecExtendable'),
         ),
       ).thenReturn(true);
@@ -494,6 +517,7 @@ void main() {
         reportPath: '/x/dynamic_interface_report.json',
         extendable: true
       );
+      cmd.interfaceReportObservedAfterBuild = true;
       cmd.archiveIosBaseline(releaseId: 'rel-1', baselineId: 'base-1');
       verify(
         () => archive.archiveIosRelease(
@@ -502,11 +526,13 @@ void main() {
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: '/x/dynamic_interface.yaml',
           interfaceReportPath: '/x/dynamic_interface_report.json',
+          interfaceReportWasProduced: true,
           interfaceSpecExtendable: true,
         ),
       ).called(1);
 
       cmd.writtenInterfaceSpec = null;
+      cmd.interfaceReportObservedAfterBuild = false;
       cmd.archiveIosBaseline(releaseId: 'rel-2', baselineId: 'base-2');
       verify(
         () => archive.archiveIosRelease(
@@ -515,6 +541,7 @@ void main() {
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: null,
           interfaceReportPath: null,
+          interfaceReportWasProduced: false,
           interfaceSpecExtendable: false,
         ),
       ).called(1);

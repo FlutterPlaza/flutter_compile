@@ -240,6 +240,27 @@ void main() {
       expect(manifest['has_interface_report'], isNull);
     });
 
+    test('a produced-then-lost report is false, not unknown', () {
+      writeBaselineApp();
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-lost',
+        baselineId: 'base-lost',
+        fcpVersion: '0.0.0',
+        interfaceReportPath: '${projectDir.path}/build/codepush/'
+            'dynamic_interface_report.json',
+        interfaceReportWasProduced: true,
+        interfaceSpecExtendable: true,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-lost/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      // Observed after the build, gone at archive time: a known
+      // problem, distinct from the reused-compile unknown.
+      expect(manifest['has_interface_report'], isFalse);
+    });
+
     test('a failed spec copy is non-fatal, like the dSYM', () {
       if (Platform.isWindows) {
         markTestSkipped('chmod semantics are POSIX-only');

@@ -25,9 +25,10 @@ import 'package:mason_logger/mason_logger.dart';
 /// `app_framework_sha256`, `runner_binary_sha256`, `has_dsym`,
 /// `has_interface_spec` (copy outcome), `has_interface_report`
 /// (tri-state copy outcome: true = archived, false = known absent —
-/// no freeze this run or the copy failed, null = the compiler wrote
-/// none this build, e.g. a warm rebuild whose cached kernel step never
-/// re-ran the front end), `has_extendable_widgets` (attestation — was
+/// no freeze this run, the copy failed, or the report was produced
+/// and then lost, null = the compiler wrote none this build, e.g. a
+/// warm rebuild whose cached kernel step never re-ran the front
+/// end), `has_extendable_widgets` (attestation — was
 /// guarding requested and emitted into the spec), `build_date`,
 /// `fcp_version`. In a v1 manifest the v2 keys are absent, which means
 /// UNKNOWN, not false. Nothing else in the repo documents this
@@ -67,10 +68,14 @@ class CodePushArchiveService {
   /// keying on a file merely existing on disk would claim a previous
   /// run's spec as this release's. [interfaceReportPath] is the
   /// compiler's own report of what it guarded, written by the build
-  /// under the same attestation. [interfaceSpecExtendable] records
-  /// whether the spec marked the widget bases extendable; it is
-  /// attestation, not copy outcome, so the manifest can still answer
-  /// "was guarding on?" when the optional copies themselves failed.
+  /// under the same attestation; [interfaceReportWasProduced] says
+  /// whether the caller observed it after the build, so a
+  /// produced-then-lost report records false (known problem) while a
+  /// never-produced one (reused compile) records null (unknown).
+  /// [interfaceSpecExtendable] records whether the spec marked the
+  /// widget bases extendable; it is attestation, not copy outcome, so
+  /// the manifest can still answer "was guarding on?" when the
+  /// optional copies themselves failed.
   ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
@@ -80,6 +85,7 @@ class CodePushArchiveService {
     required String fcpVersion,
     String? interfaceSpecPath,
     String? interfaceReportPath,
+    bool interfaceReportWasProduced = false,
     bool interfaceSpecExtendable = false,
   }) {
     try {
@@ -154,11 +160,19 @@ class CodePushArchiveService {
       if (interfaceReportPath == null) {
         archivedReport = false;
       } else if (!File(interfaceReportPath).existsSync()) {
-        _logger.detail(
-          'Attested interface report was not produced this build '
-          '(warm rebuild?): $interfaceReportPath',
-        );
-        archivedReport = null;
+        if (interfaceReportWasProduced) {
+          // Observed after the build, gone now: a known problem, not
+          // an unknown.
+          _logger.detail(
+            'Interface report was produced but is now missing: '
+            '$interfaceReportPath',
+          );
+          archivedReport = false;
+        } else {
+          // The compiler wrote none this build (reused compile) —
+          // already warned at build time; the manifest says unknown.
+          archivedReport = null;
+        }
       } else {
         archivedReport = _copyOptionalArtifact(
           label: 'interface report',

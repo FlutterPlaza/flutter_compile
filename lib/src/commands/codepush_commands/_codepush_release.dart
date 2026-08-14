@@ -98,6 +98,33 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// Public for tests (no meta dependency for @visibleForTesting).
   ({String path, String reportPath, bool extendable})? writtenInterfaceSpec;
 
+  /// Whether the front end's report was observed on disk after the
+  /// build ([checkInterfaceReportAfterBuild]); lets the archive tell a
+  /// report that was produced-then-lost apart from one the compiler
+  /// never wrote. Public for tests.
+  bool interfaceReportObservedAfterBuild = false;
+
+  /// Post-build check: surface, at default visibility, whether the
+  /// compiler wrote its interface report — the evidence side of the
+  /// freeze. A reused (cache-hit) compile writes none; that is safe,
+  /// because the spec filename is content-addressed, so a reused
+  /// compile can only pair with an IDENTICAL spec — but the operator
+  /// still deserves to see that this build produced no fresh evidence.
+  /// Public for tests ([run] cannot be cheaply exercised).
+  void checkInterfaceReportAfterBuild() {
+    final spec = writtenInterfaceSpec;
+    if (spec == null) return;
+    interfaceReportObservedAfterBuild = File(spec.reportPath).existsSync();
+    if (!interfaceReportObservedAfterBuild) {
+      _logger.warn(
+        'The compiler wrote no interface report this build — an '
+        'unchanged compile was reused. The interface spec is '
+        'content-addressed, so a reused compile still matches this '
+        "run's spec; the archive will record the report as unknown.",
+      );
+    }
+  }
+
   @override
   final String name = 'release';
   @override
@@ -277,6 +304,7 @@ class CodePushReleaseSubCommand extends Command<int> {
           return ExitCode.software.code;
         }
         buildProgress.complete('Build succeeded');
+        checkInterfaceReportAfterBuild();
 
         final finalizeProgress = _logger.progress('Finalizing build');
         final finalized = await buildService.finalizeBuild(
@@ -592,6 +620,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     String? projectRootOverride,
   }) async {
     writtenInterfaceSpec = null;
+    interfaceReportObservedAfterBuild = false;
     final projectRoot = projectRootOverride ?? Directory.current.path;
     // A literal backslash in a POSIX project path defeats the freeze's
     // canonical path normalization (a deliberate trade-off in the
@@ -628,6 +657,19 @@ class CodePushReleaseSubCommand extends Command<int> {
       return null;
     }
     final specDir = Directory('$projectRoot/build/codepush');
+    final reportPath =
+        '${specDir.path}/${CodePushBuildService.kInterfaceReportFilename}';
+    // Fail fast on a comma in the project path (reportPath embeds it),
+    // before any side effects and before the expensive pre-pass. The
+    // authoritative check on the service-composed spec path still runs
+    // after the write.
+    if (reportPath.contains(',')) {
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
+      );
+      return null;
+    }
     try {
       specDir.createSync(recursive: true);
     } on FileSystemException catch (e) {
@@ -641,8 +683,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(message);
       throw FlutterCompileException(message);
     }
-    final reportPath =
-        '${specDir.path}/${CodePushBuildService.kInterfaceReportFilename}';
     // fcp never writes the report itself — the front end does, later in
     // the build. Delete a previous run's copy now, so a build that
     // emits none surfaces as the missing-artifact breadcrumb instead of
@@ -656,16 +696,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       // an unwritable directory hard-stops at the spec write below, so
       // a breadcrumb suffices here.
       _logger.detail('Could not delete a previous interface report: $e');
-    }
-    // Fail fast on a comma in the project path (reportPath embeds it),
-    // before the expensive pre-pass. The authoritative check on the
-    // service-composed spec path still runs after the write.
-    if (reportPath.contains(',')) {
-      _logger.err(
-        'The project path contains a comma, which the build toolchain '
-        'cannot pass through. Move the project to a comma-free path.',
-      );
-      return null;
     }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
@@ -843,6 +873,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       fcpVersion: packageVersion,
       interfaceSpecPath: writtenInterfaceSpec?.path,
       interfaceReportPath: writtenInterfaceSpec?.reportPath,
+      interfaceReportWasProduced: interfaceReportObservedAfterBuild,
       interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
     );
   }
