@@ -3,8 +3,7 @@
 ## Unreleased
 
 - Fixed an issue where simple iOS patches (for example, a patch whose body is a single logging call) could crash or misbehave at run time.
-- iOS release builds now include the build-time preparation for patches that declare new `StatelessWidget` / `StatefulWidget` / `State` subclasses — for example, a patch that adds a new screen. On-device validation of this capability is in progress.
-  - Apps already in the field need one fresh `fcp codepush release --build` to carry the preparation.
+- Patches can now declare new `StatelessWidget` / `StatefulWidget` / `State` subclasses — for example, a patch that adds a new screen. The capability is applied at release build time: apps already in the field need one fresh `fcp codepush release --build` to benefit.
   - The preparation adds a small dispatch cost on the widget base classes; `--no-extendable-widgets` opts a release out of it (patches that add new screens will fail on such a release).
   - **Behavior change:** if the build unexpectedly cannot apply this preparation, `fcp codepush release --build` for iOS now fails with guidance instead of continuing silently.
   - When the app's set of Dart libraries changes between releases (or the widget-guarding option is toggled), the next iOS release build compiles from scratch instead of incrementally; unchanged apps keep reusing the previous compile, and `flutter clean` reclaims old build directories.
