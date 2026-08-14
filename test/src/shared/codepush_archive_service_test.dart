@@ -108,13 +108,14 @@ void main() {
       final manifest = jsonDecode(
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
-      expect(manifest['archive_format_version'], 1);
+      expect(manifest['archive_format_version'], 2);
       expect(manifest['release_id'], 'rel-2');
       expect(manifest['baseline_id'], 'base-2');
       expect(manifest['fcp_version'], '0.19.99');
       expect(manifest['platform'], 'ios-arm64');
       expect(manifest['has_dsym'], isFalse);
       expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['has_extendable_widgets'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
       expect((manifest['app_framework_sha256'] as String).length, 64);
       expect((manifest['runner_binary_sha256'] as String).length, 64);
@@ -156,6 +157,7 @@ void main() {
         baselineId: 'base-spec',
         fcpVersion: '0.0.0',
         interfaceSpecPath: specPath,
+        interfaceSpecExtendable: true,
       );
 
       expect(ok, isTrue);
@@ -170,6 +172,9 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isTrue);
+      // The manifest must answer "was guarding on?" without grepping
+      // the yaml.
+      expect(manifest['has_extendable_widgets'], isTrue);
     });
 
     test('a leftover spec from a previous run is never claimed', () {
@@ -197,6 +202,7 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['has_extendable_widgets'], isFalse);
     });
 
     test('a failed spec copy is non-fatal, like the dSYM', () {
@@ -227,6 +233,7 @@ void main() {
         baselineId: 'base-badspec',
         fcpVersion: '0.0.0',
         interfaceSpecPath: specPath,
+        interfaceSpecExtendable: true,
       );
 
       // The app-bundle archive survives; only the optional spec is lost.
@@ -242,6 +249,9 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isFalse);
+      // Attestation, not copy outcome: guarding WAS on even though the
+      // yaml itself could not be archived.
+      expect(manifest['has_extendable_widgets'], isTrue);
     });
 
     test('does NOT write a project-level .gitignore inside the archive', () {

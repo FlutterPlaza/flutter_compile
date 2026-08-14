@@ -12,8 +12,12 @@ import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
-  CodePushReleaseSubCommand(this._logger, {CodePushBuildService? buildService})
-      : _injectedBuildService = buildService {
+  CodePushReleaseSubCommand(
+    this._logger, {
+    CodePushBuildService? buildService,
+    CodePushArchiveService? archiveService,
+  })  : _injectedBuildService = buildService,
+        _injectedArchiveService = archiveService {
     argParser
       ..addOption('app-id', help: 'The app ID to create a release for.')
       ..addOption(
@@ -54,10 +58,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       ..addFlag(
         'extendable-widgets',
         defaultsTo: true,
-        help: 'Allow patches to declare new widget subclasses by '
-            'guarding dispatch on the widget base classes. Disabling '
-            'removes that guarding (and its dispatch cost) — patches '
-            'that add new screens will fail on such a release.',
+        help: 'Allow patches to declare new widget subclasses in the '
+            'built iOS app by guarding dispatch on the widget base '
+            'classes. Disabling removes that guarding (and its dispatch '
+            'cost) — patches that add new screens will fail on such a '
+            'release.',
       )
       ..addFlag(
         'interface-freeze',
@@ -81,11 +86,16 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// construction happens in [run].
   final CodePushBuildService? _injectedBuildService;
 
-  /// The interface spec written by THIS run's freeze preparation, for
-  /// the archive step. Null when the freeze was skipped or failed, so
-  /// the archive never claims a leftover spec from a previous run.
+  /// Test seam: an archive service injected by tests; production
+  /// construction happens in [archiveIosBaseline].
+  final CodePushArchiveService? _injectedArchiveService;
+
+  /// The interface spec written by THIS run's freeze preparation (path
+  /// plus whether widget bases were marked extendable), for the archive
+  /// step. Null when the freeze was skipped or failed, so the archive
+  /// never claims a leftover spec from a previous run.
   /// Public for tests (no meta dependency for @visibleForTesting).
-  String? writtenInterfaceSpecPath;
+  ({String path, bool extendable})? writtenInterfaceSpec;
 
   @override
   final String name = 'release';
@@ -549,12 +559,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         // a successful release.
         final releaseId = release?['id'] as String?;
         if (releaseId != null) {
-          CodePushArchiveService(logger: _logger).archiveIosRelease(
-            releaseId: releaseId,
-            baselineId: baselineId,
-            fcpVersion: packageVersion,
-            interfaceSpecPath: writtenInterfaceSpecPath,
-          );
+          archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         }
       }
 
@@ -585,7 +590,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     CodePushBuildService buildService, {
     String? projectRootOverride,
   }) async {
-    writtenInterfaceSpecPath = null;
+    writtenInterfaceSpec = null;
     final projectRoot = projectRootOverride ?? Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
     String? packageName;
@@ -717,12 +722,34 @@ class CodePushReleaseSubCommand extends Command<int> {
     );
     // Captured variables do not promote; bind the non-null value.
     final String frozenSpecPath = writtenSpec.specPath;
-    writtenInterfaceSpecPath = frozenSpecPath;
+    writtenInterfaceSpec = (
+      path: frozenSpecPath,
+      extendable: writtenSpec.extendable,
+    );
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,
           freezeSpecPath: frozenSpecPath,
           reportPath: reportPath,
         );
+  }
+
+  /// Archive the saved baseline for [releaseId], attesting the spec
+  /// THIS run wrote (see [writtenInterfaceSpec]). Public for tests: the
+  /// wire from the field to the archive service is the one link
+  /// [run] cannot cheaply exercise (it needs a token, a server, and a
+  /// real build).
+  void archiveIosBaseline({
+    required String releaseId,
+    required String baselineId,
+  }) {
+    (_injectedArchiveService ?? CodePushArchiveService(logger: _logger))
+        .archiveIosRelease(
+      releaseId: releaseId,
+      baselineId: baselineId,
+      fcpVersion: packageVersion,
+      interfaceSpecPath: writtenInterfaceSpec?.path,
+      interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
+    );
   }
 
   void _saveIosBaselineApp({required String baselineId}) {

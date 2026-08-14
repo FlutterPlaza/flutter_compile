@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_release.dart';
+import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -13,6 +14,8 @@ class MockLogger extends Mock implements Logger {}
 class MockProgress extends Mock implements Progress {}
 
 class MockBuildService extends Mock implements CodePushBuildService {}
+
+class MockArchiveService extends Mock implements CodePushArchiveService {}
 
 /// The real service except the expensive probe/compile seams, so the
 /// command's composed spec directory feeds the REAL writer and the
@@ -143,8 +146,8 @@ void main() {
       );
       // The archive step reads this to claim only THIS run's spec.
       expect(
-        command.writtenInterfaceSpecPath,
-        '/spec/dynamic_interface.yaml',
+        command.writtenInterfaceSpec,
+        (path: '/spec/dynamic_interface.yaml', extendable: true),
       );
     });
 
@@ -396,7 +399,7 @@ void main() {
       );
       expect(freeze, isNull);
       // A failed freeze must leave nothing for the archive to claim.
-      expect(command.writtenInterfaceSpecPath, isNull);
+      expect(command.writtenInterfaceSpec, isNull);
       verify(
         () =>
             progress.fail('Widget base classes could not be marked extendable'),
@@ -441,7 +444,53 @@ void main() {
         args,
         contains('${tmp.path}/build/codepush/dynamic_interface_report.json'),
       );
-      expect(cmd.writtenInterfaceSpecPath, specFile.path);
+      expect(
+        cmd.writtenInterfaceSpec,
+        (path: specFile.path, extendable: true),
+      );
+    });
+
+    test('the attested spec reaches the archive service', () {
+      final archive = MockArchiveService();
+      when(
+        () => archive.archiveIosRelease(
+          releaseId: any(named: 'releaseId'),
+          baselineId: any(named: 'baselineId'),
+          fcpVersion: any(named: 'fcpVersion'),
+          interfaceSpecPath: any(named: 'interfaceSpecPath'),
+          interfaceSpecExtendable: any(named: 'interfaceSpecExtendable'),
+        ),
+      ).thenReturn(true);
+      final cmd = CodePushReleaseSubCommand(
+        logger,
+        buildService: buildService,
+        archiveService: archive,
+      );
+
+      cmd.writtenInterfaceSpec =
+          (path: '/x/dynamic_interface.yaml', extendable: true);
+      cmd.archiveIosBaseline(releaseId: 'rel-1', baselineId: 'base-1');
+      verify(
+        () => archive.archiveIosRelease(
+          releaseId: 'rel-1',
+          baselineId: 'base-1',
+          fcpVersion: any(named: 'fcpVersion'),
+          interfaceSpecPath: '/x/dynamic_interface.yaml',
+          interfaceSpecExtendable: true,
+        ),
+      ).called(1);
+
+      cmd.writtenInterfaceSpec = null;
+      cmd.archiveIosBaseline(releaseId: 'rel-2', baselineId: 'base-2');
+      verify(
+        () => archive.archiveIosRelease(
+          releaseId: 'rel-2',
+          baselineId: 'base-2',
+          fcpVersion: any(named: 'fcpVersion'),
+          interfaceSpecPath: null,
+          interfaceSpecExtendable: false,
+        ),
+      ).called(1);
     });
 
     test('unsupported front-end fails before any compile', () async {

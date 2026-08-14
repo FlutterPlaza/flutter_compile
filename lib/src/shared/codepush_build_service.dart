@@ -1463,13 +1463,6 @@ class CodePushBuildService {
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
     final includeExtendable =
         allowExtendable && closureHasExtendableFramework(closurePaths);
-    final omittedReason =
-        allowExtendable ? 'framework library not in the compile' : 'disabled';
-    _logger.detail(
-      includeExtendable
-          ? 'Interface spec: widget base classes marked extendable.'
-          : 'Interface spec: extendable section omitted ($omittedReason).',
-    );
     final specPath = '$specDirPath/$kInterfaceSpecFilename';
     try {
       File(specPath).writeAsStringSync(
@@ -1491,6 +1484,15 @@ class CodePushBuildService {
         'free space on the build directory.',
       );
     }
+    // After the write, so a failing verbose transcript never claims a
+    // spec state for a file that was never created.
+    final omittedReason =
+        allowExtendable ? 'framework library not in the compile' : 'disabled';
+    _logger.detail(
+      includeExtendable
+          ? 'Interface spec: widget base classes marked extendable.'
+          : 'Interface spec: extendable section omitted ($omittedReason).',
+    );
     return (
       specPath: specPath,
       appCount: appLibraries.length,

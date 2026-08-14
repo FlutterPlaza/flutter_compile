@@ -32,7 +32,10 @@ class CodePushArchiveService {
   })  : _logger = logger,
         _projectDir = projectDir ?? Directory.current;
 
-  static const int _archiveFormatVersion = 1;
+  // v2: adds has_interface_spec + has_extendable_widgets. The bump is
+  // what lets a reader distinguish "guarding was off" from "this
+  // manifest predates the keys".
+  static const int _archiveFormatVersion = 2;
   static const String _archiveDirName = '.fcp-archive';
   static const String _excludeRule = '.fcp-archive/';
 
@@ -47,7 +50,10 @@ class CodePushArchiveService {
   /// run, or null when the run produced none (freeze skipped or
   /// failed). The archive copies only what the caller attests to —
   /// keying on a file merely existing on disk would claim a previous
-  /// run's spec as this release's.
+  /// run's spec as this release's. [interfaceSpecExtendable] records
+  /// whether that spec marked the widget bases extendable; it is
+  /// attestation, not copy outcome, so the manifest can still answer
+  /// "was guarding on?" when the optional copy itself failed.
   ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
@@ -56,6 +62,7 @@ class CodePushArchiveService {
     required String baselineId,
     required String fcpVersion,
     String? interfaceSpecPath,
+    bool interfaceSpecExtendable = false,
   }) {
     try {
       final runnerApp = Directory(
@@ -115,15 +122,21 @@ class CodePushArchiveService {
       // fails on a device months later. Optional like the dSYM: its
       // failure must not discard the app-bundle archive.
       var archivedSpec = false;
-      if (interfaceSpecPath != null && File(interfaceSpecPath).existsSync()) {
-        try {
-          File(interfaceSpecPath).copySync(
-            '${releaseDir.path}/'
-            '${CodePushBuildService.kInterfaceSpecFilename}',
+      if (interfaceSpecPath != null) {
+        if (File(interfaceSpecPath).existsSync()) {
+          try {
+            File(interfaceSpecPath).copySync(
+              '${releaseDir.path}/'
+              '${CodePushBuildService.kInterfaceSpecFilename}',
+            );
+            archivedSpec = true;
+          } on FileSystemException catch (e) {
+            _logger.detail('Could not archive the interface spec: $e');
+          }
+        } else {
+          _logger.detail(
+            'Attested interface spec is missing: $interfaceSpecPath',
           );
-          archivedSpec = true;
-        } on FileSystemException catch (e) {
-          _logger.detail('Could not archive the interface spec: $e');
         }
       }
 
@@ -140,6 +153,7 @@ class CodePushArchiveService {
         'runner_binary_sha256': runnerBinarySha,
         'has_dsym': archivedDsym,
         'has_interface_spec': archivedSpec,
+        'has_extendable_widgets': interfaceSpecExtendable,
         'build_date': DateTime.now().toUtc().toIso8601String(),
         'fcp_version': fcpVersion,
       };
