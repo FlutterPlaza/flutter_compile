@@ -169,28 +169,57 @@ class CodePushPatchSubCommand extends Command<int> {
   /// covers the wire.
   int? parseRollout() {
     final raw = argResults?['rollout'] as String? ?? '100';
-    final value = int.tryParse(raw);
-    if (value == null || value < 1 || value > 100) return null;
+    // Digits only: bare int.tryParse would also admit '0x64' and
+    // '+50', which would make "null on ANY invalid value" a lie.
+    if (!RegExp(r'^\d+$').hasMatch(raw)) return null;
+    final value = int.parse(raw);
+    if (value < 1 || value > 100) return null;
     return value;
   }
 
-  /// The early `--patch-file` existence check, gated OFF under
-  /// `--build`: the named path may be THIS run's output (the
-  /// documented build/codepush/patch.fcppatch), which does not exist
-  /// yet — the in-place check after the build covers that flow.
-  /// Returns the error to print, or null when the run may proceed.
-  /// Public for tests; reads its own args so a real-parse test
-  /// covers the wire.
-  String? earlyPatchFileError() {
-    final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild) return null;
-    final explicitPatchFile = argResults?['patch-file'] as String?;
-    if (explicitPatchFile != null &&
-        explicitPatchFile.isNotEmpty &&
-        !File(explicitPatchFile).existsSync()) {
-      return 'Patch file not found: $explicitPatchFile';
+  /// Path the `--build` flow writes its packaged patch to. A class
+  /// const shared with the packaging and candidate-search sites, so
+  /// [earlyPatchFileError]'s one-output-path premise is enforced by
+  /// the compiler rather than a duplicated literal.
+  static const kPatchOutputPath = 'build/codepush/patch.fcppatch';
+
+  /// True when the two paths plausibly name the same file (relative
+  /// vs absolute, `./`/`..` spellings, case-insensitive). Fail-OPEN:
+  /// an undecidable comparison returns true so the late post-build
+  /// check owns the call — a path-spelling gap must cost the old
+  /// behavior, never a false rejection (the round-8 regression
+  /// direction). Case-folding over-matches on case-sensitive
+  /// filesystems, which is also the open direction.
+  static bool _plausiblySameFile(String a, String b) {
+    try {
+      String norm(String p) =>
+          File(p).absolute.uri.normalizePath().toFilePath().toLowerCase();
+      return norm(a) == norm(b);
+    } catch (_) {
+      return true;
     }
-    return null;
+  }
+
+  /// The early `--patch-file` existence check. A missing file fails
+  /// fast — EXCEPT when `--build` is set and the argument names the
+  /// one path the build can bring into existence
+  /// ([kPatchOutputPath]): that file legitimately does not exist yet
+  /// on a clean tree, and the in-place post-build check owns it. A
+  /// typo'd path under `--build` still fails fast — it can never
+  /// appear, and discovering that after minutes of building violates
+  /// the pre-fetch invariant. Returns the error to print, or null
+  /// when the run may proceed. Public for tests; reads its own args
+  /// so a real-parse test covers the wire.
+  String? earlyPatchFileError() {
+    final explicitPatchFile = argResults?['patch-file'] as String?;
+    if (explicitPatchFile == null || explicitPatchFile.isEmpty) return null;
+    if (File(explicitPatchFile).existsSync()) return null;
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (shouldBuild &&
+        _plausiblySameFile(explicitPatchFile, kPatchOutputPath)) {
+      return null;
+    }
+    return 'Patch file not found: $explicitPatchFile';
   }
 
   /// Read the target release and inspect it BEFORE any build: the
@@ -582,23 +611,22 @@ class CodePushPatchSubCommand extends Command<int> {
         }
 
         final packageProgress = _logger.progress('Packaging patch');
-        const patchOutputPath = 'build/codepush/patch.fcppatch';
         final packaged = await buildService.packagePayload(
           payload: payloadData,
-          outputPath: patchOutputPath,
+          outputPath: kPatchOutputPath,
           artifactManager: artifactManager,
         );
         if (!packaged) {
           packageProgress.fail('Packaging failed.');
           return ExitCode.software.code;
         }
-        packageProgress.complete('Patch ready → $patchOutputPath');
+        packageProgress.complete('Patch ready → $kPatchOutputPath');
       }
 
       var patchPath = argResults?['patch-file'] as String?;
       if (patchPath == null || patchPath.isEmpty) {
         final candidates = [
-          'build/codepush/patch.fcppatch',
+          kPatchOutputPath,
           'build/patch.fcppatch',
         ];
         for (final candidate in candidates) {

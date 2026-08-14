@@ -217,15 +217,35 @@ void main() {
 
     test(
         '--build with a --patch-file naming the future build output '
-        'is NOT rejected up front', () {
+        'is NOT rejected up front — in any legitimate spelling', () {
       // On a clean tree the output does not exist until the build
       // runs; the post-build in-place check owns that flow. Rejecting
       // here broke `--build --patch-file build/codepush/patch.fcppatch`
       // on every fresh clone and CI runner.
+      for (final spelling in [
+        CodePushPatchSubCommand.kPatchOutputPath,
+        './${CodePushPatchSubCommand.kPatchOutputPath}',
+        'build/./codepush/patch.fcppatch',
+        File(CodePushPatchSubCommand.kPatchOutputPath).absolute.path,
+      ]) {
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--build', '--patch-file', spelling],
+        );
+        expect(cmd.earlyPatchFileError(), isNull, reason: spelling);
+      }
+    });
+
+    test(
+        '--build with a TYPO in --patch-file fails fast — the build '
+        'can never create that path', () {
       cmd.parsedArgs = cmd.argParser.parse(
-        ['--build', '--patch-file', '/definitely/not/there.fcppatch'],
+        // One 'p' — the classic misspelling of the output path.
+        ['--build', '--patch-file', 'build/codepush/patch.fcpatch'],
       );
-      expect(cmd.earlyPatchFileError(), isNull);
+      expect(
+        cmd.earlyPatchFileError(),
+        contains('build/codepush/patch.fcpatch'),
+      );
     });
 
     test('without --build a missing explicit patch file fails fast', () {
@@ -265,6 +285,9 @@ void main() {
       expect(parsed(['--rollout', 'fifty']), isNull);
       expect(parsed(['--rollout', '0']), isNull);
       expect(parsed(['--rollout', '101']), isNull);
+      // Shapes bare int.tryParse would admit — digits only.
+      expect(parsed(['--rollout', '0x64']), isNull);
+      expect(parsed(['--rollout', '+50']), isNull);
     });
   });
 
