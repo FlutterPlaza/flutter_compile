@@ -1551,6 +1551,23 @@ class CodePushBuildService {
     } else {
       specChange = freeze_files.InterfaceSpecChange.unknown;
     }
+    try {
+      File(specPath).writeAsStringSync(yaml);
+    } on FileSystemException catch (e) {
+      // A disk/permission problem must not masquerade as the caller's
+      // "no app libraries mapped" null. The message travels on the
+      // typed exception; the CALLER logs it after failing its progress
+      // line so the guidance prints under the failure marker like
+      // every other error here (the runner's handler prints nothing).
+      final reason = e.osError?.message ?? e.message;
+      throw FlutterCompileException(
+        'Could not write $specPath ($reason). Check permissions and '
+        'free space on the build directory.',
+      );
+    }
+    // Breadcrumbs AFTER the write, so a failing verbose transcript
+    // never claims a spec state — or a from-scratch compile — for a
+    // file that was never created.
     switch (specChange) {
       case freeze_files.InterfaceSpecChange.unknown when sweptSpecs.isEmpty:
         _logger.detail(
@@ -1575,22 +1592,6 @@ class CodePushBuildService {
       case freeze_files.InterfaceSpecChange.unchanged:
         break;
     }
-    try {
-      File(specPath).writeAsStringSync(yaml);
-    } on FileSystemException catch (e) {
-      // A disk/permission problem must not masquerade as the caller's
-      // "no app libraries mapped" null. The message travels on the
-      // typed exception; the CALLER logs it after failing its progress
-      // line so the guidance prints under the failure marker like
-      // every other error here (the runner's handler prints nothing).
-      final reason = e.osError?.message ?? e.message;
-      throw FlutterCompileException(
-        'Could not write $specPath ($reason). Check permissions and '
-        'free space on the build directory.',
-      );
-    }
-    // After the write, so a failing verbose transcript never claims a
-    // spec state for a file that was never created.
     final omittedReason =
         allowExtendable ? 'framework library not in the compile' : 'disabled';
     _logger.detail(
@@ -1731,6 +1732,13 @@ class CodePushBuildService {
   /// optimization. Returns the set of source paths in the closure, or
   /// null on failure (with diagnostics logged). Used to generate the
   /// iOS interface freeze from what the build actually contains.
+  ///
+  /// Scope note: [projectRootOverride] covers the PRE-FLIGHT gates
+  /// only (pub-get staleness, l10n detection). The compile itself —
+  /// the relative [targetPath], the package config, and the spawned
+  /// process — resolves against the current directory, which in
+  /// production IS the project root. A test that points the override
+  /// at a fixture root must also chdir there.
   Future<Set<String>?> discoverCompileClosure({
     required String targetPath,
     required String workDirPath,

@@ -29,9 +29,13 @@ import 'package:mason_logger/mason_logger.dart';
 /// when no spec was attested), `has_interface_report`
 /// (tri-state copy outcome: true = archived, false = known absent —
 /// no freeze this run, the copy failed, or the report was produced
-/// and then lost, null = the compiler wrote none this build, e.g. a
-/// warm rebuild whose cached kernel step never re-ran the front
-/// end), `has_extendable_widgets` (attestation — was
+/// and then lost, null = the compiler wrote none this build —
+/// interpret via `interface_spec_change`), `interface_spec_change`
+/// (`"changed"` | `"unchanged"` | `"unknown"`, null when no spec was
+/// attested: `unchanged` makes a null report benign — a warm rebuild
+/// reusing the identical spec — while `changed` means the compiler
+/// should have run and a null report suggests SDK drift),
+/// `has_extendable_widgets` (attestation — was
 /// guarding requested and emitted into the spec), `build_date`,
 /// `fcp_version`. In a v1 manifest the v2 keys are absent, which means
 /// UNKNOWN, not false. Nothing else in the repo documents this
@@ -52,9 +56,9 @@ class CodePushArchiveService {
         _projectDir = projectDir ?? Directory.current;
 
   // v2: adds has_interface_spec, has_interface_report,
-  // has_extendable_widgets and interface_spec_source_name. The bump is
-  // what lets a reader distinguish "guarding was off" from "this
-  // manifest predates the keys".
+  // has_extendable_widgets, interface_spec_source_name and
+  // interface_spec_change. The bump is what lets a reader distinguish
+  // "guarding was off" from "this manifest predates the keys".
   static const int _archiveFormatVersion = 2;
   static const String _archiveDirName = '.fcp-archive';
   static const String _excludeRule = '.fcp-archive/';
@@ -79,7 +83,9 @@ class CodePushArchiveService {
   /// [interfaceSpecExtendable] records whether the spec marked the
   /// widget bases extendable; it is attestation, not copy outcome, so
   /// the manifest can still answer "was guarding on?" when the
-  /// optional copies themselves failed.
+  /// optional copies themselves failed. [interfaceSpecChange] is the
+  /// writer's spec-change verdict, stored so a null report stays
+  /// interpretable months later (see the class doc).
   ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
@@ -91,6 +97,7 @@ class CodePushArchiveService {
     String? interfaceReportPath,
     bool interfaceReportWasProduced = false,
     bool interfaceSpecExtendable = false,
+    InterfaceSpecChange? interfaceSpecChange,
   }) {
     try {
       final runnerApp = Directory(
@@ -173,8 +180,12 @@ class CodePushArchiveService {
           );
           archivedReport = false;
         } else {
-          // The compiler wrote none this build (reused compile) —
-          // already warned at build time; the manifest says unknown.
+          // The compiler wrote none this build. WHY is not this
+          // method's to assert — interface_spec_change in the manifest
+          // carries the interpretation (unchanged = warm rebuild,
+          // benign; changed = the compiler should have run, suspect
+          // SDK drift; unknown = nothing to compare), and the CLI
+          // surfaced the same split at build time.
           archivedReport = null;
         }
       } else {
@@ -205,6 +216,11 @@ class CodePushArchiveService {
             ? null
             : File(interfaceSpecPath).uri.pathSegments.last,
         'has_interface_report': archivedReport,
+        // Interprets a null report: unchanged = warm rebuild (benign),
+        // changed = the compiler should have run, unknown = nothing to
+        // compare. Null when no spec was attested.
+        'interface_spec_change':
+            interfaceSpecPath == null ? null : interfaceSpecChange?.name,
         'has_extendable_widgets': interfaceSpecExtendable,
         'build_date': DateTime.now().toUtc().toIso8601String(),
         'fcp_version': fcpVersion,

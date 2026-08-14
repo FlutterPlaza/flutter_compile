@@ -902,6 +902,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       interfaceReportPath: writtenInterfaceSpec?.reportPath,
       interfaceReportWasProduced: interfaceReportObservedAfterBuild,
       interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
+      interfaceSpecChange: writtenInterfaceSpec?.specChange,
     );
   }
 

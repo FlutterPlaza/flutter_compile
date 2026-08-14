@@ -562,6 +562,7 @@ void main() {
           interfaceReportPath: any(named: 'interfaceReportPath'),
           interfaceReportWasProduced: any(named: 'interfaceReportWasProduced'),
           interfaceSpecExtendable: any(named: 'interfaceSpecExtendable'),
+          interfaceSpecChange: any(named: 'interfaceSpecChange'),
         ),
       ).thenReturn(true);
       final cmd = CodePushReleaseSubCommand(
@@ -587,6 +588,7 @@ void main() {
           interfaceReportPath: '/x/dynamic_interface_report.json',
           interfaceReportWasProduced: true,
           interfaceSpecExtendable: true,
+          interfaceSpecChange: InterfaceSpecChange.unchanged,
         ),
       ).called(1);
 
@@ -602,6 +604,7 @@ void main() {
           interfaceReportPath: null,
           interfaceReportWasProduced: false,
           interfaceSpecExtendable: false,
+          interfaceSpecChange: null,
         ),
       ).called(1);
     });

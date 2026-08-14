@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:test/test.dart';
 
@@ -117,6 +118,7 @@ void main() {
       expect(manifest['has_interface_spec'], isFalse);
       expect(manifest['interface_spec_source_name'], isNull);
       expect(manifest['has_interface_report'], isFalse);
+      expect(manifest['interface_spec_change'], isNull);
       expect(manifest['has_extendable_widgets'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
       expect((manifest['app_framework_sha256'] as String).length, 64);
@@ -167,6 +169,7 @@ void main() {
         interfaceSpecPath: specPath,
         interfaceReportPath: reportPath,
         interfaceSpecExtendable: true,
+        interfaceSpecChange: InterfaceSpecChange.changed,
       );
 
       expect(ok, isTrue);
@@ -197,6 +200,37 @@ void main() {
       // The manifest must answer "was guarding on?" without grepping
       // the yaml.
       expect(manifest['has_extendable_widgets'], isTrue);
+      // The writer's verdict travels: it interprets a null report.
+      expect(manifest['interface_spec_change'], 'changed');
+    });
+
+    test('an attested opt-out spec records true,false — not no-freeze', () {
+      // The --no-extendable-widgets release: the spec is real and
+      // archived, guarding is deliberately off. This is the one state
+      // that separates attestation from copy outcome — rewriting the
+      // key as `archivedSpec && extendable` must fail here.
+      writeBaselineApp();
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_02dc0ffe02dc0ffe.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-optout',
+        baselineId: 'base-optout',
+        fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
+        interfaceSpecExtendable: false,
+        interfaceSpecChange: InterfaceSpecChange.unchanged,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-optout/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isTrue);
+      expect(manifest['has_extendable_widgets'], isFalse);
+      expect(manifest['interface_spec_change'], 'unchanged');
     });
 
     test('a leftover spec from a previous run is never claimed', () {
@@ -226,6 +260,9 @@ void main() {
       expect(manifest['has_interface_spec'], isFalse);
       expect(manifest['has_interface_report'], isFalse);
       expect(manifest['has_extendable_widgets'], isFalse);
+      // No attestation: both join keys are null, not stale values.
+      expect(manifest['interface_spec_source_name'], isNull);
+      expect(manifest['interface_spec_change'], isNull);
     });
 
     test('an attested report the build never produced is unknown, not false',
