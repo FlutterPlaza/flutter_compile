@@ -77,6 +77,16 @@ void main() {
         CodePushClient.releaseFromListing(info, 'r-1'),
         same(release),
       );
+      // UUIDs are case-insensitive identifiers — an upcased or
+      // padded spelling of a correct id must still match.
+      expect(
+        CodePushClient.releaseFromListing(info, 'R-1'),
+        same(release),
+      );
+      expect(
+        CodePushClient.releaseFromListing(info, ' r-1 '),
+        same(release),
+      );
     });
 
     test(

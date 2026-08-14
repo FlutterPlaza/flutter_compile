@@ -223,17 +223,16 @@ void main() {
       // here broke `--build --patch-file build/codepush/patch.fcppatch`
       // on every fresh clone and CI runner.
       // Every row has provenance INDEPENDENT of Directory.current —
-      // a row derived from the same cwd the comparator prefixes on
-      // its own side asserts norm(x) == norm(x) and passes for any
-      // normalizer.
+      // a row derived from the cwd would pass for any comparator.
+      // The last row is the symlinked/bind-mounted-prefix shape
+      // (macOS /var → /private/var, a CI workspace mount) that
+      // full-path comparison got wrong and that motivated judging
+      // by basename alone.
       for (final spelling in [
         CodePushPatchSubCommand.kPatchOutputPath,
         './${CodePushPatchSubCommand.kPatchOutputPath}',
         'build/./codepush/patch.fcppatch',
         'build/codepush/../codepush/patch.fcppatch',
-        // A symlinked/bind-mounted prefix (macOS /var → /private/var,
-        // a CI workspace mount): full-path comparison cannot equate
-        // these, so the basename clause must carry the row.
         '/var/ci/workspace/proj/build/codepush/patch.fcppatch',
       ]) {
         cmd.parsedArgs = cmd.argParser.parse(

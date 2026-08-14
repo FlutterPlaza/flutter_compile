@@ -183,38 +183,19 @@ class CodePushPatchSubCommand extends Command<int> {
   /// the compiler rather than a duplicated literal.
   static const kPatchOutputPath = 'build/codepush/patch.fcppatch';
 
-  /// True when the two paths plausibly name the same file (relative
-  /// vs absolute, `./`/`..` spellings, case-insensitive). Fail-OPEN:
-  /// an undecidable comparison returns true so the late post-build
-  /// check owns the call — a path-spelling gap must cost the old
-  /// behavior, never a false rejection (the round-8 regression
-  /// direction). Case-folding over-matches on case-sensitive
-  /// filesystems, which is also the open direction. CAVEAT: does not
-  /// resolve symlinks, so an absolute spelling through a symlinked
-  /// prefix (macOS `/var` → `/private/var`) compares unequal against
-  /// the getcwd-anchored side — callers must not treat a `false`
-  /// from this alone as proof of a different file; see the basename
-  /// clause in [earlyPatchFileError].
-  static bool _plausiblySameFile(String a, String b) {
-    try {
-      String norm(String p) =>
-          File(p).absolute.uri.normalizePath().toFilePath().toLowerCase();
-      return norm(a) == norm(b);
-    } catch (_) {
-      return true;
-    }
-  }
-
   /// The early `--patch-file` existence check. A missing file fails
   /// fast — EXCEPT when `--build` is set and the argument may name
   /// the one path the build can bring into existence
   /// ([kPatchOutputPath]): that file legitimately does not exist yet
   /// on a clean tree, and the in-place post-build check owns it.
-  /// "May name" is deliberately generous — full-path comparison
-  /// cannot see through symlinked prefixes (macOS `/var` →
-  /// `/private/var`, bind-mounted CI workspaces), so a matching
-  /// BASENAME also skips: the typo class this guard exists to catch
-  /// is a misspelled basename, and a right-basename-wrong-directory
+  /// "May name" is judged by BASENAME alone, deliberately: the typo
+  /// class this guard exists to catch is a misspelled basename, and
+  /// any full-path comparison is strictly narrower while being
+  /// wrong through symlinked prefixes (macOS `/var` →
+  /// `/private/var`, bind-mounted CI workspaces — getcwd is
+  /// physical, the user's spelling is not). Every path a full-path
+  /// match would accept ends in the output basename anyway, so the
+  /// basename clause subsumes it; a right-basename-wrong-directory
   /// value falls through to the late check (the pre-round-8
   /// behavior — accepted cost). A basename typo under `--build`
   /// still fails fast: it can never appear, and discovering that
@@ -230,11 +211,7 @@ class CodePushPatchSubCommand extends Command<int> {
     if (shouldBuild) {
       final basename =
           explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
-      final outputBasename = kPatchOutputPath.split('/').last;
-      if (basename == outputBasename ||
-          _plausiblySameFile(explicitPatchFile, kPatchOutputPath)) {
-        return null;
-      }
+      if (basename == kPatchOutputPath.split('/').last) return null;
     }
     return 'Patch file not found: $explicitPatchFile';
   }

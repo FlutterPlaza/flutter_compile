@@ -859,6 +859,31 @@ void main() {
     });
 
     test(
+        'interfaceAttestation: --no-extendable-widgets is the row the '
+        'warning exists for — freeze true, guarding FALSE', () {
+      // The only attestation whose two bits differ, and the bit the
+      // feature is named after: hard-coding extendableWidgets: true
+      // (or wiring the wrong field) would pass every other test
+      // while making every unguarded release read as guarded on the
+      // server — silent, and only observable as a device crash.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: false,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: false),
+      );
+    });
+
+    test(
         'interfaceAttestation: a from-scratch build (unknown spec '
         'state) with no report is unknown, not attested', () {
       // The clean-CI case: no previous spec swept, so specChange is

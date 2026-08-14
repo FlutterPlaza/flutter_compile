@@ -273,11 +273,16 @@ class CodePushClient {
     Map<String, dynamic> info,
     String releaseId,
   ) {
+    // UUIDs are case-insensitive identifiers: an upcased or padded
+    // --release-id must not turn a correct answer into "no release"
+    // (which would silence the guard warning AND drop the stored
+    // baseline hash) when a server matches it anyway.
+    final wanted = releaseId.trim().toLowerCase();
     final releases = info['releases'];
     if (releases is! List) return null;
     for (final release in releases) {
       if (release is Map<String, dynamic> &&
-          release['id']?.toString() == releaseId) {
+          release['id']?.toString().trim().toLowerCase() == wanted) {
         return release;
       }
     }
