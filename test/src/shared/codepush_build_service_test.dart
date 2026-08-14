@@ -667,6 +667,7 @@ void _interfaceFreeze() {
     test('normalizes doubled Windows backslashes to single separators', () {
       final sources = CodePushBuildService.parseDepfileSources(
         'out.dill: C:\\\\proj\\\\lib\\\\main.dart /a/b.dart\n',
+        windowsPaths: true,
       );
       expect(sources, {'C:/proj/lib/main.dart', '/a/b.dart'});
     });
@@ -757,8 +758,28 @@ void _interfaceFreeze() {
         closurePaths: {backslashed},
         projectRoot: tmp.path,
         packageName: 'demo',
+        windowsPaths: true,
       );
       expect(uris, contains('package:demo/win_only.dart'));
+    });
+
+    test('a POSIX root containing a literal backslash still maps', () {
+      if (Platform.isWindows) {
+        markTestSkipped('backslashes are path separators on Windows');
+        return;
+      }
+      // Translation is Windows-only, so this layout keeps releasing —
+      // the pre-content-addressing behavior, restored.
+      final bsRoot = Directory('${tmp.path}/a\\b')..createSync();
+      Directory('${bsRoot.path}/lib').createSync();
+      File('${bsRoot.path}/lib/main.dart').writeAsStringSync('void main(){}');
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'${bsRoot.path}/lib/main.dart'},
+        projectRoot: bsRoot.path,
+        packageName: 'demo',
+        windowsPaths: false,
+      );
+      expect(uris, contains('package:demo/main.dart'));
     });
 
     test('relative depfile entries map and read correctly', () async {
@@ -1164,10 +1185,9 @@ void _interfaceFreeze() {
       );
     });
 
-    test('a normalized-away path is skipped as missing, not unreadable', () {
-      // The closure arrives pre-normalized, so a directory whose real
-      // name contains a literal backslash surfaces here as a path that
-      // does not exist. The reason must say so.
+    test('a vanished closure entry is skipped as missing, not unreadable', () {
+      // A file the compile saw but the mapping cannot find gets the
+      // missing reason, split from the permissions case.
       final reasons = <String>[];
       final spec = service.writeIosInterfaceFreezeSpec(
         closurePaths: {
@@ -1182,7 +1202,7 @@ void _interfaceFreeze() {
       expect(spec, isNotNull);
       expect(reasons, hasLength(1));
       expect(reasons.single, contains('missing on disk'));
-      expect(reasons.single, contains('backslash'));
+      expect(reasons.single, contains('unreadable parent directory'));
     });
 
     test('spec filename is content-addressed and stale specs are swept', () {
@@ -1251,6 +1271,32 @@ void _interfaceFreeze() {
       expect(File(changed.specPath).existsSync(), true);
       verify(
         () => logger.detail(any(that: contains('Interface spec changed'))),
+      ).called(1);
+    });
+
+    test('an ambiguous multi-spec sweep is unknown, with its breadcrumb', () {
+      // Reachable via an fcp downgrade then upgrade: the legacy fixed
+      // name AND this run's hashed name both on disk. Which one the
+      // last build used is not provable either way.
+      final first = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      File('${tmp.path}/dynamic_interface.yaml').writeAsStringSync('old\n');
+      final again = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(again!.specPath, first!.specPath);
+      expect(again.specChange, InterfaceSpecChange.unknown);
+      verify(
+        () => logger.detail(
+          any(that: contains('Multiple stale interface specs')),
+        ),
       ).called(1);
     });
 
@@ -1327,15 +1373,17 @@ void _interfaceFreeze() {
   group('closureHasExtendableFramework', () {
     test('accepts backslashed closure entries like its siblings', () {
       expect(
-        CodePushBuildService.closureHasExtendableFramework({
-          r'C:\\sdk\\packages\\flutter\\lib\\src\\widgets\\framework.dart',
-        }),
+        CodePushBuildService.closureHasExtendableFramework(
+          {r'C:\\sdk\\packages\\flutter\\lib\\src\\widgets\\framework.dart'},
+          windowsPaths: true,
+        ),
         true,
       );
       expect(
-        CodePushBuildService.flutterLibrariesFromClosure({
-          r'C:\\sdk\\packages\\flutter\\lib\\widgets.dart',
-        }),
+        CodePushBuildService.flutterLibrariesFromClosure(
+          {r'C:\\sdk\\packages\\flutter\\lib\\widgets.dart'},
+          windowsPaths: true,
+        ),
         ['package:flutter/widgets.dart'],
       );
     });

@@ -125,7 +125,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (!interfaceReportObservedAfterBuild) {
       // Lead with what the evidence supports: `changed` is the one
       // state where compile reuse cannot explain the missing report.
-      _logger.warn(switch (spec.specChange) {
+      // Level split: `unchanged` is the healthy repeat-build case (a
+      // cache hit on an identical spec), so it must not cry warn — a
+      // warn that fires on every CI retry stops meaning anything.
+      final log = spec.specChange == freeze_files.InterfaceSpecChange.unchanged
+          ? _logger.detail
+          : _logger.warn;
+      log(switch (spec.specChange) {
         freeze_files.InterfaceSpecChange.changed =>
           'No interface report was found at ${spec.reportPath} after '
               'the build, and the interface spec changed this run — '
@@ -648,20 +654,6 @@ class CodePushReleaseSubCommand extends Command<int> {
     writtenInterfaceSpec = null;
     interfaceReportObservedAfterBuild = false;
     final projectRoot = projectRootOverride ?? Directory.current.path;
-    // A literal backslash in a POSIX project path defeats the freeze's
-    // canonical path normalization (a deliberate trade-off in the
-    // service); without this guard it surfaces later as an
-    // unattributable "no app libraries were mapped" hard stop. Windows
-    // paths use backslashes normally.
-    if (!Platform.isWindows && projectRoot.contains(r'\')) {
-      _logger.err(
-        'The project path contains a backslash, which the interface '
-        'freeze cannot process. Move the project to a backslash-free '
-        'path, or pass --no-interface-freeze (such a release may not '
-        'be reliably patchable).',
-      );
-      return null;
-    }
     final pubspec = File('$projectRoot/pubspec.yaml');
     String? packageName;
     try {
@@ -748,6 +740,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final closure = await buildService.discoverCompileClosure(
       targetPath: 'lib/main.dart',
       workDirPath: specDir.path,
+      projectRootOverride: projectRootOverride,
     );
     if (closure == null) {
       progress.fail('Could not analyze the app for the release build');

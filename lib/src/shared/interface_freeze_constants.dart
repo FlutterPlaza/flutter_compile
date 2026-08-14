@@ -31,6 +31,13 @@ const String kInterfaceSpecFilenamePrefix = 'dynamic_interface';
 /// also an ambiguous multi-spec sweep).
 enum InterfaceSpecChange { changed, unchanged, unknown }
 
+/// Hash width shared by the name builder and the sweep pattern: if
+/// they ever disagreed, [sweepInterfaceSpecs] would stop recognising
+/// fcp's own specs — stale specs accumulate, the change detection goes
+/// permanently unknown, and the one-spec-per-directory invariant
+/// quietly stops holding.
+const int _specHashHexLength = 16;
+
 /// The content-addressed filename for a spec with [yamlContent].
 /// 16 hex chars (64 bits): a collision with any previously built spec
 /// would silently reinstate the stale-kernel hazard the addressing
@@ -39,7 +46,8 @@ enum InterfaceSpecChange { changed, unchanged, unknown }
 /// shorten filenames.
 String interfaceSpecFilenameFor(String yamlContent) {
   final digest = sha256.convert(utf8.encode(yamlContent)).toString();
-  return '${kInterfaceSpecFilenamePrefix}_${digest.substring(0, 16)}.yaml';
+  return '${kInterfaceSpecFilenamePrefix}_'
+      '${digest.substring(0, _specHashHexLength)}.yaml';
 }
 
 /// The exact names fcp itself writes: the legacy fixed name or a
@@ -52,7 +60,8 @@ String interfaceSpecFilenameFor(String yamlContent) {
 /// declared SDK floor, and an install-time compile error on older
 /// SDKs is the one failure pub cannot warn about.
 final RegExp _fcpSpecName = RegExp(
-  '^$kInterfaceSpecFilenamePrefix(_[0-9a-f]{16})?\\.yaml\$',
+  '^$kInterfaceSpecFilenamePrefix'
+  '(_[0-9a-f]{$_specHashHexLength})?\\.yaml\$',
 );
 
 /// Delete every interface spec fcp itself wrote (hashed or legacy

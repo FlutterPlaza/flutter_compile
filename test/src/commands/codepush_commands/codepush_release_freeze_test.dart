@@ -81,6 +81,7 @@ void main() {
         () => buildService.discoverCompileClosure(
           targetPath: any(named: 'targetPath'),
           workDirPath: any(named: 'workDirPath'),
+          projectRootOverride: any(named: 'projectRootOverride'),
         ),
       ).thenAnswer((_) async => {'${tmp.path}/lib/main.dart'});
       command = CodePushReleaseSubCommand(logger, buildService: buildService);
@@ -493,8 +494,9 @@ void main() {
       );
       command.checkInterfaceReportAfterBuild();
       expect(command.interfaceReportObservedAfterBuild, false);
+      // The healthy repeat-build case must NOT warn — detail only.
       verify(
-        () => logger.warn(
+        () => logger.detail(
           any(
             that: allOf(
               contains('No interface report was found at'),
@@ -504,6 +506,7 @@ void main() {
           ),
         ),
       ).called(1);
+      verifyNever(() => logger.warn(any()));
 
       // Changed spec: reuse cannot explain it — lead with the
       // SDK-drift candidate instead.
@@ -709,30 +712,6 @@ void main() {
       );
     });
 
-    test('backslash in a POSIX project path is named, not unattributable',
-        () async {
-      if (Platform.isWindows) {
-        markTestSkipped('backslashes are path separators on Windows');
-        return;
-      }
-      final bsDir = Directory('${tmp.path}/a\\b')..createSync();
-      File('${bsDir.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
-      final freeze = await command.prepareIosInterfaceFreeze(
-        buildService,
-        projectRootOverride: bsDir.path,
-      );
-      expect(freeze, isNull);
-      verify(
-        () => logger.err(any(that: contains('backslash'))),
-      ).called(1);
-      verifyNever(
-        () => buildService.discoverCompileClosure(
-          targetPath: any(named: 'targetPath'),
-          workDirPath: any(named: 'workDirPath'),
-        ),
-      );
-    });
-
     test('unsupported front-end fails before any compile', () async {
       when(() => buildService.frontendSupportsFreeze(any())).thenReturn(false);
       // The refusal must not leave a previous run's spec next to the
@@ -764,6 +743,7 @@ void main() {
         () => buildService.discoverCompileClosure(
           targetPath: any(named: 'targetPath'),
           workDirPath: any(named: 'workDirPath'),
+          projectRootOverride: any(named: 'projectRootOverride'),
         ),
       ).thenAnswer((_) async => null);
       final stale = File(

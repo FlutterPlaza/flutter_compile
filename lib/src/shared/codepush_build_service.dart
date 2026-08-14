@@ -1195,7 +1195,10 @@ class CodePushBuildService {
   /// Parse a Makefile-style depfile (`out: src src...`) written by the
   /// front-end into the set of source paths, unescaping `\ `.
 
-  static Set<String> parseDepfileSources(String depfileContent) {
+  static Set<String> parseDepfileSources(
+    String depfileContent, {
+    bool? windowsPaths,
+  }) {
     final colon = depfileContent.indexOf(': ');
     if (colon < 0) return const {};
     final body = depfileContent
@@ -1211,7 +1214,7 @@ class CodePushBuildService {
         // sees '/' paths regardless of host toolchain. Windows entries
         // may double their backslashes under Make escaping, so runs of
         // the resulting '/' are collapsed too.
-        .map(_normalizePath)
+        .map((p) => _normalizePath(p, windows: windowsPaths))
         .toSet();
   }
 
@@ -1257,27 +1260,36 @@ class CodePushBuildService {
     return false;
   }
 
-  /// Canonical path normalization: separators to '/', runs collapsed
-  /// (Windows Make-escaping doubles backslashes). The parser and every
-  /// defensive consumer use THIS so the sites cannot drift.
+  /// Canonical path normalization: on Windows-shaped input, separators
+  /// to '/' (Make-escaping doubles backslashes there); slash runs
+  /// collapsed everywhere. The parser and every defensive consumer use
+  /// THIS so the sites cannot drift.
   ///
-  /// Deliberate trade-off: the translation is unconditional, so a POSIX
-  /// project path CONTAINING a literal backslash is unsupported here —
-  /// accepted, because the alternative (host-conditional parsing)
-  /// would make the one iOS-relevant host behave differently from the
-  /// suite that tests it. The run-collapse likewise folds a Windows UNC
-  /// prefix (`\\server\share`) into a POSIX-looking `/server/share`, so
-  /// UNC project roots are unsupported too — moot for the iOS release
-  /// flow, which never runs on a Windows host.
+  /// The host is a PARAMETER (defaulting to the running platform, like
+  /// [isAbsoluteSourcePath]'s purity): translation applies only to
+  /// Windows paths, so a POSIX project root containing a literal
+  /// backslash keeps working — the backslash only becomes a skip when
+  /// it would have to enter a package URI (the import-safe charset
+  /// check names it). Windows shapes stay testable from any host via
+  /// the `windows:`/`windowsPaths:` overrides. The run-collapse folds
+  /// a Windows UNC prefix (`\\server\share`) into `/server/share`, so
+  /// UNC project roots are unsupported on the Windows leg — moot for
+  /// the iOS release flow, which never runs on a Windows host.
   static final RegExp _slashRuns = RegExp('/{2,}');
 
-  static String _normalizePath(String p) =>
-      p.replaceAll(r'\', '/').replaceAll(_slashRuns, '/');
+  static String _normalizePath(String p, {bool? windows}) {
+    final translated =
+        (windows ?? Platform.isWindows) ? p.replaceAll(r'\', '/') : p;
+    return translated.replaceAll(_slashRuns, '/');
+  }
 
   /// Separator-normalize closure entries so every consumer agrees even
   /// when handed a closure that skipped [parseDepfileSources].
-  static Iterable<String> _normalizeClosure(Set<String> closurePaths) =>
-      closurePaths.map(_normalizePath);
+  static Iterable<String> _normalizeClosure(
+    Set<String> closurePaths, {
+    bool? windows,
+  }) =>
+      closurePaths.map((p) => _normalizePath(p, windows: windows));
 
   static final RegExp _windowsDrivePrefix = RegExp(r'^[A-Za-z]:[/\\]');
 
@@ -1301,22 +1313,24 @@ class CodePushBuildService {
     required String projectRoot,
     required String packageName,
     void Function(String path, String reason)? onSkip,
+    bool? windowsPaths,
   }) {
     // Closure paths are separator-normalized (see [parseDepfileSources]
     // and the per-entry normalization below); normalize the root the
     // same way so Windows roots match.
-    final root = _normalizePath(projectRoot);
+    final root = _normalizePath(projectRoot, windows: windowsPaths);
     final libPrefixes = <String>{
       '$root/lib/',
       // The front-end may write resolved (symlink-free) paths...
-      '${_normalizePath(_tryResolve(projectRoot))}/lib/',
+      '${_normalizePath(_tryResolve(projectRoot), windows: windowsPaths)}'
+          '/lib/',
       // ...or relative ones, depending on version.
       'lib/',
     };
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
     for (final rawPath in closurePaths) {
-      final path = _normalizePath(rawPath);
+      final path = _normalizePath(rawPath, windows: windowsPaths);
       if (!path.endsWith('.dart')) continue;
       final prefix = libPrefixes.firstWhere(
         path.startsWith,
@@ -1337,18 +1351,16 @@ class CodePushBuildService {
           allowMalformed: true,
         );
       } on FileSystemException {
-        // Observation, not diagnosis: the closure arrives already
-        // normalized (parseDepfileSources), so the raw spelling is
-        // gone by here. A path that is MISSING (vs unreadable) is the
-        // signature of normalization folding a literal backslash out
-        // of a real directory name — name that possibility so the
-        // operator is not chasing a permissions ghost.
+        // Observation, not diagnosis: MISSING (vs unreadable) means
+        // the compile saw a file the mapping cannot find — moved mid-
+        // build, or behind a non-traversable parent — and the two need
+        // different fixes, so the reason splits them.
         onSkip?.call(
           path,
           File(readPath).existsSync()
               ? 'unreadable'
-              : 'missing on disk — a backslash folded by path '
-                  'normalization, or an unreadable parent directory?',
+              : 'missing on disk — moved during the build, or an '
+                  'unreadable parent directory?',
         );
         continue;
       }
@@ -1369,10 +1381,14 @@ class CodePushBuildService {
 
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
   /// file appears in the compile closure.
-  static List<String> flutterLibrariesFromClosure(Set<String> closurePaths) {
+  static List<String> flutterLibrariesFromClosure(
+    Set<String> closurePaths, {
+    bool? windowsPaths,
+  }) {
     // Materialized: the lazy iterable would re-normalize the whole
     // closure once per candidate below.
-    final normalized = _normalizeClosure(closurePaths).toList();
+    final normalized =
+        _normalizeClosure(closurePaths, windows: windowsPaths).toList();
     return [
       for (final candidate in kIosInterfaceFreezeFlutterCandidates)
         if (normalized.any(
@@ -1596,7 +1612,10 @@ class CodePushBuildService {
   /// [kIosExtendableFrameworkLibrary] so the two can never drift. The
   /// prefix assumption is pinned by the unit tests; the assert below is
   /// debug-only and compiled out of the shipped CLI.
-  static bool closureHasExtendableFramework(Set<String> closurePaths) {
+  static bool closureHasExtendableFramework(
+    Set<String> closurePaths, {
+    bool? windowsPaths,
+  }) {
     assert(
       kIosExtendableFrameworkLibrary.startsWith('package:flutter/'),
       'closureHasExtendableFramework assumes a package:flutter library',
@@ -1605,7 +1624,8 @@ class CodePushBuildService {
       'package:flutter/',
       '/flutter/lib/',
     );
-    return _normalizeClosure(closurePaths).any((p) => p.endsWith(suffix));
+    return _normalizeClosure(closurePaths, windows: windowsPaths)
+        .any((p) => p.endsWith(suffix));
   }
 
   /// Return [extraArgs] with `--extra-front-end-options` carrying the
