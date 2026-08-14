@@ -1424,7 +1424,9 @@ class CodePushBuildService {
   }
 
   /// Write the interface-freeze spec derived from [closurePaths] into
-  /// [specDirPath], returning the spec path. Pulls together the gate
+  /// [specDirPath], returning a record with the written spec path, the
+  /// app and framework library counts, and whether the extendable
+  /// section was emitted. Pulls together the gate
   /// ([closureHasExtendableFramework]), the library mapping, and the
   /// yaml emission so the whole closure→file chain is testable.
   /// Returns null (nothing written) when no app libraries map — the
@@ -1432,12 +1434,17 @@ class CodePushBuildService {
   /// spec throws [FlutterCompileException] instead of returning null,
   /// so the two failure classes stay distinguishable.
   ///
+  /// `extendable` is false when [allowExtendable] is false OR the
+  /// framework library is not in the closure; the writer stays a
+  /// flag-agnostic API, so deciding how loud each cause must be —
+  /// including the un-chosen gate miss — is the caller's job.
+  ///
   /// [allowExtendable] defaults ON — it carries the user-facing
   /// `--extendable-widgets` opt-out — deliberately opposite to the pure
   /// builder's `includeExtendable` default: the builder emits nothing
   /// it was not explicitly asked for, while this writer applies the
   /// product default.
-  ({String specPath, int appCount, int flutterCount})?
+  ({String specPath, int appCount, int flutterCount, bool extendable})?
       writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
     required String projectRoot,
@@ -1454,22 +1461,10 @@ class CodePushBuildService {
     );
     if (appLibraries.isEmpty) return null;
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
-    final frameworkInClosure = closureHasExtendableFramework(closurePaths);
-    final includeExtendable = allowExtendable && frameworkInClosure;
-    if (allowExtendable && !frameworkInClosure) {
-      // Unlike the deliberate opt-out (warned in the command), a gate
-      // miss is nothing the operator chose; its symptom is a device
-      // crash on the first widget-adding patch, so it must be loud.
-      _logger.warn(
-        'Widget base classes were not marked extendable: '
-        '$kIosExtendableFrameworkLibrary is not in the compile closure. '
-        'Patches that add new widget subclasses will fail on this '
-        'release.',
-      );
-    }
-    final omittedReason = allowExtendable
-        ? 'framework library not in the compile'
-        : 'disabled by --no-extendable-widgets';
+    final includeExtendable =
+        allowExtendable && closureHasExtendableFramework(closurePaths);
+    final omittedReason =
+        allowExtendable ? 'framework library not in the compile' : 'disabled';
     _logger.detail(
       includeExtendable
           ? 'Interface spec: widget base classes marked extendable.'
@@ -1500,6 +1495,7 @@ class CodePushBuildService {
       specPath: specPath,
       appCount: appLibraries.length,
       flutterCount: flutterLibraries.length,
+      extendable: includeExtendable,
     );
   }
 

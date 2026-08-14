@@ -114,6 +114,7 @@ void main() {
       expect(manifest['fcp_version'], '0.19.99');
       expect(manifest['platform'], 'ios-arm64');
       expect(manifest['has_dsym'], isFalse);
+      expect(manifest['has_interface_spec'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
       expect((manifest['app_framework_sha256'] as String).length, 64);
       expect((manifest['runner_binary_sha256'] as String).length, 64);
@@ -140,6 +141,31 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_dsym'], isTrue);
+    });
+
+    test('archives the interface spec when present and records it', () {
+      writeBaselineApp();
+      File('${projectDir.path}/build/codepush/dynamic_interface.yaml')
+          .writeAsStringSync('callable:\n');
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-spec',
+        baselineId: 'base-spec',
+        fcpVersion: '0.0.0',
+      );
+
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-spec',
+      );
+      expect(
+        File('${releaseDir.path}/dynamic_interface.yaml').readAsStringSync(),
+        'callable:\n',
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isTrue);
     });
 
     test('does NOT write a project-level .gitignore inside the archive', () {

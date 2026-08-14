@@ -1056,9 +1056,9 @@ void _interfaceFreeze() {
       final yaml = File(spec!.specPath).readAsStringSync();
       expect(spec.appCount, 1);
       expect(spec.flutterCount, greaterThan(0));
+      expect(spec.extendable, true);
       expect(yaml, contains('extendable:'));
       expect(yaml, contains("  - library: 'package:demo/main.dart'"));
-      verifyNever(() => logger.warn(any()));
     });
 
     test('allowExtendable=false omits the section despite the framework', () {
@@ -1076,8 +1076,9 @@ void _interfaceFreeze() {
         File(spec!.specPath).readAsStringSync(),
         isNot(contains('extendable:')),
       );
-      // The opt-out is the operator's choice, warned in the command —
-      // the service must not warn a second time.
+      expect(spec.extendable, false);
+      // Messaging is the command's job (opt-out warn, gate-miss hard
+      // stop) — the flag-agnostic writer stays quiet at default level.
       verifyNever(() => logger.warn(any()));
     });
 
@@ -1092,11 +1093,10 @@ void _interfaceFreeze() {
         File(spec!.specPath).readAsStringSync(),
         isNot(contains('extendable:')),
       );
-      // A gate miss the operator did not choose must be loud: its
-      // symptom is a device crash on the first widget-adding patch.
-      verify(
-        () => logger.warn(any(that: contains('not marked extendable'))),
-      ).called(1);
+      // The gate miss travels on the record; the COMMAND turns it into
+      // a hard stop, so the writer must report it faithfully.
+      expect(spec.extendable, false);
+      verifyNever(() => logger.warn(any()));
     });
 
     test('unwritable spec dir => FlutterCompileException, not null', () {

@@ -13,6 +13,8 @@ import 'package:mason_logger/mason_logger.dart';
 ///     `<release_id>/`
 ///       Runner.app/                 (full bundle, ready to re-sign + install)
 ///       Runner.app.dSYM/            (optional, when build emitted one)
+///       dynamic_interface.yaml      (optional, the interface freeze the
+///                                    baseline was built with)
 ///       manifest.json               (release/baseline ids, framework SHA, etc.)
 ///
 /// The archive lets a future device replay reinstall the exact app
@@ -100,6 +102,19 @@ class CodePushArchiveService {
         }
       }
 
+      // The freeze spec answers "did this baseline have widget guarding,
+      // and over which libraries?" — the first question when a patch
+      // fails on a device months later. Survives the build (only the
+      // pre-pass work files are cleaned).
+      final specSource = File(
+        '${_projectDir.path}/build/codepush/dynamic_interface.yaml',
+      );
+      var archivedSpec = false;
+      if (specSource.existsSync()) {
+        specSource.copySync('${releaseDir.path}/dynamic_interface.yaml');
+        archivedSpec = true;
+      }
+
       final frameworkSha = _sha256OfFile(flutterFramework);
       final appFrameworkSha = _sha256OfFile(appFramework);
       final runnerBinarySha = _sha256OfFile(runnerBinary);
@@ -112,6 +127,7 @@ class CodePushArchiveService {
         'app_framework_sha256': appFrameworkSha,
         'runner_binary_sha256': runnerBinarySha,
         'has_dsym': archivedDsym,
+        'has_interface_spec': archivedSpec,
         'build_date': DateTime.now().toUtc().toIso8601String(),
         'fcp_version': fcpVersion,
       };

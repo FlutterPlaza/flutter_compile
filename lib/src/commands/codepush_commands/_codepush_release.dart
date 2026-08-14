@@ -640,7 +640,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       progress.fail('Could not analyze the app for the release build');
       return null;
     }
-    final ({String specPath, int appCount, int flutterCount})? writtenSpec;
+    final ({
+      String specPath,
+      int appCount,
+      int flutterCount,
+      bool extendable
+    })? writtenSpec;
     try {
       writtenSpec = buildService.writeIosInterfaceFreezeSpec(
         closurePaths: closure,
@@ -680,9 +685,26 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
+    // A real Flutter app's compile always contains the framework
+    // library, so a gate miss here is an anomaly, not a configuration —
+    // and shipping without widget guarding silently defeats the feature
+    // the same way an unmapped app would (hard stop above). The opt-out
+    // flag is the documented acknowledgement.
+    if (allowExtendable && !writtenSpec.extendable) {
+      progress.fail('Widget base classes could not be marked extendable');
+      _logger.err(
+        'The Flutter framework library was not found in the compile, so '
+        'patches that add new widget subclasses would fail on this '
+        'release. Build with --no-extendable-widgets to acknowledge '
+        'shipping without widget guarding, or report this with your '
+        'project layout.',
+      );
+      return null;
+    }
     progress.complete(
       'Interface: ${writtenSpec.appCount} app + '
-      '${writtenSpec.flutterCount} framework libraries',
+      '${writtenSpec.flutterCount} framework libraries'
+      '${writtenSpec.extendable ? '' : ' (widget guarding off)'}',
     );
     // Captured variables do not promote; bind the non-null value.
     final String frozenSpecPath = writtenSpec.specPath;

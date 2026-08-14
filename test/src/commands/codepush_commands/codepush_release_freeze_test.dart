@@ -14,6 +14,31 @@ class MockProgress extends Mock implements Progress {}
 
 class MockBuildService extends Mock implements CodePushBuildService {}
 
+/// The real service except the expensive probe/compile seams, so the
+/// command's composed spec directory feeds the REAL writer and the
+/// artifact demonstrably lands where the front end is told it will.
+class FakeClosureBuildService extends CodePushBuildService {
+  FakeClosureBuildService({required super.logger, required this.closure});
+
+  final Set<String> closure;
+
+  @override
+  String? findFlutterRootForProbe() => '/fake/flutter';
+
+  @override
+  bool frontendSupportsFreeze(String flutterRoot) => true;
+
+  @override
+  Future<Set<String>?> discoverCompileClosure({
+    required String targetPath,
+    required String workDirPath,
+    String? flutterRootOverride,
+    String? projectRootOverride,
+    ProcessResult Function(String executable, List<String> args)? runProcess,
+  }) async =>
+      closure;
+}
+
 /// Exposes the command with parsed args so the REAL flag read at the
 /// `allowExtendable:` call site executes against a real [ArgResults]
 /// (direct calls otherwise see a null `argResults`, and the `?? true`
@@ -103,7 +128,8 @@ void main() {
         (
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
-          flutterCount: 2
+          flutterCount: 2,
+          extendable: true
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -147,7 +173,8 @@ void main() {
         (
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
-          flutterCount: 2
+          flutterCount: 2,
+          extendable: false
         ),
       );
       final freeze = await cmd.prepareIosInterfaceFreeze(
@@ -170,6 +197,10 @@ void main() {
       verify(
         () => logger.warn(any(that: contains('--no-extendable-widgets'))),
       ).called(1);
+      // The acknowledged opt-out proceeds, and the green line says so.
+      verify(
+        () => progress.complete(any(that: contains('widget guarding off'))),
+      ).called(1);
     });
 
     test('default arg parse keeps extendable guarding on', () async {
@@ -188,7 +219,8 @@ void main() {
         (
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
-          flutterCount: 2
+          flutterCount: 2,
+          extendable: true
         ),
       );
       await cmd.prepareIosInterfaceFreeze(
@@ -289,7 +321,8 @@ void main() {
         (
           specPath: '/spec,dir/dynamic_interface.yaml',
           appCount: 1,
-          flutterCount: 2
+          flutterCount: 2,
+          extendable: true
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -331,6 +364,67 @@ void main() {
       verify(
         () => logger.err(any(that: contains('package name'))),
       ).called(1);
+    });
+
+    test('gate miss without the opt-out is a hard stop with guidance',
+        () async {
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(
+        (
+          specPath: '/spec/dynamic_interface.yaml',
+          appCount: 1,
+          flutterCount: 0,
+          extendable: false
+        ),
+      );
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNull);
+      verify(
+        () =>
+            progress.fail('Widget base classes could not be marked extendable'),
+      ).called(1);
+      verify(
+        () => logger.err(any(that: contains('--no-extendable-widgets'))),
+      ).called(1);
+    });
+
+    test('real writer lands the spec in the command-composed directory',
+        () async {
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/main.dart').writeAsStringSync('void main() {}');
+      final real = FakeClosureBuildService(
+        logger: logger,
+        closure: {
+          '${tmp.path}/lib/main.dart',
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        },
+      );
+      final cmd = CodePushReleaseSubCommand(logger, buildService: real);
+      final freeze = await cmd.prepareIosInterfaceFreeze(
+        real,
+        projectRootOverride: tmp.path,
+      );
+      final specFile =
+          File('${tmp.path}/build/codepush/dynamic_interface.yaml');
+      expect(specFile.existsSync(), true);
+      expect(specFile.readAsStringSync(), contains('extendable:'));
+      final args = freeze!(<String>[]).join(' ');
+      expect(args, contains('--dynamic-interface=${specFile.path}'));
+      expect(
+        args,
+        contains('${tmp.path}/build/codepush/dynamic_interface_report.json'),
+      );
     });
 
     test('unsupported front-end fails before any compile', () async {
