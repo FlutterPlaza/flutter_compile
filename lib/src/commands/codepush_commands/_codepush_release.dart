@@ -563,7 +563,9 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// Write the interface-freeze spec for this iOS release build and
   /// return a function that adds the front-end flags for it, or null
   /// (with an error logged) when the freeze cannot be set up, or
-  /// rethrows the service's typed exception on a spec write failure.
+  /// throws [FlutterCompileException] when the spec directory or spec
+  /// file cannot be written (the message is logged here first; the
+  /// runner exits without a second print).
   /// Building without it would ship a baseline that later patches
   /// cannot call reliably, so that is a hard failure, not a warning.
   ///
@@ -588,8 +590,20 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
-    final specDir = Directory('$projectRoot/build/codepush')
-      ..createSync(recursive: true);
+    final specDir = Directory('$projectRoot/build/codepush');
+    try {
+      specDir.createSync(recursive: true);
+    } on FileSystemException catch (e) {
+      // On a fresh checkout this directory does not exist yet, so a
+      // read-only workspace or full disk fails HERE, not at the guarded
+      // spec write below — same failure class, same guidance.
+      final reason = e.osError?.message ?? e.message;
+      final message =
+          'Could not create ${specDir.path} ($reason). Check permissions '
+          'and free space on the build directory.';
+      _logger.err(message);
+      throw FlutterCompileException(message);
+    }
     final specPath =
         '${specDir.path}/${CodePushBuildService.kInterfaceSpecFilename}';
     final reportPath = '${specDir.path}/dynamic_interface_report.json';
@@ -611,6 +625,13 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
+    final allowExtendable = argResults?['extendable-widgets'] as bool? ?? true;
+    if (!allowExtendable) {
+      _logger.warn(
+        'Extendable widget guarding disabled (--no-extendable-widgets): '
+        'patches that add new widget subclasses will fail on this release.',
+      );
+    }
     final progress = _logger.progress('Analyzing app libraries');
     final closure = await buildService.discoverCompileClosure(
       targetPath: 'lib/main.dart',
@@ -627,7 +648,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         projectRoot: projectRoot,
         packageName: packageName,
         specDirPath: specDir.path,
-        allowExtendable: argResults?['extendable-widgets'] as bool? ?? true,
+        allowExtendable: allowExtendable,
         onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
       );
     } on FlutterCompileException catch (e) {

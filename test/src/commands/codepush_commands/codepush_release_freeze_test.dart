@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_release.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
@@ -12,6 +13,19 @@ class MockLogger extends Mock implements Logger {}
 class MockProgress extends Mock implements Progress {}
 
 class MockBuildService extends Mock implements CodePushBuildService {}
+
+/// Exposes the command with parsed args so the REAL flag read at the
+/// `allowExtendable:` call site executes against a real [ArgResults]
+/// (direct calls otherwise see a null `argResults`, and the `?? true`
+/// default would mask a flag that silently became a no-op).
+class ParsedArgsReleaseCommand extends CodePushReleaseSubCommand {
+  ParsedArgsReleaseCommand(super.logger, {super.buildService});
+
+  ArgResults? parsedArgs;
+
+  @override
+  ArgResults? get argResults => parsedArgs;
+}
 
 void main() {
   group('prepareIosInterfaceFreeze failure surfacing', () {
@@ -115,6 +129,124 @@ void main() {
         ..writeAsBytesSync('dynamic-interface'.codeUnits);
       expect(real.frontendSupportsFreeze(root.path), true);
       expect(real.frontendSupportsFreeze('/nope'), false);
+    });
+
+    test('--no-extendable-widgets reaches the spec writer as false', () async {
+      final cmd = ParsedArgsReleaseCommand(logger, buildService: buildService);
+      cmd.parsedArgs = cmd.argParser.parse(['--no-extendable-widgets']);
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(
+        (
+          specPath: '/spec/dynamic_interface.yaml',
+          appCount: 1,
+          flutterCount: 2
+        ),
+      );
+      final freeze = await cmd.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNotNull);
+      verify(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: false,
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).called(1);
+      // Disabling the guarding costs a device crash on the first
+      // widget-adding patch; it must be loud, not --verbose-only.
+      verify(
+        () => logger.warn(any(that: contains('--no-extendable-widgets'))),
+      ).called(1);
+    });
+
+    test('default arg parse keeps extendable guarding on', () async {
+      final cmd = ParsedArgsReleaseCommand(logger, buildService: buildService);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(
+        (
+          specPath: '/spec/dynamic_interface.yaml',
+          appCount: 1,
+          flutterCount: 2
+        ),
+      );
+      await cmd.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      verify(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: true,
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).called(1);
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('unwritable project root => typed exception before any compile',
+        () async {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      Process.runSync('chmod', ['555', tmp.path]);
+      addTearDown(() => Process.runSync('chmod', ['755', tmp.path]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File('${tmp.path}/probe').writeAsStringSync('x');
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the directory really is unwritable.
+      }
+      await expectLater(
+        () => command.prepareIosInterfaceFreeze(
+          buildService,
+          projectRootOverride: tmp.path,
+        ),
+        throwsA(
+          isA<FlutterCompileException>().having(
+            (e) => e.message,
+            'message',
+            contains('Check permissions'),
+          ),
+        ),
+      );
+      verify(
+        () => logger.err(any(that: contains('Check permissions'))),
+      ).called(1);
+      verifyNever(
+        () => buildService.discoverCompileClosure(
+          targetPath: any(named: 'targetPath'),
+          workDirPath: any(named: 'workDirPath'),
+        ),
+      );
     });
 
     test('unsupported front-end fails before any compile', () async {

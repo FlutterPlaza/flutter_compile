@@ -1264,7 +1264,10 @@ class CodePushBuildService {
   /// project path CONTAINING a literal backslash is unsupported here —
   /// accepted, because the alternative (host-conditional parsing)
   /// would make the one iOS-relevant host behave differently from the
-  /// suite that tests it.
+  /// suite that tests it. The run-collapse likewise folds a Windows UNC
+  /// prefix (`\\server\share`) into a POSIX-looking `/server/share`, so
+  /// UNC project roots are unsupported too — moot for the iOS release
+  /// flow, which never runs on a Windows host.
   static String _normalizePath(String p) =>
       p.replaceAll(r'\', '/').replaceAll(RegExp('/{2,}'), '/');
 
@@ -1428,6 +1431,12 @@ class CodePushBuildService {
   /// caller treats that as fatal. A filesystem failure writing the
   /// spec throws [FlutterCompileException] instead of returning null,
   /// so the two failure classes stay distinguishable.
+  ///
+  /// [allowExtendable] defaults ON — it carries the user-facing
+  /// `--extendable-widgets` opt-out — deliberately opposite to the pure
+  /// builder's `includeExtendable` default: the builder emits nothing
+  /// it was not explicitly asked for, while this writer applies the
+  /// product default.
   ({String specPath, int appCount, int flutterCount})?
       writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
