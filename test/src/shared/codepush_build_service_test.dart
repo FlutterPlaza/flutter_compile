@@ -1029,11 +1029,13 @@ void _interfaceFreeze() {
 
   group('writeIosInterfaceFreezeSpec', () {
     late Directory tmp;
+    late MockLogger logger;
     late CodePushBuildService service;
 
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('spec_test');
-      service = CodePushBuildService(logger: MockLogger());
+      logger = MockLogger();
+      service = CodePushBuildService(logger: logger);
       Directory('${tmp.path}/lib').createSync(recursive: true);
       File('${tmp.path}/lib/main.dart').writeAsStringSync('void main() {}');
     });
@@ -1056,6 +1058,7 @@ void _interfaceFreeze() {
       expect(spec.flutterCount, greaterThan(0));
       expect(yaml, contains('extendable:'));
       expect(yaml, contains("  - library: 'package:demo/main.dart'"));
+      verifyNever(() => logger.warn(any()));
     });
 
     test('allowExtendable=false omits the section despite the framework', () {
@@ -1073,6 +1076,9 @@ void _interfaceFreeze() {
         File(spec!.specPath).readAsStringSync(),
         isNot(contains('extendable:')),
       );
+      // The opt-out is the operator's choice, warned in the command —
+      // the service must not warn a second time.
+      verifyNever(() => logger.warn(any()));
     });
 
     test('no framework in closure => extendable omitted in the file', () {
@@ -1086,6 +1092,11 @@ void _interfaceFreeze() {
         File(spec!.specPath).readAsStringSync(),
         isNot(contains('extendable:')),
       );
+      // A gate miss the operator did not choose must be loud: its
+      // symptom is a device crash on the first widget-adding patch.
+      verify(
+        () => logger.warn(any(that: contains('not marked extendable'))),
+      ).called(1);
     });
 
     test('unwritable spec dir => FlutterCompileException, not null', () {

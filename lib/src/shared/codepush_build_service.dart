@@ -1454,13 +1454,26 @@ class CodePushBuildService {
     );
     if (appLibraries.isEmpty) return null;
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
-    final includeExtendable =
-        allowExtendable && closureHasExtendableFramework(closurePaths);
+    final frameworkInClosure = closureHasExtendableFramework(closurePaths);
+    final includeExtendable = allowExtendable && frameworkInClosure;
+    if (allowExtendable && !frameworkInClosure) {
+      // Unlike the deliberate opt-out (warned in the command), a gate
+      // miss is nothing the operator chose; its symptom is a device
+      // crash on the first widget-adding patch, so it must be loud.
+      _logger.warn(
+        'Widget base classes were not marked extendable: '
+        '$kIosExtendableFrameworkLibrary is not in the compile closure. '
+        'Patches that add new widget subclasses will fail on this '
+        'release.',
+      );
+    }
+    final omittedReason = allowExtendable
+        ? 'framework library not in the compile'
+        : 'disabled by --no-extendable-widgets';
     _logger.detail(
       includeExtendable
           ? 'Interface spec: widget base classes marked extendable.'
-          : 'Interface spec: extendable section omitted '
-              '(disabled or framework library not in the compile).',
+          : 'Interface spec: extendable section omitted ($omittedReason).',
     );
     final specPath = '$specDirPath/$kInterfaceSpecFilename';
     try {

@@ -580,9 +580,17 @@ class CodePushReleaseSubCommand extends Command<int> {
   }) async {
     final projectRoot = projectRootOverride ?? Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
-    final packageName = pubspec.existsSync()
-        ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
-        : null;
+    String? packageName;
+    try {
+      packageName = pubspec.existsSync()
+          ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
+          : null;
+    } on FileSystemException {
+      // A present-but-unreadable pubspec (mode bits, sudo-created file)
+      // gets the same actionable error as a missing/nameless one, not a
+      // raw exception.
+      packageName = null;
+    }
     if (packageName == null) {
       _logger.err(
         'Could not read the package name from pubspec.yaml; cannot '
@@ -604,16 +612,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(message);
       throw FlutterCompileException(message);
     }
-    final specPath =
-        '${specDir.path}/${CodePushBuildService.kInterfaceSpecFilename}';
     final reportPath = '${specDir.path}/dynamic_interface_report.json';
-    if (specPath.contains(',') || reportPath.contains(',')) {
-      _logger.err(
-        'The project path contains a comma, which the build toolchain '
-        'cannot pass through. Move the project to a comma-free path.',
-      );
-      return null;
-    }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
         !buildService.frontendSupportsFreeze(flutterRoot)) {
@@ -666,6 +665,18 @@ class CodePushReleaseSubCommand extends Command<int> {
         'No app libraries were mapped into the interface freeze; '
         'building anyway would ship an app whose own code cannot be '
         'reliably patched. Please report this with your project layout.',
+      );
+      return null;
+    }
+    // Guard the path the front end will actually receive — the one the
+    // service composed — plus the report path composed above; the
+    // surrounding tooling re-splits the option list on commas, so a
+    // comma in either would silently corrupt every option after it.
+    if (writtenSpec.specPath.contains(',') || reportPath.contains(',')) {
+      progress.fail('Could not use the interface spec path');
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
       );
       return null;
     }

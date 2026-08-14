@@ -249,6 +249,90 @@ void main() {
       );
     });
 
+    test('null spec mapping fails the spinner with the report guidance',
+        () async {
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(null);
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNull);
+      verify(
+        () => progress.fail('Could not map the app libraries for the release'),
+      ).called(1);
+      verify(
+        () => logger.err(any(that: contains('Please report this'))),
+      ).called(1);
+    });
+
+    test('comma in the spec path the front end would receive refuses',
+        () async {
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(
+        (
+          specPath: '/spec,dir/dynamic_interface.yaml',
+          appCount: 1,
+          flutterCount: 2
+        ),
+      );
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNull);
+      verify(() => progress.fail('Could not use the interface spec path'))
+          .called(1);
+      verify(
+        () => logger.err(any(that: contains('comma-free'))),
+      ).called(1);
+    });
+
+    test('unreadable pubspec gets the actionable error, not a raw throw',
+        () async {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      Process.runSync('chmod', ['000', '${tmp.path}/pubspec.yaml']);
+      addTearDown(
+        () => Process.runSync('chmod', ['644', '${tmp.path}/pubspec.yaml']),
+      );
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File('${tmp.path}/pubspec.yaml').readAsStringSync();
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the file really is unreadable.
+      }
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNull);
+      verify(
+        () => logger.err(any(that: contains('package name'))),
+      ).called(1);
+    });
+
     test('unsupported front-end fails before any compile', () async {
       when(() => buildService.frontendSupportsFreeze(any())).thenReturn(false);
       final result = await command.prepareIosInterfaceFreeze(
