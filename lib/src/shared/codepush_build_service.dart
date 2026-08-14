@@ -1250,6 +1250,14 @@ class CodePushBuildService {
     return false;
   }
 
+  static final RegExp _windowsDrivePrefix = RegExp(r'^[A-Za-z]:[/\\]');
+
+  /// Whether [path] is absolute on any supported host (POSIX `/…` or a
+  /// Windows drive-letter form). Pure so any platform's leg can test
+  /// the other's shapes.
+  static bool isAbsoluteSourcePath(String path) =>
+      path.startsWith('/') || _windowsDrivePrefix.hasMatch(path);
+
   /// Map the compile closure's source paths to the app's own library
   /// URIs. Only files that the compile actually contains are listed —
   /// dead files, flavor entrypoints, and untaken conditional-import
@@ -1287,9 +1295,7 @@ class CodePushBuildService {
         onSkip?.call(path, 'unsupported characters in path');
         continue;
       }
-      final isAbsolute =
-          path.startsWith('/') || RegExp(r'^[A-Za-z]:[/\\]').hasMatch(path);
-      final readPath = isAbsolute ? path : '$projectRoot/$path';
+      final readPath = isAbsoluteSourcePath(path) ? path : '$projectRoot/$path';
       String content;
       try {
         content = utf8.decode(
@@ -1393,7 +1399,8 @@ class CodePushBuildService {
   /// caller treats that as fatal. A filesystem failure writing the
   /// spec throws [FlutterCompileException] instead of returning null,
   /// so the two failure classes stay distinguishable.
-  String? writeIosInterfaceFreezeSpec({
+  ({String specPath, int appCount, int flutterCount})?
+      writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
     required String projectRoot,
     required String packageName,
@@ -1426,18 +1433,21 @@ class CodePushBuildService {
       );
     } on FileSystemException catch (e) {
       // A disk/permission problem must not masquerade as the caller's
-      // "no app libraries mapped" null. Log the guidance here — the
-      // runner's FlutterCompileException handler sets the exit code but
-      // prints nothing (throwers log first by convention) — then raise
-      // the typed exception so the failure classes stay distinct.
+      // "no app libraries mapped" null. The message travels on the
+      // typed exception; the CALLER logs it after failing its progress
+      // line so the guidance prints under the failure marker like
+      // every other error here (the runner's handler prints nothing).
       final reason = e.osError?.message ?? e.message;
-      final message =
-          'Could not write $specPath ($reason). Check permissions and '
-          'free space on the build directory.';
-      _logger.err(message);
-      throw FlutterCompileException(message);
+      throw FlutterCompileException(
+        'Could not write $specPath ($reason). Check permissions and '
+        'free space on the build directory.',
+      );
     }
-    return specPath;
+    return (
+      specPath: specPath,
+      appCount: appLibraries.length,
+      flutterCount: flutterLibraries.length,
+    );
   }
 
   /// Whether the compile closure contains the framework library whose

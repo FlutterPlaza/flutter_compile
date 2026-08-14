@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Fixed an issue where simple iOS patches (for example, a patch whose body is a single logging call) could crash or misbehave at run time.
+- iOS release builds now preserve everything patches rely on, including support for patches that add new screens. The fix applies at release build time: apps already in the field need one fresh `fcp codepush release --build` to benefit. To opt out of the new behavior, pass `--no-interface-freeze` (not recommended — such releases may not be reliably patchable).
 
 - iOS releases now upload the app binary that devices verify against; very large apps no longer fail the upload.
 - **Behavior change:** `fcp codepush release` for iOS now requires a baseline identity. `--build` stamps one automatically; when releasing a pre-built app, pass `--baseline-id` (it is read from the built app automatically when available), or opt out with `--allow-missing-baseline`. Releases without an identity are never delivered to devices, so the command now fails fast instead of creating one silently. In projects with both `android/` and `ios/`, `fcp codepush release` now asks for `--platform` whenever neither `--platform` nor `--build` is given — including `--snapshot` releases, whose platform determines which checks apply.

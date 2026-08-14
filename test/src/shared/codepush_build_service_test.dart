@@ -1017,7 +1017,9 @@ void _interfaceFreeze() {
         packageName: 'demo',
         specDirPath: tmp.path,
       );
-      final yaml = File(spec!).readAsStringSync();
+      final yaml = File(spec!.specPath).readAsStringSync();
+      expect(spec.appCount, 1);
+      expect(spec.flutterCount, greaterThan(0));
       expect(yaml, contains('extendable:'));
       expect(yaml, contains("  - library: 'package:demo/main.dart'"));
     });
@@ -1029,7 +1031,10 @@ void _interfaceFreeze() {
         packageName: 'demo',
         specDirPath: tmp.path,
       );
-      expect(File(spec!).readAsStringSync(), isNot(contains('extendable:')));
+      expect(
+        File(spec!.specPath).readAsStringSync(),
+        isNot(contains('extendable:')),
+      );
     });
 
     test('unwritable spec dir => FlutterCompileException, not null', () {
@@ -1052,7 +1057,13 @@ void _interfaceFreeze() {
           packageName: 'demo',
           specDirPath: roDir.path,
         ),
-        throwsA(isA<FlutterCompileException>()),
+        throwsA(
+          isA<FlutterCompileException>().having(
+            (e) => e.message,
+            'message',
+            contains('Check permissions'),
+          ),
+        ),
       );
     });
 
@@ -1070,6 +1081,21 @@ void _interfaceFreeze() {
       );
     });
   }, skip: Platform.isWindows ? 'POSIX path and permission semantics' : null);
+
+  group('isAbsoluteSourcePath', () {
+    test('recognizes POSIX and Windows drive forms', () {
+      expect(CodePushBuildService.isAbsoluteSourcePath('/a/b.dart'), true);
+      expect(
+        CodePushBuildService.isAbsoluteSourcePath(r'C:\proj\lib\m.dart'),
+        true,
+      );
+      expect(
+        CodePushBuildService.isAbsoluteSourcePath('C:/proj/lib/m.dart'),
+        true,
+      );
+      expect(CodePushBuildService.isAbsoluteSourcePath('lib/m.dart'), false);
+    });
+  });
 
   group('closureHasExtendableFramework', () {
     test('true only when the framework library file is in the closure', () {
