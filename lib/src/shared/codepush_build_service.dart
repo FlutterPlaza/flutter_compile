@@ -1277,8 +1277,11 @@ class CodePushBuildService {
       '$projectRoot/lib/',
       // The front-end may write resolved (symlink-free) paths...
       '${_tryResolve(projectRoot)}/lib/',
-      // ...or relative ones, depending on version.
+      // ...or relative ones, depending on version...
       'lib/',
+      // ...and Windows toolchains write backslashed forms of each.
+      '$projectRoot\\lib\\',
+      'lib\\',
     };
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
@@ -1392,7 +1395,7 @@ class CodePushBuildService {
   }
 
   /// Write the interface-freeze spec derived from [closurePaths] into
-  /// [specDir], returning the spec path. Pulls together the gate
+  /// [specDirPath], returning the spec path. Pulls together the gate
   /// ([closureHasExtendableFramework]), the library mapping, and the
   /// yaml emission so the whole closure→file chain is testable.
   /// Returns null (nothing written) when no app libraries map — the

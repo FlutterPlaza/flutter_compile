@@ -550,9 +550,8 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// return a function that adds the front-end flags for it, or null
   /// (with an error logged) when the freeze cannot be set up, or
   /// rethrows the service's typed exception on a spec write failure.
-  /// Building
-  /// without it would ship a baseline that later patches cannot call
-  /// reliably, so that is a hard failure, not a warning.
+  /// Building without it would ship a baseline that later patches
+  /// cannot call reliably, so that is a hard failure, not a warning.
   ///
   /// The spec lists only libraries the compile actually contains
   /// (discovered via a fast front-end pre-pass), because a listed

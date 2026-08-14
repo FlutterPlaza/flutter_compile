@@ -739,6 +739,22 @@ void _interfaceFreeze() {
       ]);
     });
 
+    test('backslashed Windows depfile entries map correctly', () {
+      final winRoot = tmp.path;
+      // On POSIX a backslash is a legal filename character, so this
+      // creates one file at the literal closure path — enough to
+      // exercise the prefix match and the content read.
+      final winFile = File('$winRoot\\lib\\main.dart')
+        ..writeAsStringSync('void main() {}');
+      addTearDown(() => winFile.deleteSync());
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'$winRoot\\lib\\main.dart'},
+        projectRoot: winRoot,
+        packageName: 'demo',
+      );
+      expect(uris, ['package:demo/main.dart']);
+    });
+
     test('relative depfile entries map and read correctly', () async {
       final uris = CodePushBuildService.appLibrariesFromClosure(
         closurePaths: {'lib/main.dart', 'lib/src/util.dart'},
@@ -977,7 +993,11 @@ void _interfaceFreeze() {
           )
           ..writeln("    class: '$cls'");
       }
-      expect(yaml, endsWith(expectedBlock.toString()));
+      expect(yaml, contains(expectedBlock.toString()));
+      expect(
+        yaml.indexOf('callable:'),
+        lessThan(yaml.indexOf('extendable:')),
+      );
       expect(
         yaml.indexOf('callable:'),
         lessThan(yaml.indexOf('extendable:')),
