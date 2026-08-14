@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
@@ -204,6 +205,66 @@ void main() {
       // Exactly the fetch warn — warnIfUnguardedRelease's
       // null-stays-silent contract must hold through the seam.
       verify(() => logger.warn(any())).called(1);
+    });
+  });
+
+  group('early argument validation', () {
+    late ParsedArgsPatchCommand cmd;
+
+    setUp(() {
+      cmd = ParsedArgsPatchCommand(MockLogger());
+    });
+
+    test(
+        '--build with a --patch-file naming the future build output '
+        'is NOT rejected up front', () {
+      // On a clean tree the output does not exist until the build
+      // runs; the post-build in-place check owns that flow. Rejecting
+      // here broke `--build --patch-file build/codepush/patch.fcppatch`
+      // on every fresh clone and CI runner.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--patch-file', '/definitely/not/there.fcppatch'],
+      );
+      expect(cmd.earlyPatchFileError(), isNull);
+    });
+
+    test('without --build a missing explicit patch file fails fast', () {
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-file', '/definitely/not/there.fcppatch'],
+      );
+      expect(
+        cmd.earlyPatchFileError(),
+        contains('/definitely/not/there.fcppatch'),
+      );
+    });
+
+    test('an existing explicit patch file passes; absent flag passes', () {
+      final tmp = File(
+        '${Directory.systemTemp.createTempSync('fcp_guard').path}/p.fcppatch',
+      )..writeAsBytesSync([1]);
+      addTearDown(() => tmp.parent.deleteSync(recursive: true));
+
+      cmd.parsedArgs = cmd.argParser.parse(['--patch-file', tmp.path]);
+      expect(cmd.earlyPatchFileError(), isNull);
+
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.earlyPatchFileError(), isNull);
+    });
+
+    test('parseRollout: strict — a typo re-runs, never widens', () {
+      int? parsed(List<String> args) {
+        cmd.parsedArgs = cmd.argParser.parse(args);
+        return cmd.parseRollout();
+      }
+
+      expect(parsed(['--rollout', '50']), 50);
+      expect(parsed([]), 100);
+      // Every invalid shape is a rejection, NOT a silent 100.
+      expect(parsed(['--rollout', '50%']), isNull);
+      expect(parsed(['--rollout', '0.5']), isNull);
+      expect(parsed(['--rollout', 'fifty']), isNull);
+      expect(parsed(['--rollout', '0']), isNull);
+      expect(parsed(['--rollout', '101']), isNull);
     });
   });
 

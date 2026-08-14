@@ -161,6 +161,38 @@ class CodePushPatchSubCommand extends Command<int> {
     return (rawHash is String && rawHash.length >= 16) ? rawHash : null;
   }
 
+  /// Strict rollout parse: null on ANY invalid value — absent parses
+  /// as 100, but '50%', '0.5', 'fifty', 0, and 101 are all null. A
+  /// typo must cost a re-run, never silently widen to a full
+  /// rollout: that is the one direction not reversible from the CLI.
+  /// Public for tests; reads its own args so a real-parse test
+  /// covers the wire.
+  int? parseRollout() {
+    final raw = argResults?['rollout'] as String? ?? '100';
+    final value = int.tryParse(raw);
+    if (value == null || value < 1 || value > 100) return null;
+    return value;
+  }
+
+  /// The early `--patch-file` existence check, gated OFF under
+  /// `--build`: the named path may be THIS run's output (the
+  /// documented build/codepush/patch.fcppatch), which does not exist
+  /// yet — the in-place check after the build covers that flow.
+  /// Returns the error to print, or null when the run may proceed.
+  /// Public for tests; reads its own args so a real-parse test
+  /// covers the wire.
+  String? earlyPatchFileError() {
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (shouldBuild) return null;
+    final explicitPatchFile = argResults?['patch-file'] as String?;
+    if (explicitPatchFile != null &&
+        explicitPatchFile.isNotEmpty &&
+        !File(explicitPatchFile).existsSync()) {
+      return 'Patch file not found: $explicitPatchFile';
+    }
+    return null;
+  }
+
   /// Read the target release and inspect it BEFORE any build: the
   /// null warn and the unguarded-release warn both fire here, where
   /// aborting is still cheap. Generous default deadline: this fetch
@@ -245,18 +277,15 @@ class CodePushPatchSubCommand extends Command<int> {
       // completing the same invariant: nothing that needs only
       // argResults may exit the command after the warning (or the
       // build) has already happened.
-      final rolloutStr = argResults?['rollout'] as String? ?? '100';
-      final rollout = int.tryParse(rolloutStr) ?? 100;
-      final channel = argResults?['channel'] as String? ?? 'production';
-      if (rollout < 1 || rollout > 100) {
-        _logger.err('Rollout percentage must be between 1 and 100.');
+      final rollout = parseRollout();
+      if (rollout == null) {
+        _logger.err('Rollout percentage must be an integer between 1 and 100.');
         return ExitCode.usage.code;
       }
-      final explicitPatchFile = argResults?['patch-file'] as String?;
-      if (explicitPatchFile != null &&
-          explicitPatchFile.isNotEmpty &&
-          !File(explicitPatchFile).existsSync()) {
-        _logger.err('Patch file not found: $explicitPatchFile');
+      final channel = argResults?['channel'] as String? ?? 'production';
+      final patchFileError = earlyPatchFileError();
+      if (patchFileError != null) {
+        _logger.err(patchFileError);
         return ExitCode.software.code;
       }
 
