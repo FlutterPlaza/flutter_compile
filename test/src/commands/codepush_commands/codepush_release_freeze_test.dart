@@ -147,7 +147,12 @@ void main() {
       // The archive step reads this to claim only THIS run's spec.
       expect(
         command.writtenInterfaceSpec,
-        (path: '/spec/dynamic_interface.yaml', extendable: true),
+        (
+          path: '/spec/dynamic_interface.yaml',
+          reportPath: '${tmp.path}/build/codepush/'
+              'dynamic_interface_report.json',
+          extendable: true
+        ),
       );
     });
 
@@ -446,7 +451,12 @@ void main() {
       );
       expect(
         cmd.writtenInterfaceSpec,
-        (path: specFile.path, extendable: true),
+        (
+          path: specFile.path,
+          reportPath: '${tmp.path}/build/codepush/'
+              'dynamic_interface_report.json',
+          extendable: true
+        ),
       );
     });
 
@@ -458,6 +468,7 @@ void main() {
           baselineId: any(named: 'baselineId'),
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: any(named: 'interfaceSpecPath'),
+          interfaceReportPath: any(named: 'interfaceReportPath'),
           interfaceSpecExtendable: any(named: 'interfaceSpecExtendable'),
         ),
       ).thenReturn(true);
@@ -467,8 +478,11 @@ void main() {
         archiveService: archive,
       );
 
-      cmd.writtenInterfaceSpec =
-          (path: '/x/dynamic_interface.yaml', extendable: true);
+      cmd.writtenInterfaceSpec = (
+        path: '/x/dynamic_interface.yaml',
+        reportPath: '/x/dynamic_interface_report.json',
+        extendable: true
+      );
       cmd.archiveIosBaseline(releaseId: 'rel-1', baselineId: 'base-1');
       verify(
         () => archive.archiveIosRelease(
@@ -476,6 +490,7 @@ void main() {
           baselineId: 'base-1',
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: '/x/dynamic_interface.yaml',
+          interfaceReportPath: '/x/dynamic_interface_report.json',
           interfaceSpecExtendable: true,
         ),
       ).called(1);
@@ -488,6 +503,7 @@ void main() {
           baselineId: 'base-2',
           fcpVersion: any(named: 'fcpVersion'),
           interfaceSpecPath: null,
+          interfaceReportPath: null,
           interfaceSpecExtendable: false,
         ),
       ).called(1);

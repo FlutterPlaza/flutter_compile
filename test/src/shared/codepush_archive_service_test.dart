@@ -115,6 +115,7 @@ void main() {
       expect(manifest['platform'], 'ios-arm64');
       expect(manifest['has_dsym'], isFalse);
       expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['has_interface_report'], isFalse);
       expect(manifest['has_extendable_widgets'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
       expect((manifest['app_framework_sha256'] as String).length, 64);
@@ -144,19 +145,23 @@ void main() {
       expect(manifest['has_dsym'], isTrue);
     });
 
-    test('archives the interface spec this run attested to', () {
+    test('archives the spec and report this run attested to', () {
       writeBaselineApp();
       final specPath = '${projectDir.path}/build/codepush/'
           'dynamic_interface.yaml';
       File(specPath)
         ..createSync(recursive: true)
         ..writeAsStringSync('callable:\n');
+      final reportPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_report.json';
+      File(reportPath).writeAsStringSync('{"extendable": []}\n');
 
       final ok = service.archiveIosRelease(
         releaseId: 'rel-spec',
         baselineId: 'base-spec',
         fcpVersion: '0.0.0',
         interfaceSpecPath: specPath,
+        interfaceReportPath: reportPath,
         interfaceSpecExtendable: true,
       );
 
@@ -168,10 +173,17 @@ void main() {
         File('${releaseDir.path}/dynamic_interface.yaml').readAsStringSync(),
         'callable:\n',
       );
+      // The compiler's own account travels with the intent it proves.
+      expect(
+        File('${releaseDir.path}/dynamic_interface_report.json')
+            .readAsStringSync(),
+        '{"extendable": []}\n',
+      );
       final manifest = jsonDecode(
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isTrue);
+      expect(manifest['has_interface_report'], isTrue);
       // The manifest must answer "was guarding on?" without grepping
       // the yaml.
       expect(manifest['has_extendable_widgets'], isTrue);
@@ -202,6 +214,7 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['has_interface_report'], isFalse);
       expect(manifest['has_extendable_widgets'], isFalse);
     });
 

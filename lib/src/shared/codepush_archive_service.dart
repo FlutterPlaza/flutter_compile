@@ -15,8 +15,20 @@ import 'package:mason_logger/mason_logger.dart';
 ///       Runner.app/                 (full bundle, ready to re-sign + install)
 ///       Runner.app.dSYM/            (optional, when build emitted one)
 ///       dynamic_interface.yaml      (optional, the interface freeze the
-///                                    baseline was built with)
-///       manifest.json               (release/baseline ids, framework SHA, etc.)
+///                                    baseline was built with — intent)
+///       dynamic_interface_report.json (optional, the compiler's own
+///                                    account of what it guarded — evidence)
+///       manifest.json               (see below)
+///
+/// `manifest.json` keys (format v2): `archive_format_version`,
+/// `release_id`, `baseline_id`, `platform`, `framework_sha256`,
+/// `app_framework_sha256`, `runner_binary_sha256`, `has_dsym`,
+/// `has_interface_spec` + `has_interface_report` (copy outcomes),
+/// `has_extendable_widgets` (attestation — was guarding requested and
+/// emitted into the spec), `build_date`, `fcp_version`. In a v1
+/// manifest the v2 keys are absent, which means UNKNOWN, not false.
+/// Nothing else in the repo documents this manifest; update this block
+/// when the key set changes.
 ///
 /// The archive lets a future device replay reinstall the exact app
 /// bundle that was used to produce a given release, without depending
@@ -32,9 +44,9 @@ class CodePushArchiveService {
   })  : _logger = logger,
         _projectDir = projectDir ?? Directory.current;
 
-  // v2: adds has_interface_spec + has_extendable_widgets. The bump is
-  // what lets a reader distinguish "guarding was off" from "this
-  // manifest predates the keys".
+  // v2: adds has_interface_spec, has_interface_report and
+  // has_extendable_widgets. The bump is what lets a reader distinguish
+  // "guarding was off" from "this manifest predates the keys".
   static const int _archiveFormatVersion = 2;
   static const String _archiveDirName = '.fcp-archive';
   static const String _excludeRule = '.fcp-archive/';
@@ -50,10 +62,12 @@ class CodePushArchiveService {
   /// run, or null when the run produced none (freeze skipped or
   /// failed). The archive copies only what the caller attests to —
   /// keying on a file merely existing on disk would claim a previous
-  /// run's spec as this release's. [interfaceSpecExtendable] records
-  /// whether that spec marked the widget bases extendable; it is
+  /// run's spec as this release's. [interfaceReportPath] is the
+  /// compiler's own report of what it guarded, written by the build
+  /// under the same attestation. [interfaceSpecExtendable] records
+  /// whether the spec marked the widget bases extendable; it is
   /// attestation, not copy outcome, so the manifest can still answer
-  /// "was guarding on?" when the optional copy itself failed.
+  /// "was guarding on?" when the optional copies themselves failed.
   ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
@@ -62,6 +76,7 @@ class CodePushArchiveService {
     required String baselineId,
     required String fcpVersion,
     String? interfaceSpecPath,
+    String? interfaceReportPath,
     bool interfaceSpecExtendable = false,
   }) {
     try {
@@ -121,24 +136,20 @@ class CodePushArchiveService {
       // and over which libraries?" — the first question when a patch
       // fails on a device months later. Optional like the dSYM: its
       // failure must not discard the app-bundle archive.
-      var archivedSpec = false;
-      if (interfaceSpecPath != null) {
-        if (File(interfaceSpecPath).existsSync()) {
-          try {
-            File(interfaceSpecPath).copySync(
-              '${releaseDir.path}/'
-              '${CodePushBuildService.kInterfaceSpecFilename}',
-            );
-            archivedSpec = true;
-          } on FileSystemException catch (e) {
-            _logger.detail('Could not archive the interface spec: $e');
-          }
-        } else {
-          _logger.detail(
-            'Attested interface spec is missing: $interfaceSpecPath',
-          );
-        }
-      }
+      final archivedSpec = _copyOptionalArtifact(
+        label: 'interface spec',
+        sourcePath: interfaceSpecPath,
+        destPath: '${releaseDir.path}/'
+            '${CodePushBuildService.kInterfaceSpecFilename}',
+      );
+      // The report is the compiler's evidence that the spec was
+      // consumed — without it the manifest only restates intent.
+      final archivedReport = _copyOptionalArtifact(
+        label: 'interface report',
+        sourcePath: interfaceReportPath,
+        destPath: '${releaseDir.path}/'
+            '${CodePushBuildService.kInterfaceReportFilename}',
+      );
 
       final frameworkSha = _sha256OfFile(flutterFramework);
       final appFrameworkSha = _sha256OfFile(appFramework);
@@ -153,6 +164,7 @@ class CodePushArchiveService {
         'runner_binary_sha256': runnerBinarySha,
         'has_dsym': archivedDsym,
         'has_interface_spec': archivedSpec,
+        'has_interface_report': archivedReport,
         'has_extendable_widgets': interfaceSpecExtendable,
         'build_date': DateTime.now().toUtc().toIso8601String(),
         'fcp_version': fcpVersion,
@@ -172,10 +184,38 @@ class CodePushArchiveService {
         '  Runner binary SHA-256:     ${runnerBinarySha ?? "<unavailable>"}',
       );
       _logger.detail('  dSYM included: $archivedDsym');
+      _logger.detail(
+        '  Interface spec included: $archivedSpec '
+        '(extendable: $interfaceSpecExtendable)',
+      );
+      _logger.detail('  Interface report included: $archivedReport');
       return true;
     } catch (e, st) {
       _logger.warn('Archive step skipped: $e');
       _logger.detail('$st');
+      return false;
+    }
+  }
+
+  /// Copy an attested optional artifact into the archive, non-fatally:
+  /// a missing source leaves a breadcrumb (it is distinguishable from
+  /// "none attested"), and a copy failure must never discard the
+  /// app-bundle archive around it. Returns whether the copy happened.
+  bool _copyOptionalArtifact({
+    required String label,
+    required String? sourcePath,
+    required String destPath,
+  }) {
+    if (sourcePath == null) return false;
+    if (!File(sourcePath).existsSync()) {
+      _logger.detail('Attested $label is missing: $sourcePath');
+      return false;
+    }
+    try {
+      File(sourcePath).copySync(destPath);
+      return true;
+    } on FileSystemException catch (e) {
+      _logger.detail('Could not archive the $label: $e');
       return false;
     }
   }

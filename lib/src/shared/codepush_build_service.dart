@@ -1565,6 +1565,13 @@ class CodePushBuildService {
   /// service writer and the command's comma guard).
   static const String kInterfaceSpecFilename = 'dynamic_interface.yaml';
 
+  /// Filename of the front end's detailed interface report (the
+  /// compiler's own account of what it guarded — evidence, where the
+  /// spec is intent). Single source for the command's composition and
+  /// the archive destination.
+  static const String kInterfaceReportFilename =
+      'dynamic_interface_report.json';
+
   /// Instance wrapper over [frontendSupportsDynamicInterface] so
   /// command-level tests can stub the probe.
   bool frontendSupportsFreeze(String flutterRoot) =>

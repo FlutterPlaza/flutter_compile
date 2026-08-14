@@ -58,11 +58,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       ..addFlag(
         'extendable-widgets',
         defaultsTo: true,
-        help: 'Allow patches to declare new widget subclasses in the '
-            'built iOS app by guarding dispatch on the widget base '
-            'classes. Disabling removes that guarding (and its dispatch '
-            'cost) — patches that add new screens will fail on such a '
-            'release.',
+        help: 'Allow patches to declare new StatelessWidget / '
+            'StatefulWidget / State subclasses in the built iOS app by '
+            'guarding dispatch on those base classes. Disabling removes '
+            'that guarding (and its dispatch cost) — patches that add '
+            'new screens will fail on such a release.',
       )
       ..addFlag(
         'interface-freeze',
@@ -90,12 +90,13 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// construction happens in [archiveIosBaseline].
   final CodePushArchiveService? _injectedArchiveService;
 
-  /// The interface spec written by THIS run's freeze preparation (path
-  /// plus whether widget bases were marked extendable), for the archive
-  /// step. Null when the freeze was skipped or failed, so the archive
-  /// never claims a leftover spec from a previous run.
+  /// The interface spec written by THIS run's freeze preparation (path,
+  /// the front-end report path the build was told to write, and whether
+  /// widget bases were marked extendable), for the archive step. Null
+  /// when the freeze was skipped or failed, so the archive never claims
+  /// a leftover spec or report from a previous run.
   /// Public for tests (no meta dependency for @visibleForTesting).
-  ({String path, bool extendable})? writtenInterfaceSpec;
+  ({String path, String reportPath, bool extendable})? writtenInterfaceSpec;
 
   @override
   final String name = 'release';
@@ -625,7 +626,8 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(message);
       throw FlutterCompileException(message);
     }
-    final reportPath = '${specDir.path}/dynamic_interface_report.json';
+    final reportPath =
+        '${specDir.path}/${CodePushBuildService.kInterfaceReportFilename}';
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
         !buildService.frontendSupportsFreeze(flutterRoot)) {
@@ -724,6 +726,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final String frozenSpecPath = writtenSpec.specPath;
     writtenInterfaceSpec = (
       path: frozenSpecPath,
+      reportPath: reportPath,
       extendable: writtenSpec.extendable,
     );
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
@@ -748,6 +751,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       baselineId: baselineId,
       fcpVersion: packageVersion,
       interfaceSpecPath: writtenInterfaceSpec?.path,
+      interfaceReportPath: writtenInterfaceSpec?.reportPath,
       interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
     );
   }
