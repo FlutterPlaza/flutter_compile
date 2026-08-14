@@ -1355,7 +1355,9 @@ class CodePushBuildService {
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
   /// file appears in the compile closure.
   static List<String> flutterLibrariesFromClosure(Set<String> closurePaths) {
-    final normalized = _normalizeClosure(closurePaths);
+    // Materialized: the lazy iterable would re-normalize the whole
+    // closure once per candidate below.
+    final normalized = _normalizeClosure(closurePaths).toList();
     return [
       for (final candidate in kIosInterfaceFreezeFlutterCandidates)
         if (normalized.any(
@@ -1522,8 +1524,9 @@ class CodePushBuildService {
   /// [freezeSpecPath] is the yaml written by
   /// [buildIosInterfaceFreezeYaml]; [reportPath], when given, asks the
   /// compiler to also write a machine-readable report of what was
-  /// frozen (kept as a build artifact for inspection; nothing reads it
-  /// programmatically today). Both paths must
+  /// frozen (load-bearing: the release archive copies it as the
+  /// compiler's own evidence and records it in the archive manifest —
+  /// see CodePushArchiveService). Both paths must
   /// not contain commas: the surrounding tooling joins and re-splits
   /// this option list on commas, so a comma in a path silently corrupts
   /// every option after it. Callers must reject such paths first.

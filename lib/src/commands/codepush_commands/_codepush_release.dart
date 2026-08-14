@@ -274,6 +274,10 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
         if (!buildOk) {
           buildProgress.fail('Build failed');
+          final freezeHint = buildFailureFreezeHint();
+          if (freezeHint != null) {
+            _logger.err(freezeHint);
+          }
           return ExitCode.software.code;
         }
         buildProgress.complete('Build succeeded');
@@ -593,6 +597,20 @@ class CodePushReleaseSubCommand extends Command<int> {
   }) async {
     writtenInterfaceSpec = null;
     final projectRoot = projectRootOverride ?? Directory.current.path;
+    // A literal backslash in a POSIX project path defeats the freeze's
+    // canonical path normalization (a deliberate trade-off in the
+    // service); without this guard it surfaces later as an
+    // unattributable "no app libraries were mapped" hard stop. Windows
+    // paths use backslashes normally.
+    if (!Platform.isWindows && projectRoot.contains(r'\')) {
+      _logger.err(
+        'The project path contains a backslash, which the interface '
+        'freeze cannot process. Move the project to a backslash-free '
+        'path, or pass --no-interface-freeze (such a release may not '
+        'be reliably patchable).',
+      );
+      return null;
+    }
     final pubspec = File('$projectRoot/pubspec.yaml');
     String? packageName;
     try {
@@ -628,6 +646,15 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     final reportPath =
         '${specDir.path}/${CodePushBuildService.kInterfaceReportFilename}';
+    // fcp never writes the report itself — the front end does, later in
+    // the build. Delete a previous run's copy now, so a build that
+    // emits none surfaces as the missing-artifact breadcrumb instead of
+    // archiving stale evidence under this run's attestation.
+    try {
+      File(reportPath).deleteSync();
+    } on FileSystemException {
+      // Absent — the common case.
+    }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
         !buildService.frontendSupportsFreeze(flutterRoot)) {
@@ -734,6 +761,23 @@ class CodePushReleaseSubCommand extends Command<int> {
           freezeSpecPath: frozenSpecPath,
           reportPath: reportPath,
         );
+  }
+
+  /// The escape-hatch hint for a failed release build that included
+  /// the interface freeze, or null when no freeze was applied. Every
+  /// other failure on this path names its flag; a build broken by the
+  /// freeze's new compiler inputs must too. Public for tests ([run]
+  /// itself cannot be cheaply exercised).
+  String? buildFailureFreezeHint() {
+    final spec = writtenInterfaceSpec;
+    if (spec == null) return null;
+    final flags = spec.extendable
+        ? '--no-extendable-widgets, or --no-interface-freeze'
+        : '--no-interface-freeze';
+    return 'This build included the code push interface freeze. If the '
+        'failure above mentions the dynamic interface, retry with '
+        '$flags (a release built without it may not be reliably '
+        'patchable).';
   }
 
   /// Archive the saved baseline for [releaseId], attesting the spec

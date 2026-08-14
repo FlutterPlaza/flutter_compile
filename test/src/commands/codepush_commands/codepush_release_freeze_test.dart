@@ -509,6 +509,93 @@ void main() {
       ).called(1);
     });
 
+    test("a previous run's report is deleted before the build", () async {
+      when(
+        () => buildService.writeIosInterfaceFreezeSpec(
+          closurePaths: any(named: 'closurePaths'),
+          projectRoot: any(named: 'projectRoot'),
+          packageName: any(named: 'packageName'),
+          specDirPath: any(named: 'specDirPath'),
+          allowExtendable: any(named: 'allowExtendable'),
+          onSkip: any(named: 'onSkip'),
+        ),
+      ).thenReturn(
+        (
+          specPath: '/spec/dynamic_interface.yaml',
+          appCount: 1,
+          flutterCount: 2,
+          extendable: true
+        ),
+      );
+      // fcp never writes the report; only the build does. A leftover
+      // must not survive to be archived as this run's evidence.
+      final staleReport = File(
+        '${tmp.path}/build/codepush/dynamic_interface_report.json',
+      )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('{"stale": true}');
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(freeze, isNotNull);
+      expect(staleReport.existsSync(), false);
+    });
+
+    test('build-failure hint names the escape hatch for the freeze', () {
+      expect(command.buildFailureFreezeHint(), isNull);
+
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true
+      );
+      expect(
+        command.buildFailureFreezeHint(),
+        allOf(
+          contains('--no-extendable-widgets'),
+          contains('--no-interface-freeze'),
+        ),
+      );
+
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: false
+      );
+      expect(
+        command.buildFailureFreezeHint(),
+        allOf(
+          isNot(contains('--no-extendable-widgets')),
+          contains('--no-interface-freeze'),
+        ),
+      );
+    });
+
+    test('backslash in a POSIX project path is named, not unattributable',
+        () async {
+      if (Platform.isWindows) {
+        markTestSkipped('backslashes are path separators on Windows');
+        return;
+      }
+      final bsDir = Directory('${tmp.path}/a\\b')..createSync();
+      File('${bsDir.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: bsDir.path,
+      );
+      expect(freeze, isNull);
+      verify(
+        () => logger.err(any(that: contains('backslash'))),
+      ).called(1);
+      verifyNever(
+        () => buildService.discoverCompileClosure(
+          targetPath: any(named: 'targetPath'),
+          workDirPath: any(named: 'workDirPath'),
+        ),
+      );
+    });
+
     test('unsupported front-end fails before any compile', () async {
       when(() => buildService.frontendSupportsFreeze(any())).thenReturn(false);
       final result = await command.prepareIosInterfaceFreeze(
