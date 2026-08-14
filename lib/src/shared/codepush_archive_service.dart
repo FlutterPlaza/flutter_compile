@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
-import 'package:flutter_compile/src/shared/codepush_build_service.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 /// Saves a copy of the iOS baseline app bundle, the embedded Flutter
@@ -23,12 +23,15 @@ import 'package:mason_logger/mason_logger.dart';
 /// `manifest.json` keys (format v2): `archive_format_version`,
 /// `release_id`, `baseline_id`, `platform`, `framework_sha256`,
 /// `app_framework_sha256`, `runner_binary_sha256`, `has_dsym`,
-/// `has_interface_spec` + `has_interface_report` (copy outcomes),
-/// `has_extendable_widgets` (attestation — was guarding requested and
-/// emitted into the spec), `build_date`, `fcp_version`. In a v1
-/// manifest the v2 keys are absent, which means UNKNOWN, not false.
-/// Nothing else in the repo documents this manifest; update this block
-/// when the key set changes.
+/// `has_interface_spec` (copy outcome), `has_interface_report`
+/// (tri-state copy outcome: true = archived, false = known absent —
+/// no freeze this run or the copy failed, null = the compiler wrote
+/// none this build, e.g. a warm rebuild whose cached kernel step never
+/// re-ran the front end), `has_extendable_widgets` (attestation — was
+/// guarding requested and emitted into the spec), `build_date`,
+/// `fcp_version`. In a v1 manifest the v2 keys are absent, which means
+/// UNKNOWN, not false. Nothing else in the repo documents this
+/// manifest; update this block when the key set changes.
 ///
 /// The archive lets a future device replay reinstall the exact app
 /// bundle that was used to produce a given release, without depending
@@ -139,17 +142,30 @@ class CodePushArchiveService {
       final archivedSpec = _copyOptionalArtifact(
         label: 'interface spec',
         sourcePath: interfaceSpecPath,
-        destPath: '${releaseDir.path}/'
-            '${CodePushBuildService.kInterfaceSpecFilename}',
+        destPath: '${releaseDir.path}/$kInterfaceSpecFilename',
       );
       // The report is the compiler's evidence that the spec was
       // consumed — without it the manifest only restates intent.
-      final archivedReport = _copyOptionalArtifact(
-        label: 'interface report',
-        sourcePath: interfaceReportPath,
-        destPath: '${releaseDir.path}/'
-            '${CodePushBuildService.kInterfaceReportFilename}',
-      );
+      // Tri-state: only the front end writes the report, and a warm
+      // rebuild (cached kernel step) legitimately writes none — that is
+      // UNKNOWN (null), not false; false means known-not-archived (no
+      // freeze this run, or the copy itself failed).
+      final bool? archivedReport;
+      if (interfaceReportPath == null) {
+        archivedReport = false;
+      } else if (!File(interfaceReportPath).existsSync()) {
+        _logger.detail(
+          'Attested interface report was not produced this build '
+          '(warm rebuild?): $interfaceReportPath',
+        );
+        archivedReport = null;
+      } else {
+        archivedReport = _copyOptionalArtifact(
+          label: 'interface report',
+          sourcePath: interfaceReportPath,
+          destPath: '${releaseDir.path}/$kInterfaceReportFilename',
+        );
+      }
 
       final frameworkSha = _sha256OfFile(flutterFramework);
       final appFrameworkSha = _sha256OfFile(appFramework);
@@ -188,7 +204,10 @@ class CodePushArchiveService {
         '  Interface spec included: $archivedSpec '
         '(extendable: $interfaceSpecExtendable)',
       );
-      _logger.detail('  Interface report included: $archivedReport');
+      _logger.detail(
+        '  Interface report included: '
+        '${archivedReport ?? 'unknown (not produced this build)'}',
+      );
       return true;
     } catch (e, st) {
       _logger.warn('Archive step skipped: $e');

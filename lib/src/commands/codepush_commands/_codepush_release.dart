@@ -273,11 +273,7 @@ class CodePushReleaseSubCommand extends Command<int> {
           flutterVersion: flutterVersion,
         );
         if (!buildOk) {
-          buildProgress.fail('Build failed');
-          final freezeHint = buildFailureFreezeHint();
-          if (freezeHint != null) {
-            _logger.err(freezeHint);
-          }
+          failReleaseStep(buildProgress, 'Build failed');
           return ExitCode.software.code;
         }
         buildProgress.complete('Build succeeded');
@@ -291,11 +287,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (finalized.success) {
           finalizeProgress.complete('Build finalized');
         } else {
-          finalizeProgress.fail(finalized.message ?? 'Finalization failed');
-          final diagnostics = finalized.formatDiagnostics();
-          if (diagnostics.isNotEmpty) {
-            _logger.err(diagnostics);
-          }
+          failReleaseStep(
+            finalizeProgress,
+            finalized.message ?? 'Finalization failed',
+            diagnostics: finalized.formatDiagnostics(),
+          );
           return ExitCode.software.code;
         }
       } finally {
@@ -661,6 +657,16 @@ class CodePushReleaseSubCommand extends Command<int> {
       // a breadcrumb suffices here.
       _logger.detail('Could not delete a previous interface report: $e');
     }
+    // Fail fast on a comma in the project path (reportPath embeds it),
+    // before the expensive pre-pass. The authoritative check on the
+    // service-composed spec path still runs after the write.
+    if (reportPath.contains(',')) {
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
+      );
+      return null;
+    }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
         !buildService.frontendSupportsFreeze(flutterRoot)) {
@@ -731,6 +737,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         'The project path contains a comma, which the build toolchain '
         'cannot pass through. Move the project to a comma-free path.',
       );
+      // No artifact may suggest a refused build used it.
+      try {
+        File(writtenSpec.specPath).deleteSync();
+      } on FileSystemException {
+        // Best effort; the next successful run overwrites it.
+      }
       return null;
     }
     // A real Flutter app's compile always contains the framework
@@ -744,9 +756,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         'The Flutter framework library '
         '(${CodePushBuildService.kIosExtendableFrameworkLibrary}) was not '
         'found in the compile, so patches that add new widget subclasses '
-        'would fail on this release. Build with --no-extendable-widgets '
-        'to acknowledge shipping without widget guarding, or report this '
-        'with your project layout.',
+        'would fail on this release. Likeliest causes: your Flutter SDK '
+        'is newer than this fcp version supports, or the app genuinely '
+        'never uses widgets. Build with --no-extendable-widgets to '
+        'acknowledge shipping without widget guarding, or report this '
+        'with your fcp and Flutter versions.',
       );
       // The spec was already written above; the build it described was
       // just refused, so no artifact should suggest this run used it.
@@ -774,6 +788,26 @@ class CodePushReleaseSubCommand extends Command<int> {
           freezeSpecPath: frozenSpecPath,
           reportPath: reportPath,
         );
+  }
+
+  /// Fail a release build/finalize progress line, print any step
+  /// diagnostics, then surface the freeze escape hatch when this run
+  /// applied the freeze — both failure paths share this one tested
+  /// wire. Public for tests ([run] itself cannot be cheaply
+  /// exercised).
+  void failReleaseStep(
+    Progress progress,
+    String message, {
+    String diagnostics = '',
+  }) {
+    progress.fail(message);
+    if (diagnostics.isNotEmpty) {
+      _logger.err(diagnostics);
+    }
+    final freezeHint = buildFailureFreezeHint();
+    if (freezeHint != null) {
+      _logger.err(freezeHint);
+    }
   }
 
   /// The escape-hatch hint for a failed release build that included

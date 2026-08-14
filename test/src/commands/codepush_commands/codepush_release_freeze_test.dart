@@ -321,6 +321,9 @@ void main() {
 
     test('comma in the spec path the front end would receive refuses',
         () async {
+      final commaSpec = File('${tmp.path}/spec,dir/dynamic_interface.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
       when(
         () => buildService.writeIosInterfaceFreezeSpec(
           closurePaths: any(named: 'closurePaths'),
@@ -332,7 +335,7 @@ void main() {
         ),
       ).thenReturn(
         (
-          specPath: '/spec,dir/dynamic_interface.yaml',
+          specPath: commaSpec.path,
           appCount: 1,
           flutterCount: 2,
           extendable: true
@@ -348,6 +351,8 @@ void main() {
       verify(
         () => logger.err(any(that: contains('comma-free'))),
       ).called(1);
+      // No artifact may suggest a refused build used it.
+      expect(commaSpec.existsSync(), false);
     });
 
     test('unreadable pubspec gets the actionable error, not a raw throw',
@@ -574,6 +579,45 @@ void main() {
         allOf(
           isNot(contains('--no-extendable-widgets')),
           contains('--no-interface-freeze'),
+        ),
+      );
+    });
+
+    test('failReleaseStep surfaces diagnostics and the freeze hint', () {
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true
+      );
+      command.failReleaseStep(progress, 'Build failed', diagnostics: 'boom');
+      verify(() => progress.fail('Build failed')).called(1);
+      verify(() => logger.err('boom')).called(1);
+      verify(
+        () => logger.err(any(that: contains('--no-extendable-widgets'))),
+      ).called(1);
+
+      // No freeze applied: fail the line, add nothing misleading.
+      command.writtenInterfaceSpec = null;
+      command.failReleaseStep(progress, 'Finalization failed');
+      verify(() => progress.fail('Finalization failed')).called(1);
+      verifyNever(
+        () => logger.err(any(that: contains('interface freeze'))),
+      );
+    });
+
+    test('comma in the project path fails fast, before any compile', () async {
+      final commaDir = Directory('${tmp.path}/a,b')..createSync();
+      File('${commaDir.path}/pubspec.yaml').writeAsStringSync('name: demo\n');
+      final freeze = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: commaDir.path,
+      );
+      expect(freeze, isNull);
+      verify(() => logger.err(any(that: contains('comma-free')))).called(1);
+      verifyNever(
+        () => buildService.discoverCompileClosure(
+          targetPath: any(named: 'targetPath'),
+          workDirPath: any(named: 'workDirPath'),
         ),
       );
     });

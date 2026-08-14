@@ -218,6 +218,28 @@ void main() {
       expect(manifest['has_extendable_widgets'], isFalse);
     });
 
+    test('an attested report the build never produced is unknown, not false',
+        () {
+      writeBaselineApp();
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-warm',
+        baselineId: 'base-warm',
+        fcpVersion: '0.0.0',
+        interfaceReportPath: '${projectDir.path}/build/codepush/'
+            'dynamic_interface_report.json',
+        interfaceSpecExtendable: true,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-warm/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      // A warm rebuild's cached kernel step writes no report: the
+      // manifest must say unknown (null), not assert false.
+      expect(manifest.containsKey('has_interface_report'), isTrue);
+      expect(manifest['has_interface_report'], isNull);
+    });
+
     test('a failed spec copy is non-fatal, like the dSYM', () {
       if (Platform.isWindows) {
         markTestSkipped('chmod semantics are POSIX-only');

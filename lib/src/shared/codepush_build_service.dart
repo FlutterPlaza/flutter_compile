@@ -9,6 +9,7 @@ import 'package:mason_logger/mason_logger.dart';
 import 'codepush_artifact_manager.dart';
 import 'codepush_client.dart';
 import 'exception.dart';
+import 'interface_freeze_constants.dart' as freeze_files;
 
 /// Outcome of a build-tool subprocess step.
 ///
@@ -1386,6 +1387,12 @@ class CodePushBuildService {
   /// list, and re-run the device validation when it grows. Kept
   /// minimal because each entry disables devirtualization for its
   /// whole hierarchy.
+  ///
+  /// Path assumption validated against Flutter 3.41.2 (real pre-pass
+  /// closure, 2026-08-14). A future SDK that moves or splits
+  /// framework.dart breaks the closure gate — re-verify on SDK layout
+  /// changes; the gate-miss error names "SDK newer than fcp" as a
+  /// candidate cause for exactly that case.
   static const String kIosExtendableFrameworkLibrary =
       'package:flutter/src/widgets/framework.dart';
   static const List<String> kIosExtendableFrameworkClasses = [
@@ -1508,7 +1515,9 @@ class CodePushBuildService {
 
   /// Whether the compile closure contains the framework library whose
   /// widget base classes we mark extendable — derived from
-  /// [kIosExtendableFrameworkLibrary] so the two can never drift.
+  /// [kIosExtendableFrameworkLibrary] so the two can never drift. The
+  /// prefix assumption is pinned by the unit tests; the assert below is
+  /// debug-only and compiled out of the shipped CLI.
   static bool closureHasExtendableFramework(Set<String> closurePaths) {
     assert(
       kIosExtendableFrameworkLibrary.startsWith('package:flutter/'),
@@ -1567,16 +1576,16 @@ class CodePushBuildService {
     return merged;
   }
 
-  /// Filename of the generated interface spec (single source for the
-  /// service writer and the command's comma guard).
-  static const String kInterfaceSpecFilename = 'dynamic_interface.yaml';
+  /// Filename of the generated interface spec (canonical value in
+  /// interface_freeze_constants.dart; aliased here for existing
+  /// call sites).
+  static const String kInterfaceSpecFilename =
+      freeze_files.kInterfaceSpecFilename;
 
-  /// Filename of the front end's detailed interface report (the
-  /// compiler's own account of what it guarded — evidence, where the
-  /// spec is intent). Single source for the command's composition and
-  /// the archive destination.
+  /// Filename of the front end's detailed interface report (canonical
+  /// value in interface_freeze_constants.dart).
   static const String kInterfaceReportFilename =
-      'dynamic_interface_report.json';
+      freeze_files.kInterfaceReportFilename;
 
   /// Instance wrapper over [frontendSupportsDynamicInterface] so
   /// command-level tests can stub the probe.
