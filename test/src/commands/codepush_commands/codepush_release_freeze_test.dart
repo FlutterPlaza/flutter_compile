@@ -132,7 +132,8 @@ void main() {
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
           flutterCount: 2,
-          extendable: true
+          extendable: true,
+          specChanged: false
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -151,7 +152,8 @@ void main() {
           path: '/spec/dynamic_interface.yaml',
           reportPath: '${tmp.path}/build/codepush/'
               'dynamic_interface_report.json',
-          extendable: true
+          extendable: true,
+          specChanged: false
         ),
       );
     });
@@ -187,7 +189,8 @@ void main() {
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
           flutterCount: 2,
-          extendable: false
+          extendable: false,
+          specChanged: false
         ),
       );
       final freeze = await cmd.prepareIosInterfaceFreeze(
@@ -233,7 +236,8 @@ void main() {
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
           flutterCount: 2,
-          extendable: true
+          extendable: true,
+          specChanged: false
         ),
       );
       await cmd.prepareIosInterfaceFreeze(
@@ -338,7 +342,8 @@ void main() {
           specPath: commaSpec.path,
           appCount: 1,
           flutterCount: 2,
-          extendable: true
+          extendable: true,
+          specChanged: false
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -404,7 +409,8 @@ void main() {
           specPath: orphanSpec.path,
           appCount: 1,
           flutterCount: 0,
-          extendable: false
+          extendable: false,
+          specChanged: false
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -476,21 +482,42 @@ void main() {
       verifyNever(() => logger.warn(any()));
 
       final report = File('${tmp.path}/dynamic_interface_report.json');
+      // Unchanged spec: the missing report leads with the benign
+      // reuse explanation.
       command.writtenInterfaceSpec = (
-        path: '${tmp.path}/dynamic_interface_abcd1234.yaml',
+        path: '${tmp.path}/dynamic_interface_abcd1234abcd1234.yaml',
         reportPath: report.path,
-        extendable: true
+        extendable: true,
+        specChanged: false
       );
       command.checkInterfaceReportAfterBuild();
       expect(command.interfaceReportObservedAfterBuild, false);
-      // Observation (path included) plus BOTH candidate causes — the
-      // benign reuse and the SDK-drift case.
       verify(
         () => logger.warn(
           any(
             that: allOf(
               contains('No interface report was found at'),
               contains(report.path),
+              contains('unchanged compile was reused'),
+            ),
+          ),
+        ),
+      ).called(1);
+
+      // Changed spec: reuse cannot explain it — lead with the
+      // SDK-drift candidate instead.
+      command.writtenInterfaceSpec = (
+        path: '${tmp.path}/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: report.path,
+        extendable: true,
+        specChanged: true
+      );
+      command.checkInterfaceReportAfterBuild();
+      verify(
+        () => logger.warn(
+          any(
+            that: allOf(
+              contains('the interface spec changed this run'),
               contains('SDK is newer'),
             ),
           ),
@@ -525,7 +552,8 @@ void main() {
       cmd.writtenInterfaceSpec = (
         path: '/x/dynamic_interface.yaml',
         reportPath: '/x/dynamic_interface_report.json',
-        extendable: true
+        extendable: true,
+        specChanged: false
       );
       cmd.interfaceReportObservedAfterBuild = true;
       cmd.archiveIosBaseline(releaseId: 'rel-1', baselineId: 'base-1');
@@ -572,7 +600,8 @@ void main() {
           specPath: '/spec/dynamic_interface.yaml',
           appCount: 1,
           flutterCount: 2,
-          extendable: true
+          extendable: true,
+          specChanged: false
         ),
       );
       // fcp never writes the report; only the build does. A leftover
@@ -596,7 +625,8 @@ void main() {
       command.writtenInterfaceSpec = (
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
-        extendable: true
+        extendable: true,
+        specChanged: false
       );
       expect(
         command.buildFailureFreezeHint(),
@@ -609,7 +639,8 @@ void main() {
       command.writtenInterfaceSpec = (
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
-        extendable: false
+        extendable: false,
+        specChanged: false
       );
       expect(
         command.buildFailureFreezeHint(),
@@ -624,7 +655,8 @@ void main() {
       command.writtenInterfaceSpec = (
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
-        extendable: true
+        extendable: true,
+        specChanged: false
       );
       command.failReleaseStep(progress, 'Build failed', diagnostics: 'boom');
       verify(() => progress.fail('Build failed')).called(1);
@@ -688,7 +720,7 @@ void main() {
       // The refusal must not leave a previous run's spec next to the
       // report this run already deleted.
       final stale = File(
-        '${tmp.path}/build/codepush/dynamic_interface_0ldc0ffedeadbeef.yaml',
+        '${tmp.path}/build/codepush/dynamic_interface_01dc0ffedeadbeef.yaml',
       )
         ..createSync(recursive: true)
         ..writeAsStringSync('old\n');
@@ -717,7 +749,7 @@ void main() {
         ),
       ).thenAnswer((_) async => null);
       final stale = File(
-        '${tmp.path}/build/codepush/dynamic_interface_0ldc0ffedeadbeef.yaml',
+        '${tmp.path}/build/codepush/dynamic_interface_01dc0ffedeadbeef.yaml',
       )
         ..createSync(recursive: true)
         ..writeAsStringSync('old\n');

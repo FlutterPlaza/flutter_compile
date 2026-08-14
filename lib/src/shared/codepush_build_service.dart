@@ -1462,14 +1462,23 @@ class CodePushBuildService {
   /// framework library is not in the closure; the writer stays a
   /// flag-agnostic API, so deciding how loud each cause must be —
   /// including the un-chosen gate miss — is the caller's job.
+  /// `specChanged` is true when no previous spec existed or its name
+  /// differed — i.e. the build system has (almost certainly) never
+  /// seen this option string, so a fresh compile is expected and a
+  /// missing report afterwards cannot be explained by compile reuse.
   ///
   /// [allowExtendable] defaults ON — it carries the user-facing
   /// `--extendable-widgets` opt-out — deliberately opposite to the pure
   /// builder's `includeExtendable` default: the builder emits nothing
   /// it was not explicitly asked for, while this writer applies the
   /// product default.
-  ({String specPath, int appCount, int flutterCount, bool extendable})?
-      writeIosInterfaceFreezeSpec({
+  ({
+    String specPath,
+    int appCount,
+    int flutterCount,
+    bool extendable,
+    bool specChanged,
+  })? writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
     required String projectRoot,
     required String packageName,
@@ -1504,7 +1513,19 @@ class CodePushBuildService {
     // every stale sibling (hashed or the legacy fixed name).
     final specName = freeze_files.interfaceSpecFilenameFor(yaml);
     final specPath = '$specDirPath/$specName';
-    if (sweptSpecs.isNotEmpty && !sweptSpecs.contains(specName)) {
+    // specChanged: no previous spec, or a previous spec with a
+    // different name. Either way the option string is (almost
+    // certainly) new to the build system, so a fresh full compile is
+    // expected — and, downstream, a MISSING report cannot be explained
+    // by compile reuse. (Heuristic: re-toggling an option back can
+    // land on an older warm env-hash directory.)
+    final specChanged = sweptSpecs.isEmpty || !sweptSpecs.contains(specName);
+    if (sweptSpecs.isEmpty) {
+      _logger.detail(
+        'No previous interface spec in the build directory; this '
+        'release compiles from scratch.',
+      );
+    } else if (!sweptSpecs.contains(specName)) {
       // A changed option string is a new build environment: the next
       // build compiles from scratch in a fresh directory. Deliberate
       // (the recompile is the point), but it should not surprise
@@ -1543,6 +1564,7 @@ class CodePushBuildService {
       appCount: appLibraries.length,
       flutterCount: flutterLibraries.length,
       extendable: includeExtendable,
+      specChanged: specChanged,
     );
   }
 

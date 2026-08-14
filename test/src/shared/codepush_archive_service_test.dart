@@ -115,6 +115,7 @@ void main() {
       expect(manifest['platform'], 'ios-arm64');
       expect(manifest['has_dsym'], isFalse);
       expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['interface_spec_source_name'], isNull);
       expect(manifest['has_interface_report'], isFalse);
       expect(manifest['has_extendable_widgets'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
@@ -184,6 +185,11 @@ void main() {
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isTrue);
       expect(manifest['has_interface_report'], isTrue);
+      // The join key against env-hash build directories.
+      expect(
+        manifest['interface_spec_source_name'],
+        'dynamic_interface.yaml',
+      );
       // The manifest must answer "was guarding on?" without grepping
       // the yaml.
       expect(manifest['has_extendable_widgets'], isTrue);

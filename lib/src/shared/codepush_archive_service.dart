@@ -23,7 +23,10 @@ import 'package:mason_logger/mason_logger.dart';
 /// `manifest.json` keys (format v2): `archive_format_version`,
 /// `release_id`, `baseline_id`, `platform`, `framework_sha256`,
 /// `app_framework_sha256`, `runner_binary_sha256`, `has_dsym`,
-/// `has_interface_spec` (copy outcome), `has_interface_report`
+/// `has_interface_spec` (copy outcome), `interface_spec_source_name`
+/// (the content-addressed basename that entered the build's option
+/// string — the join key against env-hash build directories; null
+/// when no spec was attested), `has_interface_report`
 /// (tri-state copy outcome: true = archived, false = known absent —
 /// no freeze this run, the copy failed, or the report was produced
 /// and then lost, null = the compiler wrote none this build, e.g. a
@@ -194,6 +197,12 @@ class CodePushArchiveService {
         'runner_binary_sha256': runnerBinarySha,
         'has_dsym': archivedDsym,
         'has_interface_spec': archivedSpec,
+        // The content-addressed name that entered the build's option
+        // string — the join key against .dart_tool/flutter_build
+        // env-hash directories months later.
+        'interface_spec_source_name': interfaceSpecPath == null
+            ? null
+            : File(interfaceSpecPath).uri.pathSegments.last,
         'has_interface_report': archivedReport,
         'has_extendable_widgets': interfaceSpecExtendable,
         'build_date': DateTime.now().toUtc().toIso8601String(),

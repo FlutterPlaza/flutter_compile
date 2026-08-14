@@ -33,21 +33,28 @@ String interfaceSpecFilenameFor(String yamlContent) {
   return '${kInterfaceSpecFilenamePrefix}_${digest.substring(0, 16)}.yaml';
 }
 
-/// Delete every interface spec (hashed or legacy fixed-name) in
-/// [dirPath], returning the deleted basenames. Best-effort per entry:
-/// one undeletable stale file must not shield the rest, and an
-/// unlistable directory is left for the caller's write path to
-/// surface. Shared by the writer and the release command's
-/// post-report-delete refusal paths, so no refusal leaves a previous
-/// run's spec next to an already-deleted report.
+/// The exact names fcp itself writes: the legacy fixed name or a
+/// content-addressed one. The sweep matches ONLY these, so a spec a
+/// user parked under a similar name in build/codepush (the documented
+/// user-supplied `--dynamic-interface` escape hatch) is never eaten.
+final RegExp _fcpSpecName = RegExp(
+  '^(${RegExp.escape(kInterfaceSpecFilename)}|'
+  '${RegExp.escape(kInterfaceSpecFilenamePrefix)}_[0-9a-f]{16}\\.yaml)\$',
+);
+
+/// Delete every interface spec fcp itself wrote (hashed or legacy
+/// fixed-name) in [dirPath], returning the deleted basenames.
+/// Best-effort per entry: one undeletable stale file must not shield
+/// the rest, and an unlistable directory is left for the caller's
+/// write path to surface. Shared by the writer and the release
+/// command's post-report-delete refusal paths, so no refusal leaves a
+/// previous run's spec next to an already-deleted report.
 List<String> sweepInterfaceSpecs(String dirPath) {
   final swept = <String>[];
   try {
     for (final entity in Directory(dirPath).listSync()) {
       final name = entity.uri.pathSegments.last;
-      if (entity is File &&
-          name.startsWith(kInterfaceSpecFilenamePrefix) &&
-          name.endsWith('.yaml')) {
+      if (entity is File && _fcpSpecName.hasMatch(name)) {
         try {
           entity.deleteSync();
           swept.add(name);

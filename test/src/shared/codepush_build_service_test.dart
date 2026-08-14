@@ -1136,9 +1136,12 @@ void _interfaceFreeze() {
     test('no mappable app libraries => null, and stale specs still swept', () {
       // A refused run must not leave a previous run's spec behind: the
       // command already deleted the report, and the two artifacts must
-      // never describe different runs.
-      File('${tmp.path}/dynamic_interface_0ldc0ffe.yaml')
+      // never describe different runs. The report file, meanwhile,
+      // must SURVIVE the sweep (it is not a spec).
+      File('${tmp.path}/dynamic_interface_01dc0ffe01dc0ffe.yaml')
           .writeAsStringSync('old\n');
+      File('${tmp.path}/dynamic_interface_report.json')
+          .writeAsStringSync('{}\n');
       final spec = service.writeIosInterfaceFreezeSpec(
         closurePaths: const {'/elsewhere/lib/x.dart'},
         projectRoot: tmp.path,
@@ -1147,8 +1150,14 @@ void _interfaceFreeze() {
       );
       expect(spec, isNull);
       expect(
+        File('${tmp.path}/dynamic_interface_report.json').existsSync(),
+        true,
+      );
+      expect(
         tmp.listSync().whereType<File>().where(
-              (f) => f.uri.pathSegments.last.startsWith('dynamic_interface'),
+              (f) =>
+                  f.uri.pathSegments.last.startsWith('dynamic_interface') &&
+                  f.uri.pathSegments.last.endsWith('.yaml'),
             ),
         isEmpty,
       );
@@ -1180,7 +1189,7 @@ void _interfaceFreeze() {
       // spec must both disappear: the build fingerprint keys on the
       // option STRING, so only a changed filename busts the cache.
       File('${tmp.path}/dynamic_interface.yaml').writeAsStringSync('old\n');
-      File('${tmp.path}/dynamic_interface_deadbeef.yaml')
+      File('${tmp.path}/dynamic_interface_deadbeefdeadbeef.yaml')
           .writeAsStringSync('old\n');
 
       final first = service.writeIosInterfaceFreezeSpec(
@@ -1198,7 +1207,8 @@ void _interfaceFreeze() {
         false,
       );
       expect(
-        File('${tmp.path}/dynamic_interface_deadbeef.yaml').existsSync(),
+        File('${tmp.path}/dynamic_interface_deadbeefdeadbeef.yaml')
+            .existsSync(),
         false,
       );
       // Sweeping differently-named stale specs is a spec CHANGE — the
@@ -1216,6 +1226,7 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(again!.specPath, first.specPath);
+      expect(again.specChanged, false);
       verifyNever(
         () => logger.detail(any(that: contains('compile from scratch'))),
       );
@@ -1233,6 +1244,7 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(changed!.specPath, isNot(first.specPath));
+      expect(changed.specChanged, true);
       expect(File(first.specPath).existsSync(), false);
       expect(File(changed.specPath).existsSync(), true);
       verify(
