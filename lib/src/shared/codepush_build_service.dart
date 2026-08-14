@@ -1207,8 +1207,11 @@ class CodePushBuildService {
         .map((s) => s.replaceAll(_depfileSpace, ' '))
         // Normalize separators once here so every closure consumer
         // (app-library mapping, framework detection, extendable gate)
-        // sees '/' paths regardless of host toolchain.
+        // sees '/' paths regardless of host toolchain. Windows entries
+        // may double their backslashes under Make escaping, so runs of
+        // the resulting '/' are collapsed too.
         .map((s) => s.replaceAll(r'\', '/'))
+        .map((s) => s.replaceAll(RegExp('/{2,}'), '/'))
         .toSet();
   }
 

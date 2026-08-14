@@ -663,6 +663,13 @@ void _interfaceFreeze() {
       expect(sources, {'/a/b.dart', '/c d/e.dart', '/f/g.dart'});
     });
 
+    test('normalizes doubled Windows backslashes to single separators', () {
+      final sources = CodePushBuildService.parseDepfileSources(
+        'out.dill: C:\\\\proj\\\\lib\\\\main.dart /a/b.dart\n',
+      );
+      expect(sources, {'C:/proj/lib/main.dart', '/a/b.dart'});
+    });
+
     test('returns empty on malformed input', () {
       expect(CodePushBuildService.parseDepfileSources('no colon'), isEmpty);
     });
