@@ -1205,6 +1205,10 @@ class CodePushBuildService {
         .split(RegExp(r'\s+'))
         .where((s) => s.isNotEmpty)
         .map((s) => s.replaceAll(_depfileSpace, ' '))
+        // Normalize separators once here so every closure consumer
+        // (app-library mapping, framework detection, extendable gate)
+        // sees '/' paths regardless of host toolchain.
+        .map((s) => s.replaceAll(r'\', '/'))
         .toSet();
   }
 
@@ -1273,32 +1277,34 @@ class CodePushBuildService {
     required String packageName,
     void Function(String path, String reason)? onSkip,
   }) {
+    // Closure paths are separator-normalized (see [parseDepfileSources]
+    // and the per-entry normalization below); normalize the root the
+    // same way so Windows roots match.
+    final root = projectRoot.replaceAll(r'\', '/');
     final libPrefixes = <String>{
-      '$projectRoot/lib/',
+      '$root/lib/',
       // The front-end may write resolved (symlink-free) paths...
-      '${_tryResolve(projectRoot)}/lib/',
-      // ...or relative ones, depending on version...
+      '${_tryResolve(projectRoot).replaceAll(r'\', '/')}/lib/',
+      // ...or relative ones, depending on version.
       'lib/',
-      // ...and Windows toolchains write backslashed forms of each.
-      '$projectRoot\\lib\\',
-      'lib\\',
     };
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
-    for (final path in closurePaths) {
+    for (final rawPath in closurePaths) {
+      final path = rawPath.replaceAll(r'\', '/');
       if (!path.endsWith('.dart')) continue;
       final prefix = libPrefixes.firstWhere(
         path.startsWith,
         orElse: () => '',
       );
       if (prefix.isEmpty) continue;
-      final rel = path.substring(prefix.length).replaceAll(r'\', '/');
+      final rel = path.substring(prefix.length);
       if (rel.split('/').any((seg) => seg.startsWith('.'))) continue;
       if (!safe.hasMatch(rel)) {
         onSkip?.call(path, 'unsupported characters in path');
         continue;
       }
-      final readPath = isAbsoluteSourcePath(path) ? path : '$projectRoot/$path';
+      final readPath = isAbsoluteSourcePath(path) ? path : '$root/$path';
       String content;
       try {
         content = utf8.decode(
@@ -1514,6 +1520,11 @@ class CodePushBuildService {
   /// optimization. Returns the set of source paths in the closure, or
   /// null on failure (with diagnostics logged). Used to generate the
   /// iOS interface freeze from what the build actually contains.
+  /// Instance wrapper over [frontendSupportsDynamicInterface] so
+  /// command-level tests can stub the probe.
+  bool frontendSupportsFreeze(String flutterRoot) =>
+      frontendSupportsDynamicInterface(flutterRoot);
+
   /// Whether the SDK's front-end snapshot recognises the
   /// `--dynamic-interface` option, probed by scanning the snapshot for
   /// the option name (AOT snapshots embed their option strings).

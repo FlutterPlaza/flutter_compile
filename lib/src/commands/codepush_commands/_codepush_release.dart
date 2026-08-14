@@ -12,7 +12,8 @@ import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
-  CodePushReleaseSubCommand(this._logger) {
+  CodePushReleaseSubCommand(this._logger, {CodePushBuildService? buildService})
+      : _injectedBuildService = buildService {
     argParser
       ..addOption('app-id', help: 'The app ID to create a release for.')
       ..addOption(
@@ -68,6 +69,10 @@ class CodePushReleaseSubCommand extends Command<int> {
 
   final Logger _logger;
 
+  /// Test seam: a build service injected by tests; production
+  /// construction happens in [run].
+  final CodePushBuildService? _injectedBuildService;
+
   @override
   final String name = 'release';
   @override
@@ -117,7 +122,8 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     // If --build is set, build the app first.
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    final buildService = CodePushBuildService(logger: _logger);
+    final buildService =
+        _injectedBuildService ?? CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
     String? originalAndroidYaml;
@@ -223,7 +229,7 @@ class CodePushReleaseSubCommand extends Command<int> {
             extraBuildArgs,
           );
           if (argResults?['interface-freeze'] as bool? ?? true) {
-            final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
+            final freezeArgs = await prepareIosInterfaceFreeze(buildService);
             if (freezeArgs == null) return ExitCode.software.code;
             releaseBuildArgs = freezeArgs(releaseBuildArgs);
           } else {
@@ -556,7 +562,9 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// The spec lists only libraries the compile actually contains
   /// (discovered via a fast front-end pre-pass), because a listed
   /// library that is absent from the compile fails the whole build.
-  Future<List<String> Function(List<String>)?> _prepareIosInterfaceFreeze(
+  /// Public for tests (no meta dependency for @visibleForTesting);
+  /// production callers stay inside this command.
+  Future<List<String> Function(List<String>)?> prepareIosInterfaceFreeze(
       CodePushBuildService buildService) async {
     final projectRoot = Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
@@ -583,9 +591,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
-        !CodePushBuildService.frontendSupportsDynamicInterface(
-          flutterRoot,
-        )) {
+        !buildService.frontendSupportsFreeze(flutterRoot)) {
       _logger.err(
         'This Flutter SDK\'s compiler does not support preserving call '
         'shapes for code push. Upgrade Flutter (3.41+), or pass '
