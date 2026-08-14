@@ -81,6 +81,12 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// construction happens in [run].
   final CodePushBuildService? _injectedBuildService;
 
+  /// The interface spec written by THIS run's freeze preparation, for
+  /// the archive step. Null when the freeze was skipped or failed, so
+  /// the archive never claims a leftover spec from a previous run.
+  /// Public for tests (no meta dependency for @visibleForTesting).
+  String? writtenInterfaceSpecPath;
+
   @override
   final String name = 'release';
   @override
@@ -547,6 +553,7 @@ class CodePushReleaseSubCommand extends Command<int> {
             releaseId: releaseId,
             baselineId: baselineId,
             fcpVersion: packageVersion,
+            interfaceSpecPath: writtenInterfaceSpecPath,
           );
         }
       }
@@ -578,6 +585,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     CodePushBuildService buildService, {
     String? projectRootOverride,
   }) async {
+    writtenInterfaceSpecPath = null;
     final projectRoot = projectRootOverride ?? Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
     String? packageName;
@@ -693,11 +701,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (allowExtendable && !writtenSpec.extendable) {
       progress.fail('Widget base classes could not be marked extendable');
       _logger.err(
-        'The Flutter framework library was not found in the compile, so '
-        'patches that add new widget subclasses would fail on this '
-        'release. Build with --no-extendable-widgets to acknowledge '
-        'shipping without widget guarding, or report this with your '
-        'project layout.',
+        'The Flutter framework library '
+        '(${CodePushBuildService.kIosExtendableFrameworkLibrary}) was not '
+        'found in the compile, so patches that add new widget subclasses '
+        'would fail on this release. Build with --no-extendable-widgets '
+        'to acknowledge shipping without widget guarding, or report this '
+        'with your project layout.',
       );
       return null;
     }
@@ -708,6 +717,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     );
     // Captured variables do not promote; bind the non-null value.
     final String frozenSpecPath = writtenSpec.specPath;
+    writtenInterfaceSpecPath = frozenSpecPath;
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,
           freezeSpecPath: frozenSpecPath,

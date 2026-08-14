@@ -141,6 +141,11 @@ void main() {
         args.join(' '),
         contains('--dynamic-interface=/spec/dynamic_interface.yaml'),
       );
+      // The archive step reads this to claim only THIS run's spec.
+      expect(
+        command.writtenInterfaceSpecPath,
+        '/spec/dynamic_interface.yaml',
+      );
     });
 
     test('frontendSupportsFreeze delegates to the real probe', () {
@@ -390,12 +395,23 @@ void main() {
         projectRootOverride: tmp.path,
       );
       expect(freeze, isNull);
+      // A failed freeze must leave nothing for the archive to claim.
+      expect(command.writtenInterfaceSpecPath, isNull);
       verify(
         () =>
             progress.fail('Widget base classes could not be marked extendable'),
       ).called(1);
+      // The guidance names the library the gate searched for — the
+      // datum that makes a "report this" report actionable.
       verify(
-        () => logger.err(any(that: contains('--no-extendable-widgets'))),
+        () => logger.err(
+          any(
+            that: allOf(
+              contains('--no-extendable-widgets'),
+              contains(CodePushBuildService.kIosExtendableFrameworkLibrary),
+            ),
+          ),
+        ),
       ).called(1);
     });
 
@@ -425,6 +441,7 @@ void main() {
         args,
         contains('${tmp.path}/build/codepush/dynamic_interface_report.json'),
       );
+      expect(cmd.writtenInterfaceSpecPath, specFile.path);
     });
 
     test('unsupported front-end fails before any compile', () async {

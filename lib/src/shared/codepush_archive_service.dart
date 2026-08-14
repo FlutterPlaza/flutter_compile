@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 /// Saves a copy of the iOS baseline app bundle, the embedded Flutter
@@ -42,12 +43,19 @@ class CodePushArchiveService {
   /// run. Returns `true` if the archive was written, `false` if a
   /// non-fatal precondition was missing (e.g., no built Runner.app).
   ///
+  /// [interfaceSpecPath] is the interface-freeze spec written by THIS
+  /// run, or null when the run produced none (freeze skipped or
+  /// failed). The archive copies only what the caller attests to —
+  /// keying on a file merely existing on disk would claim a previous
+  /// run's spec as this release's.
+  ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
   bool archiveIosRelease({
     required String releaseId,
     required String baselineId,
     required String fcpVersion,
+    String? interfaceSpecPath,
   }) {
     try {
       final runnerApp = Directory(
@@ -104,15 +112,19 @@ class CodePushArchiveService {
 
       // The freeze spec answers "did this baseline have widget guarding,
       // and over which libraries?" — the first question when a patch
-      // fails on a device months later. Survives the build (only the
-      // pre-pass work files are cleaned).
-      final specSource = File(
-        '${_projectDir.path}/build/codepush/dynamic_interface.yaml',
-      );
+      // fails on a device months later. Optional like the dSYM: its
+      // failure must not discard the app-bundle archive.
       var archivedSpec = false;
-      if (specSource.existsSync()) {
-        specSource.copySync('${releaseDir.path}/dynamic_interface.yaml');
-        archivedSpec = true;
+      if (interfaceSpecPath != null && File(interfaceSpecPath).existsSync()) {
+        try {
+          File(interfaceSpecPath).copySync(
+            '${releaseDir.path}/'
+            '${CodePushBuildService.kInterfaceSpecFilename}',
+          );
+          archivedSpec = true;
+        } on FileSystemException catch (e) {
+          _logger.detail('Could not archive the interface spec: $e');
+        }
       }
 
       final frameworkSha = _sha256OfFile(flutterFramework);

@@ -143,15 +143,19 @@ void main() {
       expect(manifest['has_dsym'], isTrue);
     });
 
-    test('archives the interface spec when present and records it', () {
+    test('archives the interface spec this run attested to', () {
       writeBaselineApp();
-      File('${projectDir.path}/build/codepush/dynamic_interface.yaml')
-          .writeAsStringSync('callable:\n');
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
 
       final ok = service.archiveIosRelease(
         releaseId: 'rel-spec',
         baselineId: 'base-spec',
         fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
       );
 
       expect(ok, isTrue);
@@ -166,6 +170,78 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isTrue);
+    });
+
+    test('a leftover spec from a previous run is never claimed', () {
+      writeBaselineApp();
+      // On disk (a previous run's), but THIS run attests to none.
+      File('${projectDir.path}/build/codepush/dynamic_interface.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-stale',
+        baselineId: 'base-stale',
+        fcpVersion: '0.0.0',
+      );
+
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-stale',
+      );
+      expect(
+        File('${releaseDir.path}/dynamic_interface.yaml').existsSync(),
+        isFalse,
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isFalse);
+    });
+
+    test('a failed spec copy is non-fatal, like the dSYM', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      writeBaselineApp();
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+      Process.runSync('chmod', ['000', specPath]);
+      addTearDown(() => Process.runSync('chmod', ['644', specPath]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File(specPath).readAsStringSync();
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the file really is unreadable.
+      }
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-badspec',
+        baselineId: 'base-badspec',
+        fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
+      );
+
+      // The app-bundle archive survives; only the optional spec is lost.
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-badspec',
+      );
+      expect(
+        File('${releaseDir.path}/manifest.json').existsSync(),
+        isTrue,
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isFalse);
     });
 
     test('does NOT write a project-level .gitignore inside the archive', () {
