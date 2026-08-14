@@ -181,10 +181,20 @@ class CodePushPatchSubCommand extends Command<int> {
       // and every consumer below degrades.
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
-      final releaseInfo = await client.getRelease(
-        token: token,
-        releaseId: releaseId,
-      );
+      _logger.detail('Reading release $releaseId…');
+      final releaseInfo = await client
+          .getRelease(token: token, releaseId: releaseId)
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      if (releaseInfo == null) {
+        // Cheap to say NOW, expensive to discover after the build: a
+        // typo'd release id, an expired login, an old server, and
+        // being offline all collapse into this null.
+        _logger.warn(
+          'Could not read release $releaseId from the server (wrong '
+          'id, expired login, offline, or an old server). Continuing '
+          '— the upload will verify the release id.',
+        );
+      }
       warnIfUnguardedRelease(releaseInfo);
 
       if (shouldBuild) {
@@ -571,11 +581,14 @@ class CodePushPatchSubCommand extends Command<int> {
 
       // The baseline_hash must match what the DEVICE is running (the
       // release binary), not the binary we just built (post-edit).
-      // The release was fetched before the build; its stored hash
-      // always agrees with the device's installed baseline.
-      final patchPlatform =
-          (argResults?['platform'] as String?) ?? builtPlatform;
-      var baselineHash = releaseInfo?['snapshot_hash'] as String?;
+      // The release was fetched before the build; WHEN the fetch
+      // succeeded and the release stores a hash, it agrees with the
+      // device's installed baseline — the fallback below covers every
+      // other case. Type-checked read: a non-String echo must degrade
+      // to the fallback, not throw an uncaught TypeError after the
+      // whole build (same server-type reasoning as isOff above).
+      final rawHash = releaseInfo?['snapshot_hash'];
+      var baselineHash = rawHash is String ? rawHash : null;
 
       if (baselineHash != null) {
         _logger.detail(
@@ -599,6 +612,8 @@ class CodePushPatchSubCommand extends Command<int> {
         // may be hashed (what devices actually run); the
         // merged_native_libs copy this used to hash is pre-strip and
         // hashes differently.
+        final patchPlatform =
+            (argResults?['platform'] as String?) ?? builtPlatform;
         final isAndroidFallback =
             const {'apk', 'appbundle', 'android'}.contains(patchPlatform);
         final androidBaselineLib = isAndroidFallback
