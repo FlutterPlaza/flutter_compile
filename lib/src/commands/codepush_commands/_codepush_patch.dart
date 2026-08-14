@@ -182,9 +182,15 @@ class CodePushPatchSubCommand extends Command<int> {
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
       _logger.detail('Reading release $releaseId…');
+      // Generous deadline: this fetch also carries the release's
+      // stored baseline hash, and for a patch-file-only invocation
+      // (no --build, no --platform) there is no local fallback — a
+      // timeout here silently drops the device-side baseline check,
+      // not just this warning. 30s tolerates a cold proxy handshake;
+      // the onTimeout null degrades like every other failure.
       final releaseInfo = await client
           .getRelease(token: token, releaseId: releaseId)
-          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+          .timeout(const Duration(seconds: 30), onTimeout: () => null);
       if (releaseInfo == null) {
         // Cheap to say NOW, expensive to discover after the build: a
         // typo'd release id, an expired login, an old server, and
@@ -192,7 +198,10 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.warn(
           'Could not read release $releaseId from the server (wrong '
           'id, expired login, offline, or an old server). Continuing '
-          '— the upload will verify the release id.',
+          '— the upload will verify the release id, but the release\'s '
+          'stored baseline hash could not be read: unless a local '
+          'build supplies one, this patch uploads without the '
+          'device-side baseline check.',
         );
       }
       warnIfUnguardedRelease(releaseInfo);
@@ -730,7 +739,10 @@ class CodePushPatchSubCommand extends Command<int> {
           // Best-effort cleanup only.
         }
       }
-      client?.close();
+      // force: a timed-out release fetch abandons its future but not
+      // its socket; tear it down here instead of relying on the
+      // entrypoint's exit().
+      client?.close(force: true);
     }
   }
 

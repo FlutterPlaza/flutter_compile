@@ -857,5 +857,59 @@ void main() {
         (interfaceFreeze: true, extendableWidgets: true),
       );
     });
+
+    test(
+        'interfaceAttestation: a from-scratch build (unknown spec '
+        'state) with no report is unknown, not attested', () {
+      // The clean-CI case: no previous spec swept, so specChange is
+      // unknown and the compile ran from scratch — a cache hit cannot
+      // explain a missing report. Attesting true here would silence
+      // the patch-time warning on the ordinary way a release is cut.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unknown
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+
+      // With the report observed, unknown spec state is fine — the
+      // report itself is the evidence.
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+
+      // Only an unchanged spec excuses a missing report (the cache
+      // hit reused a compile of these exact bytes).
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
   });
 }

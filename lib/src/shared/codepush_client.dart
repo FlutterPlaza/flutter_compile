@@ -196,17 +196,41 @@ class CodePushClient {
       '/api/v1/releases',
       token: token,
       bytes: snapshotData,
-      queryParams: {
-        'app_id': appId,
-        'version': version,
-        if (flutterVersion != null) 'flutter_version': flutterVersion,
-        if (baselineId != null) 'baseline_id': baselineId,
-        if (interfaceFreeze != null)
-          'interface_freeze': interfaceFreeze.toString(),
-        if (extendableWidgets != null)
-          'extendable_widgets': extendableWidgets.toString(),
-      },
+      queryParams: releaseQueryParams(
+        appId: appId,
+        version: version,
+        flutterVersion: flutterVersion,
+        baselineId: baselineId,
+        interfaceFreeze: interfaceFreeze,
+        extendableWidgets: extendableWidgets,
+      ),
     );
+  }
+
+  /// The query params [createRelease] sends. Extracted (and static)
+  /// so the null-is-ABSENT contract is testable without an HTTP seam:
+  /// a null must drop the key entirely — serializing it would send the
+  /// literal string "null", which the server's tri-state parse reads
+  /// as a definite value, the exact shape unknown-is-not-false exists
+  /// to prevent.
+  static Map<String, String> releaseQueryParams({
+    required String appId,
+    required String version,
+    String? flutterVersion,
+    String? baselineId,
+    bool? interfaceFreeze,
+    bool? extendableWidgets,
+  }) {
+    return {
+      'app_id': appId,
+      'version': version,
+      if (flutterVersion != null) 'flutter_version': flutterVersion,
+      if (baselineId != null) 'baseline_id': baselineId,
+      if (interfaceFreeze != null)
+        'interface_freeze': interfaceFreeze.toString(),
+      if (extendableWidgets != null)
+        'extendable_widgets': extendableWidgets.toString(),
+    };
   }
 
   /// Get a release's JSON by id, or null when it does not exist or
@@ -665,5 +689,5 @@ class CodePushClient {
     }
   }
 
-  void close() => _http.close();
+  void close({bool force = false}) => _http.close(force: force);
 }

@@ -898,10 +898,16 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// artifact, so it un-attests: recording `true` for foreign bytes
   /// would silence the patch-time warning on a release that most
   /// needs it. Nulls again when the evidence contradicts the intent:
-  /// a changed spec whose compiler report never appeared is the
-  /// suspected-SDK-drift state ([checkInterfaceReportAfterBuild]),
-  /// and the server record must tell the same story as the archive.
-  /// With the freeze deliberately off, intent and fact agree: false.
+  /// the freeze is proven by the compiler's report, or by a cache hit
+  /// on an IDENTICAL spec (unchanged — the content-addressed name
+  /// guarantees a reused compile saw these exact bytes). A missing
+  /// report on any OTHER spec state is unexplainable — `changed` is
+  /// the suspected-SDK-drift state, and `unknown` includes the
+  /// from-scratch clean-CI build, where no cache hit can excuse the
+  /// absence ([checkInterfaceReportAfterBuild] warns on exactly this
+  /// split) — so the server record must tell the same story as the
+  /// archive. With the freeze deliberately off, intent and fact
+  /// agree: false.
   /// Public for tests ([run] cannot be cheaply exercised).
   ({bool? interfaceFreeze, bool? extendableWidgets}) interfaceAttestation({
     required bool shouldBuild,
@@ -915,8 +921,8 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (spec == null) {
       return (interfaceFreeze: false, extendableWidgets: false);
     }
-    if (spec.specChange == freeze_files.InterfaceSpecChange.changed &&
-        !interfaceReportObservedAfterBuild) {
+    if (!interfaceReportObservedAfterBuild &&
+        spec.specChange != freeze_files.InterfaceSpecChange.unchanged) {
       return (interfaceFreeze: null, extendableWidgets: null);
     }
     return (interfaceFreeze: true, extendableWidgets: spec.extendable);
