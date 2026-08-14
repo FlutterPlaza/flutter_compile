@@ -983,6 +983,19 @@ void _interfaceFreeze() {
     });
   });
 
+  group('extendable constants', () {
+    test('the guarded base-class list is pinned', () {
+      expect(
+        CodePushBuildService.kIosExtendableFrameworkClasses,
+        ['StatelessWidget', 'StatefulWidget', 'State'],
+      );
+      expect(
+        CodePushBuildService.kIosExtendableFrameworkLibrary,
+        'package:flutter/src/widgets/framework.dart',
+      );
+    });
+  });
+
   group('buildIosInterfaceFreezeYaml extendable section', () {
     test('included on request with the widget base classes', () {
       final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
@@ -1128,13 +1141,13 @@ void _interfaceFreeze() {
     test('accepts backslashed closure entries like its siblings', () {
       expect(
         CodePushBuildService.closureHasExtendableFramework({
-          r'C:\sdk\packages\flutter\lib\src\widgets\framework.dart',
+          r'C:\\sdk\\packages\\flutter\\lib\\src\\widgets\\framework.dart',
         }),
         true,
       );
       expect(
         CodePushBuildService.flutterLibrariesFromClosure({
-          r'C:\sdk\packages\flutter\lib\widgets.dart',
+          r'C:\\sdk\\packages\\flutter\\lib\\widgets.dart',
         }),
         ['package:flutter/widgets.dart'],
       );

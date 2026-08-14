@@ -1210,8 +1210,7 @@ class CodePushBuildService {
         // sees '/' paths regardless of host toolchain. Windows entries
         // may double their backslashes under Make escaping, so runs of
         // the resulting '/' are collapsed too.
-        .map((s) => s.replaceAll(r'\', '/'))
-        .map((s) => s.replaceAll(RegExp('/{2,}'), '/'))
+        .map(_normalizePath)
         .toSet();
   }
 
@@ -1257,10 +1256,16 @@ class CodePushBuildService {
     return false;
   }
 
+  /// Canonical path normalization: separators to '/', runs collapsed
+  /// (Windows Make-escaping doubles backslashes). The parser and every
+  /// defensive consumer use THIS so the sites cannot drift.
+  static String _normalizePath(String p) =>
+      p.replaceAll(r'\', '/').replaceAll(RegExp('/{2,}'), '/');
+
   /// Separator-normalize closure entries so every consumer agrees even
   /// when handed a closure that skipped [parseDepfileSources].
   static Iterable<String> _normalizeClosure(Set<String> closurePaths) =>
-      closurePaths.map((p) => p.replaceAll(r'\', '/'));
+      closurePaths.map(_normalizePath);
 
   static final RegExp _windowsDrivePrefix = RegExp(r'^[A-Za-z]:[/\\]');
 
@@ -1288,7 +1293,7 @@ class CodePushBuildService {
     // Closure paths are separator-normalized (see [parseDepfileSources]
     // and the per-entry normalization below); normalize the root the
     // same way so Windows roots match.
-    final root = projectRoot.replaceAll(r'\', '/');
+    final root = _normalizePath(projectRoot);
     final libPrefixes = <String>{
       '$root/lib/',
       // The front-end may write resolved (symlink-free) paths...
@@ -1299,7 +1304,7 @@ class CodePushBuildService {
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
     for (final rawPath in closurePaths) {
-      final path = rawPath.replaceAll(r'\', '/');
+      final path = _normalizePath(rawPath);
       if (!path.endsWith('.dart')) continue;
       final prefix = libPrefixes.firstWhere(
         path.startsWith,

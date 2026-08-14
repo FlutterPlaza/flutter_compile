@@ -565,8 +565,10 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// Public for tests (no meta dependency for @visibleForTesting);
   /// production callers stay inside this command.
   Future<List<String> Function(List<String>)?> prepareIosInterfaceFreeze(
-      CodePushBuildService buildService) async {
-    final projectRoot = Directory.current.path;
+    CodePushBuildService buildService, {
+    String? projectRootOverride,
+  }) async {
+    final projectRoot = projectRootOverride ?? Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
     final packageName = pubspec.existsSync()
         ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
