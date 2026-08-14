@@ -1191,7 +1191,7 @@ void _interfaceFreeze() {
       );
       expect(
         first!.specPath,
-        matches(RegExp(r'dynamic_interface_[0-9a-f]{8}\.yaml$')),
+        matches(RegExp(r'dynamic_interface_[0-9a-f]{16}\.yaml$')),
       );
       expect(
         File('${tmp.path}/dynamic_interface.yaml').existsSync(),
@@ -1201,8 +1201,14 @@ void _interfaceFreeze() {
         File('${tmp.path}/dynamic_interface_deadbeef.yaml').existsSync(),
         false,
       );
+      // Sweeping differently-named stale specs is a spec CHANGE — the
+      // next build recompiles from scratch, and the breadcrumb says so.
+      verify(
+        () => logger.detail(any(that: contains('compile from scratch'))),
+      ).called(1);
 
-      // Same inputs => same name (a cache hit stays a cache hit).
+      // Same inputs => same name (a cache hit stays a cache hit), and
+      // no spec-change breadcrumb.
       final again = service.writeIosInterfaceFreezeSpec(
         closurePaths: {'${tmp.path}/lib/main.dart'},
         projectRoot: tmp.path,
@@ -1210,6 +1216,9 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(again!.specPath, first.specPath);
+      verifyNever(
+        () => logger.detail(any(that: contains('compile from scratch'))),
+      );
 
       // Changed contents => changed name, previous spec swept.
       Directory('${tmp.path}/lib').createSync(recursive: true);
@@ -1226,6 +1235,42 @@ void _interfaceFreeze() {
       expect(changed!.specPath, isNot(first.specPath));
       expect(File(first.specPath).existsSync(), false);
       expect(File(changed.specPath).existsSync(), true);
+      verify(
+        () => logger.detail(any(that: contains('compile from scratch'))),
+      ).called(1);
+    });
+
+    test('an unreadable (but present) source is skipped as unreadable', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      final locked = File('${tmp.path}/lib/locked.dart')
+        ..writeAsStringSync('class L {}');
+      Process.runSync('chmod', ['000', locked.path]);
+      addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        locked.readAsStringSync();
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the file really is unreadable.
+      }
+      final reasons = <String>[];
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          locked.path,
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        onSkip: (path, reason) => reasons.add(reason),
+      );
+      expect(spec, isNotNull);
+      expect(reasons.single, 'unreadable');
     });
   });
 

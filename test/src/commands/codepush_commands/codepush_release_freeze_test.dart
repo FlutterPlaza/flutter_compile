@@ -454,7 +454,7 @@ void main() {
       expect(
         specPath,
         matches(
-          RegExp(r'build/codepush/dynamic_interface_[0-9a-f]{8}\.yaml$'),
+          RegExp(r'build/codepush/dynamic_interface_[0-9a-f]{16}\.yaml$'),
         ),
       );
       final specFile = File(specPath);
@@ -685,11 +685,19 @@ void main() {
 
     test('unsupported front-end fails before any compile', () async {
       when(() => buildService.frontendSupportsFreeze(any())).thenReturn(false);
+      // The refusal must not leave a previous run's spec next to the
+      // report this run already deleted.
+      final stale = File(
+        '${tmp.path}/build/codepush/dynamic_interface_0ldc0ffedeadbeef.yaml',
+      )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old\n');
       final result = await command.prepareIosInterfaceFreeze(
         buildService,
         projectRootOverride: tmp.path,
       );
       expect(result, isNull);
+      expect(stale.existsSync(), false);
       verify(
         () => logger.err(any(that: contains('--no-interface-freeze'))),
       ).called(1);
@@ -699,6 +707,29 @@ void main() {
           workDirPath: any(named: 'workDirPath'),
         ),
       );
+    });
+
+    test('failed closure discovery also sweeps the previous spec', () async {
+      when(
+        () => buildService.discoverCompileClosure(
+          targetPath: any(named: 'targetPath'),
+          workDirPath: any(named: 'workDirPath'),
+        ),
+      ).thenAnswer((_) async => null);
+      final stale = File(
+        '${tmp.path}/build/codepush/dynamic_interface_0ldc0ffedeadbeef.yaml',
+      )
+        ..createSync(recursive: true)
+        ..writeAsStringSync('old\n');
+      final result = await command.prepareIosInterfaceFreeze(
+        buildService,
+        projectRootOverride: tmp.path,
+      );
+      expect(result, isNull);
+      expect(stale.existsSync(), false);
+      verify(
+        () => progress.fail('Could not analyze the app for the release build'),
+      ).called(1);
     });
   });
 }

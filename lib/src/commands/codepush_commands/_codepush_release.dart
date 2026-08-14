@@ -7,6 +7,8 @@ import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart'
+    as freeze_files;
 import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -710,6 +712,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         '--no-interface-freeze to build without it (such a release may '
         'not be reliably patchable).',
       );
+      // The report was already deleted above; the previous run's spec
+      // must go with it — the two must never describe different runs.
+      freeze_files.sweepInterfaceSpecs(specDir.path);
       return null;
     }
     final allowExtendable = argResults?['extendable-widgets'] as bool? ?? true;
@@ -726,6 +731,8 @@ class CodePushReleaseSubCommand extends Command<int> {
     );
     if (closure == null) {
       progress.fail('Could not analyze the app for the release build');
+      // Same pairing rule as the probe refusal above.
+      freeze_files.sweepInterfaceSpecs(specDir.path);
       return null;
     }
     final ({

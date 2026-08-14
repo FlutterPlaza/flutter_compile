@@ -1347,8 +1347,8 @@ class CodePushBuildService {
           path,
           File(readPath).existsSync()
               ? 'unreadable'
-              : 'missing on disk — a backslash or other unsupported '
-                  'character in the path, folded by normalization?',
+              : 'missing on disk — a backslash folded by path '
+                  'normalization, or an unreadable parent directory?',
         );
         continue;
       }
@@ -1480,24 +1480,7 @@ class CodePushBuildService {
     // Sweep BEFORE the mapping can refuse, so an aborted run leaves no
     // previous spec behind (its report was already deleted by the
     // command; the two artifacts must never describe different runs).
-    // Per-entry catch: one undeletable stale file must not shield the
-    // rest — the directory-holds-one-spec invariant is load-bearing.
-    try {
-      for (final entity in Directory(specDirPath).listSync()) {
-        final name = entity.uri.pathSegments.last;
-        if (entity is File &&
-            name.startsWith(freeze_files.kInterfaceSpecFilenamePrefix) &&
-            name.endsWith('.yaml')) {
-          try {
-            entity.deleteSync();
-          } on FileSystemException {
-            // Keep sweeping; the write below is the guarded step.
-          }
-        }
-      }
-    } on FileSystemException {
-      // Directory unlistable: the write below hard-fails with guidance.
-    }
+    final sweptSpecs = freeze_files.sweepInterfaceSpecs(specDirPath);
     final appLibraries = appLibrariesFromClosure(
       closurePaths: closurePaths,
       projectRoot: projectRoot,
@@ -1519,8 +1502,19 @@ class CodePushBuildService {
     // by a cached kernel step. Hashing the content into the name makes
     // any spec change bust the cache; the sweep above already cleared
     // every stale sibling (hashed or the legacy fixed name).
-    final specPath =
-        '$specDirPath/${freeze_files.interfaceSpecFilenameFor(yaml)}';
+    final specName = freeze_files.interfaceSpecFilenameFor(yaml);
+    final specPath = '$specDirPath/$specName';
+    if (sweptSpecs.isNotEmpty && !sweptSpecs.contains(specName)) {
+      // A changed option string is a new build environment: the next
+      // build compiles from scratch in a fresh directory. Deliberate
+      // (the recompile is the point), but it should not surprise
+      // silently — flutter clean reclaims the old directories.
+      _logger.detail(
+        "Interface spec changed (the app's library set or guarding "
+        'options differ from the previous build); this release will '
+        'compile from scratch in a fresh build directory.',
+      );
+    }
     try {
       File(specPath).writeAsStringSync(yaml);
     } on FileSystemException catch (e) {
