@@ -79,6 +79,23 @@ void main() {
       );
     });
 
+    test(
+        'the list is SEARCHED — a filter-ignoring server that sends '
+        'the full app listing still yields the wanted release', () {
+      final wanted = {'id': 'r-2', 'snapshot_hash': 'b' * 64};
+      final info = {
+        'releases': [
+          {'id': 'r-1'},
+          wanted,
+          {'id': 'r-3'},
+        ],
+      };
+      expect(
+        CodePushClient.releaseFromListing(info, 'r-2'),
+        same(wanted),
+      );
+    });
+
     test('empty, absent, and id-less listings are null', () {
       expect(
         CodePushClient.releaseFromListing({'releases': <Object?>[]}, 'r-1'),
@@ -89,6 +106,24 @@ void main() {
         CodePushClient.releaseFromListing(
           {
             'releases': [<String, dynamic>{}],
+          },
+          'r-1',
+        ),
+        isNull,
+      );
+    });
+
+    test(
+        'shape surprises are null, never a throw — the helper is '
+        'public without a guarding catch', () {
+      expect(
+        CodePushClient.releaseFromListing({'releases': 'not-a-list'}, 'r-1'),
+        isNull,
+      );
+      expect(
+        CodePushClient.releaseFromListing(
+          {
+            'releases': ['not-a-map', 42, null],
           },
           'r-1',
         ),

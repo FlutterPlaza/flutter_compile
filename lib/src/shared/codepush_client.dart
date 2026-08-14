@@ -256,24 +256,32 @@ class CodePushClient {
   }
 
   /// Picks the requested release out of a listing response, or null.
-  /// The id check is load-bearing: every hardened read the caller
-  /// makes on this map (guarding verdicts, the stored baseline hash)
-  /// presumes the map IS the release the user named, and a server
-  /// that ignored the `release_id` filter — an unparseable id
-  /// treated as an absent optional, a filter regression, a cached
-  /// list — otherwise lands in the success path as a confident
-  /// verdict about someone else's release. Assumes the record's id
-  /// key is `id` (the server's Release JSON). Extracted (and static)
-  /// so the check is testable without an HTTP seam.
+  /// SEARCHES the whole list rather than trusting index 0: every
+  /// hardened read the caller makes on this map (guarding verdicts,
+  /// the stored baseline hash) presumes the map IS the release the
+  /// user named, and a server that ignored the `release_id` filter —
+  /// an unparseable id treated as an absent optional, a filter
+  /// regression, a cached list — most plausibly answers with the
+  /// app's FULL release list, wanted record included. A positional
+  /// match is just the special case of an id match. Assumes the
+  /// record's id key is `id` (the server's Release JSON; also what
+  /// the status and release commands read). Shape-tolerant on every
+  /// step — this helper is public precisely so callers without an
+  /// HTTP seam can use it, so it must not inherit-a-throw from a
+  /// surprise shape. Static so the filtering is testable directly.
   static Map<String, dynamic>? releaseFromListing(
     Map<String, dynamic> info,
     String releaseId,
   ) {
-    final releases = info['releases'] as List?;
-    if (releases == null || releases.isEmpty) return null;
-    final release = releases.first as Map<String, dynamic>;
-    if (release['id']?.toString() != releaseId) return null;
-    return release;
+    final releases = info['releases'];
+    if (releases is! List) return null;
+    for (final release in releases) {
+      if (release is Map<String, dynamic> &&
+          release['id']?.toString() == releaseId) {
+        return release;
+      }
+    }
+    return null;
   }
 
   /// GET /api/v1/patches?release_id=...
@@ -382,33 +390,6 @@ class CodePushClient {
       token: token,
       body: {'patch_id': patchId},
     );
-  }
-
-  /// GET /api/v1/releases/{id}/snapshot -- download the baseline snapshot.
-  Future<List<int>?> downloadBaseline({
-    required String token,
-    required String releaseId,
-  }) async {
-    // First get the release info to find the snapshot URL — through
-    // [getRelease], so the id check and query encoding apply here too.
-    final release = await getRelease(token: token, releaseId: releaseId);
-    final snapshotUrl = release?['snapshot_url'] as String?;
-    if (snapshotUrl == null) return null;
-
-    // Download the snapshot bytes.
-    final uri = Uri.parse(snapshotUrl);
-    final request = await _http.getUrl(uri);
-    if (token.isNotEmpty) {
-      request.headers.set('Authorization', 'Bearer $token');
-    }
-    final response = await request.close();
-    if (response.statusCode != 200) return null;
-
-    final chunks = <List<int>>[];
-    await for (final chunk in response) {
-      chunks.add(chunk);
-    }
-    return chunks.expand((c) => c).toList();
   }
 
   /// Fetch the server's encryption public key (cached in .flutter_compilerc).

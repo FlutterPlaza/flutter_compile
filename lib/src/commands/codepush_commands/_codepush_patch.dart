@@ -241,6 +241,25 @@ class CodePushPatchSubCommand extends Command<int> {
         builtPlatform = resolvedPlatform;
       }
 
+      // The remaining pure argument checks also run BEFORE the fetch,
+      // completing the same invariant: nothing that needs only
+      // argResults may exit the command after the warning (or the
+      // build) has already happened.
+      final rolloutStr = argResults?['rollout'] as String? ?? '100';
+      final rollout = int.tryParse(rolloutStr) ?? 100;
+      final channel = argResults?['channel'] as String? ?? 'production';
+      if (rollout < 1 || rollout > 100) {
+        _logger.err('Rollout percentage must be between 1 and 100.');
+        return ExitCode.usage.code;
+      }
+      final explicitPatchFile = argResults?['patch-file'] as String?;
+      if (explicitPatchFile != null &&
+          explicitPatchFile.isNotEmpty &&
+          !File(explicitPatchFile).existsSync()) {
+        _logger.err('Patch file not found: $explicitPatchFile');
+        return ExitCode.software.code;
+      }
+
       // Fetch the target release's metadata next — still ahead of any
       // build work: several minutes of building must not precede the
       // news that the target cannot safely take a widget-adding patch;
@@ -568,18 +587,12 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.detail('Using patch: $patchPath');
       }
 
+      // Re-checked here because patchPath may be a build OUTPUT (the
+      // explicit --patch-file arg was validated before the fetch).
       final patchFile = File(patchPath);
       if (!patchFile.existsSync()) {
         _logger.err('Patch file not found: $patchPath');
         return ExitCode.software.code;
-      }
-
-      final rolloutStr = argResults?['rollout'] as String? ?? '100';
-      final rollout = int.tryParse(rolloutStr) ?? 100;
-      final channel = argResults?['channel'] as String? ?? 'production';
-      if (rollout < 1 || rollout > 100) {
-        _logger.err('Rollout percentage must be between 1 and 100.');
-        return ExitCode.usage.code;
       }
 
       // Sign the raw payload inside the container and embed the
