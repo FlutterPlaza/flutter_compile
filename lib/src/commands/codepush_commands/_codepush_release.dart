@@ -6,12 +6,20 @@ import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart'
+    as freeze_files;
 import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushReleaseSubCommand extends Command<int> {
-  CodePushReleaseSubCommand(this._logger) {
+  CodePushReleaseSubCommand(
+    this._logger, {
+    CodePushBuildService? buildService,
+    CodePushArchiveService? archiveService,
+  })  : _injectedBuildService = buildService,
+        _injectedArchiveService = archiveService {
     argParser
       ..addOption('app-id', help: 'The app ID to create a release for.')
       ..addOption(
@@ -50,6 +58,15 @@ class CodePushReleaseSubCommand extends Command<int> {
             'stamped automatically.',
       )
       ..addFlag(
+        'extendable-widgets',
+        defaultsTo: true,
+        help: 'Allow patches to declare new StatelessWidget / '
+            'StatefulWidget / State subclasses in the built iOS app by '
+            'guarding dispatch on those base classes. Disabling removes '
+            'that guarding (and its dispatch cost) — patches that add '
+            'new screens will fail on such a release.',
+      )
+      ..addFlag(
         'interface-freeze',
         defaultsTo: true,
         help: 'Preserve public call shapes in the built iOS app so '
@@ -66,6 +83,79 @@ class CodePushReleaseSubCommand extends Command<int> {
   }
 
   final Logger _logger;
+
+  /// Test seam: a build service injected by tests; production
+  /// construction happens in [run].
+  final CodePushBuildService? _injectedBuildService;
+
+  /// Test seam: an archive service injected by tests; production
+  /// construction happens in [archiveIosBaseline].
+  final CodePushArchiveService? _injectedArchiveService;
+
+  /// The interface spec written by THIS run's freeze preparation (path,
+  /// the front-end report path the build was told to write, and whether
+  /// widget bases were marked extendable), for the archive step. Null
+  /// when the freeze was skipped or failed, so the archive never claims
+  /// a leftover spec or report from a previous run.
+  /// Public for tests (no meta dependency for @visibleForTesting).
+  ({
+    String path,
+    String reportPath,
+    bool extendable,
+    freeze_files.InterfaceSpecChange specChange
+  })? writtenInterfaceSpec;
+
+  /// Whether the front end's report was observed on disk after the
+  /// build ([checkInterfaceReportAfterBuild]); lets the archive tell a
+  /// report that was produced-then-lost apart from one the compiler
+  /// never wrote. Public for tests.
+  bool interfaceReportObservedAfterBuild = false;
+
+  /// Post-build check: surface, at default visibility, whether the
+  /// compiler wrote its interface report — the evidence side of the
+  /// freeze. A reused (cache-hit) compile writes none; that is safe,
+  /// because the spec filename is content-addressed, so a reused
+  /// compile can only pair with an IDENTICAL spec — but the operator
+  /// still deserves to see that this build produced no fresh evidence.
+  /// Public for tests ([run] cannot be cheaply exercised).
+  void checkInterfaceReportAfterBuild() {
+    final spec = writtenInterfaceSpec;
+    if (spec == null) return;
+    interfaceReportObservedAfterBuild = File(spec.reportPath).existsSync();
+    if (!interfaceReportObservedAfterBuild) {
+      // Lead with what the evidence supports: `changed` is the one
+      // state where compile reuse cannot explain the missing report.
+      // Level split: `unchanged` is the healthy repeat-build case (a
+      // cache hit on an identical spec), so it must not cry warn — a
+      // warn that fires on every CI retry stops meaning anything.
+      final log = spec.specChange == freeze_files.InterfaceSpecChange.unchanged
+          ? _logger.detail
+          : _logger.warn;
+      log(switch (spec.specChange) {
+        freeze_files.InterfaceSpecChange.changed =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build, and the interface spec changed this run — '
+              'compile reuse does not usually explain that. If your '
+              'Flutter SDK is newer than this fcp version supports, '
+              'the compiler may not write the report where fcp '
+              'expects it. The archive records the report as unknown.',
+        freeze_files.InterfaceSpecChange.unchanged =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build. Likeliest cause: an unchanged compile was '
+              'reused — safe, because the spec filename is '
+              'content-addressed, so a reused compile can only pair '
+              'with this exact spec. The archive records the report '
+              'as unknown.',
+        freeze_files.InterfaceSpecChange.unknown =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build, and fcp cannot tell whether the compile was '
+              'reused (no previous spec to compare against). If your '
+              'Flutter SDK is newer than this fcp version supports, '
+              'the compiler may not write the report where fcp '
+              'expects it. The archive records the report as unknown.',
+      });
+    }
+  }
 
   @override
   final String name = 'release';
@@ -116,7 +206,8 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     // If --build is set, build the app first.
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    final buildService = CodePushBuildService(logger: _logger);
+    final buildService =
+        _injectedBuildService ?? CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
     String? originalAndroidYaml;
@@ -222,7 +313,7 @@ class CodePushReleaseSubCommand extends Command<int> {
             extraBuildArgs,
           );
           if (argResults?['interface-freeze'] as bool? ?? true) {
-            final freezeArgs = await _prepareIosInterfaceFreeze(buildService);
+            final freezeArgs = await prepareIosInterfaceFreeze(buildService);
             if (freezeArgs == null) return ExitCode.software.code;
             releaseBuildArgs = freezeArgs(releaseBuildArgs);
           } else {
@@ -241,10 +332,11 @@ class CodePushReleaseSubCommand extends Command<int> {
           flutterVersion: flutterVersion,
         );
         if (!buildOk) {
-          buildProgress.fail('Build failed');
+          failReleaseStep(buildProgress, 'Build failed');
           return ExitCode.software.code;
         }
         buildProgress.complete('Build succeeded');
+        checkInterfaceReportAfterBuild();
 
         final finalizeProgress = _logger.progress('Finalizing build');
         final finalized = await buildService.finalizeBuild(
@@ -255,11 +347,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         if (finalized.success) {
           finalizeProgress.complete('Build finalized');
         } else {
-          finalizeProgress.fail(finalized.message ?? 'Finalization failed');
-          final diagnostics = finalized.formatDiagnostics();
-          if (diagnostics.isNotEmpty) {
-            _logger.err(diagnostics);
-          }
+          failReleaseStep(
+            finalizeProgress,
+            finalized.message ?? 'Finalization failed',
+            diagnostics: finalized.formatDiagnostics(),
+          );
           return ExitCode.software.code;
         }
       } finally {
@@ -528,11 +620,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         // a successful release.
         final releaseId = release?['id'] as String?;
         if (releaseId != null) {
-          CodePushArchiveService(logger: _logger).archiveIosRelease(
-            releaseId: releaseId,
-            baselineId: baselineId,
-            fcpVersion: packageVersion,
-          );
+          archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         }
       }
 
@@ -547,73 +635,145 @@ class CodePushReleaseSubCommand extends Command<int> {
 
   /// Write the interface-freeze spec for this iOS release build and
   /// return a function that adds the front-end flags for it, or null
-  /// (with an error logged) when the freeze cannot be set up — building
-  /// without it would ship a baseline that later patches cannot call
-  /// reliably, so that is a hard failure, not a warning.
+  /// (with an error logged) when the freeze cannot be set up, or
+  /// throws [FlutterCompileException] when the spec directory or spec
+  /// file cannot be written (the message is logged here first; the
+  /// runner exits without a second print).
+  /// Building without it would ship a baseline that later patches
+  /// cannot call reliably, so that is a hard failure, not a warning.
   ///
   /// The spec lists only libraries the compile actually contains
   /// (discovered via a fast front-end pre-pass), because a listed
   /// library that is absent from the compile fails the whole build.
-  Future<List<String> Function(List<String>)?> _prepareIosInterfaceFreeze(
-      CodePushBuildService buildService) async {
-    final projectRoot = Directory.current.path;
+  /// Public for tests (no meta dependency for @visibleForTesting);
+  /// production callers stay inside this command.
+  Future<List<String> Function(List<String>)?> prepareIosInterfaceFreeze(
+    CodePushBuildService buildService, {
+    String? projectRootOverride,
+  }) async {
+    writtenInterfaceSpec = null;
+    interfaceReportObservedAfterBuild = false;
+    final projectRoot = projectRootOverride ?? Directory.current.path;
     final pubspec = File('$projectRoot/pubspec.yaml');
-    final packageName = pubspec.existsSync()
-        ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
-        : null;
+    String? packageName;
+    try {
+      packageName = pubspec.existsSync()
+          ? CodePushBuildService.parsePubspecName(pubspec.readAsStringSync())
+          : null;
+    } on FileSystemException {
+      // A present-but-unreadable pubspec (mode bits, sudo-created file)
+      // gets the same actionable error as a missing/nameless one, not a
+      // raw exception.
+      packageName = null;
+    }
     if (packageName == null) {
       _logger.err(
-        'Could not read the package name from pubspec.yaml; cannot '
-        'prepare the iOS release build.',
+        'Could not read the package name from pubspec.yaml (check that '
+        'the file exists and is readable); cannot prepare the iOS '
+        'release build.',
       );
       return null;
     }
-    final specDir = Directory('$projectRoot/build/codepush')
-      ..createSync(recursive: true);
-    final specPath = '${specDir.path}/dynamic_interface.yaml';
-    final reportPath = '${specDir.path}/dynamic_interface_report.json';
-    if (specPath.contains(',') || reportPath.contains(',')) {
+    final specDir = Directory('$projectRoot/build/codepush');
+    final reportPath =
+        '${specDir.path}/${CodePushBuildService.kInterfaceReportFilename}';
+    // Fail fast on a comma in the project path (reportPath embeds it),
+    // before any side effects and before the expensive pre-pass. The
+    // authoritative check on the service-composed spec path still runs
+    // after the write.
+    if (reportPath.contains(',')) {
       _logger.err(
         'The project path contains a comma, which the build toolchain '
         'cannot pass through. Move the project to a comma-free path.',
       );
       return null;
     }
+    try {
+      specDir.createSync(recursive: true);
+    } on FileSystemException catch (e) {
+      // On a fresh checkout this directory does not exist yet, so a
+      // read-only workspace or full disk fails HERE, not at the guarded
+      // spec write below — same failure class, same guidance.
+      final reason = e.osError?.message ?? e.message;
+      final message =
+          'Could not create ${specDir.path} ($reason). Check permissions '
+          'and free space on the build directory.';
+      _logger.err(message);
+      throw FlutterCompileException(message);
+    }
+    // fcp never writes the report itself — the front end does, later in
+    // the build. Delete a previous run's copy now, so a build that
+    // emits none surfaces as the missing-artifact breadcrumb instead of
+    // archiving stale evidence under this run's attestation.
+    try {
+      File(reportPath).deleteSync();
+    } on PathNotFoundException {
+      // Absent — the common case.
+    } on FileSystemException catch (e) {
+      // A surviving leftover would defeat the stale-evidence guarantee;
+      // an unwritable directory hard-stops at the spec write below, so
+      // a breadcrumb suffices here.
+      _logger.detail('Could not delete a previous interface report: $e');
+    }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
-        !CodePushBuildService.frontendSupportsDynamicInterface(
-          flutterRoot,
-        )) {
+        !buildService.frontendSupportsFreeze(flutterRoot)) {
       _logger.err(
         'This Flutter SDK\'s compiler does not support preserving call '
         'shapes for code push. Upgrade Flutter (3.41+), or pass '
         '--no-interface-freeze to build without it (such a release may '
         'not be reliably patchable).',
       );
+      // The report was already deleted above; the previous run's spec
+      // must go with it — the two must never describe different runs.
+      freeze_files.sweepInterfaceSpecs(specDir.path);
       return null;
+    }
+    final allowExtendable = argResults?['extendable-widgets'] as bool? ?? true;
+    if (!allowExtendable) {
+      _logger.warn(
+        'Extendable widget guarding disabled (--no-extendable-widgets): '
+        'patches that add new widget subclasses will fail on this release.',
+      );
     }
     final progress = _logger.progress('Analyzing app libraries');
     final closure = await buildService.discoverCompileClosure(
       targetPath: 'lib/main.dart',
       workDirPath: specDir.path,
+      projectRootOverride: projectRootOverride,
     );
     if (closure == null) {
       progress.fail('Could not analyze the app for the release build');
+      // Same pairing rule as the probe refusal above.
+      freeze_files.sweepInterfaceSpecs(specDir.path);
       return null;
     }
-    final appLibraries = CodePushBuildService.appLibrariesFromClosure(
-      closurePaths: closure,
-      projectRoot: projectRoot,
-      packageName: packageName,
-      onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
-    );
-    final flutterLibraries =
-        CodePushBuildService.flutterLibrariesFromClosure(closure);
+    final ({
+      String specPath,
+      int appCount,
+      int flutterCount,
+      bool extendable,
+      freeze_files.InterfaceSpecChange specChange
+    })? writtenSpec;
+    try {
+      writtenSpec = buildService.writeIosInterfaceFreezeSpec(
+        closurePaths: closure,
+        projectRoot: projectRoot,
+        packageName: packageName,
+        specDirPath: specDir.path,
+        allowExtendable: allowExtendable,
+        onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
+      );
+    } on FlutterCompileException catch (e) {
+      progress.fail('Could not write the interface spec');
+      _logger.err(e.message);
+      rethrow;
+    }
     // The compile target lib/main.dart is always in its own closure, so
-    // an empty mapping means the path-prefix match failed, not that the
-    // app has no libraries. Shipping without the app's own shapes
-    // frozen silently defeats the feature - hard stop.
-    if (appLibraries.isEmpty) {
+    // a null here means the path-prefix match failed, not that the app
+    // has no libraries. Shipping without the app's own shapes frozen
+    // silently defeats the feature - hard stop.
+    if (writtenSpec == null) {
       progress.fail('Could not map the app libraries for the release');
       _logger.err(
         'No app libraries were mapped into the interface freeze; '
@@ -622,21 +782,128 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
-    File(specPath).writeAsStringSync(
-      CodePushBuildService.buildIosInterfaceFreezeYaml(
-        flutterLibraries: flutterLibraries,
-        appLibraries: appLibraries,
-      ),
-    );
+    // Defence-in-depth: the directory portion was already refused up
+    // front and the hashed filename is comma-free by construction, so
+    // this fires only if either composition ever changes shape. The
+    // surrounding tooling re-splits the option list on commas, so a
+    // comma here would silently corrupt every option after it.
+    if (writtenSpec.specPath.contains(',') || reportPath.contains(',')) {
+      progress.fail('Could not use the interface spec path');
+      _logger.err(
+        'The project path contains a comma, which the build toolchain '
+        'cannot pass through. Move the project to a comma-free path.',
+      );
+      // No artifact may suggest a refused build used it.
+      try {
+        File(writtenSpec.specPath).deleteSync();
+      } on FileSystemException {
+        // Best effort; the next successful run overwrites it.
+      }
+      return null;
+    }
+    // A real Flutter app's compile always contains the framework
+    // library, so a gate miss here is an anomaly, not a configuration —
+    // and shipping without widget guarding silently defeats the feature
+    // the same way an unmapped app would (hard stop above). The opt-out
+    // flag is the documented acknowledgement.
+    if (allowExtendable && !writtenSpec.extendable) {
+      progress.fail('Widget base classes could not be marked extendable');
+      _logger.err(
+        'The Flutter framework library '
+        '(${CodePushBuildService.kIosExtendableFrameworkLibrary}) was not '
+        'found in the compile, so patches that add new widget subclasses '
+        'would fail on this release. Likeliest causes: your Flutter SDK '
+        'is newer than this fcp version supports, or the app genuinely '
+        'never uses widgets. Build with --no-extendable-widgets to '
+        'acknowledge shipping without widget guarding, or report this '
+        'with your fcp and Flutter versions.',
+      );
+      // The spec was already written above; the build it described was
+      // just refused, so no artifact should suggest this run used it.
+      try {
+        File(writtenSpec.specPath).deleteSync();
+      } on FileSystemException {
+        // Best effort; the next successful run overwrites it.
+      }
+      return null;
+    }
     progress.complete(
-      'Interface: ${appLibraries.length} app + ${flutterLibraries.length} '
-      'framework libraries',
+      'Interface: ${writtenSpec.appCount} app + '
+      '${writtenSpec.flutterCount} framework libraries'
+      '${writtenSpec.extendable ? '' : ' (widget guarding off)'}',
+    );
+    // Captured variables do not promote; bind the non-null value.
+    final String frozenSpecPath = writtenSpec.specPath;
+    writtenInterfaceSpec = (
+      path: frozenSpecPath,
+      reportPath: reportPath,
+      extendable: writtenSpec.extendable,
+      specChange: writtenSpec.specChange,
     );
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,
-          freezeSpecPath: specPath,
+          freezeSpecPath: frozenSpecPath,
           reportPath: reportPath,
         );
+  }
+
+  /// Fail a release build/finalize progress line, print any step
+  /// diagnostics, then surface the freeze escape hatch when this run
+  /// applied the freeze — both failure paths share this one tested
+  /// wire. Public for tests ([run] itself cannot be cheaply
+  /// exercised).
+  void failReleaseStep(
+    Progress progress,
+    String message, {
+    String diagnostics = '',
+  }) {
+    progress.fail(message);
+    if (diagnostics.isNotEmpty) {
+      _logger.err(diagnostics);
+    }
+    final freezeHint = buildFailureFreezeHint();
+    if (freezeHint != null) {
+      _logger.err(freezeHint);
+    }
+  }
+
+  /// The escape-hatch hint for a failed release build that included
+  /// the interface freeze, or null when no freeze was applied. Every
+  /// other failure on this path names its flag; a build broken by the
+  /// freeze's new compiler inputs must too. Public for tests ([run]
+  /// itself cannot be cheaply exercised).
+  String? buildFailureFreezeHint() {
+    final spec = writtenInterfaceSpec;
+    if (spec == null) return null;
+    final flags = spec.extendable
+        ? '--no-extendable-widgets, or --no-interface-freeze'
+        : '--no-interface-freeze';
+    return 'This build included the code push interface freeze. If the '
+        'failure above mentions the dynamic interface, retry with '
+        '$flags (a release built without it may not be reliably '
+        'patchable).';
+  }
+
+  /// Archive the saved baseline for [releaseId], attesting the spec
+  /// THIS run wrote (see [writtenInterfaceSpec]). Public for tests: the
+  /// wire from the field to the archive service is the one link
+  /// [run] cannot cheaply exercise (it needs a token, a server, and a
+  /// real build).
+  void archiveIosBaseline({
+    required String releaseId,
+    required String baselineId,
+  }) {
+    (_injectedArchiveService ?? CodePushArchiveService(logger: _logger))
+        .archiveIosRelease(
+      releaseId: releaseId,
+      baselineId: baselineId,
+      fcpVersion: packageVersion,
+      interfaceSpecPath: writtenInterfaceSpec?.path,
+      interfaceReportPath: writtenInterfaceSpec?.reportPath,
+      interfaceReportWasProduced: interfaceReportObservedAfterBuild,
+      interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
+      interfaceSpecChange: writtenInterfaceSpec?.specChange,
+    );
   }
 
   void _saveIosBaselineApp({required String baselineId}) {

@@ -8,6 +8,8 @@ import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
 import 'codepush_client.dart';
+import 'exception.dart';
+import 'interface_freeze_constants.dart' as freeze_files;
 
 /// Outcome of a build-tool subprocess step.
 ///
@@ -1193,7 +1195,10 @@ class CodePushBuildService {
   /// Parse a Makefile-style depfile (`out: src src...`) written by the
   /// front-end into the set of source paths, unescaping `\ `.
 
-  static Set<String> parseDepfileSources(String depfileContent) {
+  static Set<String> parseDepfileSources(
+    String depfileContent, {
+    bool? windowsPaths,
+  }) {
     final colon = depfileContent.indexOf(': ');
     if (colon < 0) return const {};
     final body = depfileContent
@@ -1204,6 +1209,12 @@ class CodePushBuildService {
         .split(RegExp(r'\s+'))
         .where((s) => s.isNotEmpty)
         .map((s) => s.replaceAll(_depfileSpace, ' '))
+        // Normalize separators once here so every closure consumer
+        // (app-library mapping, framework detection, extendable gate)
+        // sees '/' paths regardless of host toolchain. Windows entries
+        // may double their backslashes under Make escaping, so runs of
+        // the resulting '/' are collapsed too.
+        .map((p) => _normalizePath(p, windows: windowsPaths))
         .toSet();
   }
 
@@ -1249,6 +1260,45 @@ class CodePushBuildService {
     return false;
   }
 
+  /// Canonical path normalization: on Windows-shaped input, separators
+  /// to '/' (Make-escaping doubles backslashes there); slash runs
+  /// collapsed everywhere. The parser and every defensive consumer use
+  /// THIS so the sites cannot drift.
+  ///
+  /// The host is a PARAMETER (defaulting to the running platform, like
+  /// [isAbsoluteSourcePath]'s purity): translation applies only to
+  /// Windows paths, so a POSIX project root containing a literal
+  /// backslash keeps working — the backslash only becomes a skip when
+  /// it would have to enter a package URI (the import-safe charset
+  /// check names it). Windows shapes stay testable from any host via
+  /// the `windows:`/`windowsPaths:` overrides. The run-collapse folds
+  /// a Windows UNC prefix (`\\server\share`) into `/server/share`, so
+  /// UNC project roots are unsupported on the Windows leg — moot for
+  /// the iOS release flow, which never runs on a Windows host.
+  static final RegExp _slashRuns = RegExp('/{2,}');
+
+  static String _normalizePath(String p, {bool? windows}) {
+    final translated =
+        (windows ?? Platform.isWindows) ? p.replaceAll(r'\', '/') : p;
+    return translated.replaceAll(_slashRuns, '/');
+  }
+
+  /// Separator-normalize closure entries so every consumer agrees even
+  /// when handed a closure that skipped [parseDepfileSources].
+  static Iterable<String> _normalizeClosure(
+    Set<String> closurePaths, {
+    bool? windows,
+  }) =>
+      closurePaths.map((p) => _normalizePath(p, windows: windows));
+
+  static final RegExp _windowsDrivePrefix = RegExp(r'^[A-Za-z]:[/\\]');
+
+  /// Whether [path] is absolute on any supported host (POSIX `/…` or a
+  /// Windows drive-letter form). Pure so any platform's leg can test
+  /// the other's shapes.
+  static bool isAbsoluteSourcePath(String path) =>
+      path.startsWith('/') || _windowsDrivePrefix.hasMatch(path);
+
   /// Map the compile closure's source paths to the app's own library
   /// URIs. Only files that the compile actually contains are listed —
   /// dead files, flavor entrypoints, and untaken conditional-import
@@ -1263,30 +1313,37 @@ class CodePushBuildService {
     required String projectRoot,
     required String packageName,
     void Function(String path, String reason)? onSkip,
+    bool? windowsPaths,
   }) {
+    // Closure paths are separator-normalized (see [parseDepfileSources]
+    // and the per-entry normalization below); normalize the root the
+    // same way so Windows roots match.
+    final root = _normalizePath(projectRoot, windows: windowsPaths);
     final libPrefixes = <String>{
-      '$projectRoot/lib/',
+      '$root/lib/',
       // The front-end may write resolved (symlink-free) paths...
-      '${_tryResolve(projectRoot)}/lib/',
+      '${_normalizePath(_tryResolve(projectRoot), windows: windowsPaths)}'
+          '/lib/',
       // ...or relative ones, depending on version.
       'lib/',
     };
     final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
     final uris = <String>[];
-    for (final path in closurePaths) {
+    for (final rawPath in closurePaths) {
+      final path = _normalizePath(rawPath, windows: windowsPaths);
       if (!path.endsWith('.dart')) continue;
       final prefix = libPrefixes.firstWhere(
         path.startsWith,
         orElse: () => '',
       );
       if (prefix.isEmpty) continue;
-      final rel = path.substring(prefix.length).replaceAll(r'\', '/');
+      final rel = path.substring(prefix.length);
       if (rel.split('/').any((seg) => seg.startsWith('.'))) continue;
       if (!safe.hasMatch(rel)) {
         onSkip?.call(path, 'unsupported characters in path');
         continue;
       }
-      final readPath = path.startsWith('/') ? path : '$projectRoot/$path';
+      final readPath = isAbsoluteSourcePath(path) ? path : '$root/$path';
       String content;
       try {
         content = utf8.decode(
@@ -1294,7 +1351,17 @@ class CodePushBuildService {
           allowMalformed: true,
         );
       } on FileSystemException {
-        onSkip?.call(path, 'unreadable');
+        // Observation, not diagnosis: MISSING (vs unreadable) means
+        // the compile saw a file the mapping cannot find — moved mid-
+        // build, or behind a non-traversable parent — and the two need
+        // different fixes, so the reason splits them.
+        onSkip?.call(
+          path,
+          File(readPath).existsSync()
+              ? 'unreadable'
+              : 'missing on disk — moved during the build, or an '
+                  'unreadable parent directory?',
+        );
         continue;
       }
       if (dartSourceIsPart(content)) continue;
@@ -1314,10 +1381,17 @@ class CodePushBuildService {
 
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
   /// file appears in the compile closure.
-  static List<String> flutterLibrariesFromClosure(Set<String> closurePaths) {
+  static List<String> flutterLibrariesFromClosure(
+    Set<String> closurePaths, {
+    bool? windowsPaths,
+  }) {
+    // Materialized: the lazy iterable would re-normalize the whole
+    // closure once per candidate below.
+    final normalized =
+        _normalizeClosure(closurePaths, windows: windowsPaths).toList();
     return [
       for (final candidate in kIosInterfaceFreezeFlutterCandidates)
-        if (closurePaths.any(
+        if (normalized.any(
           (p) => p.endsWith(
             '/flutter/lib/${candidate.split('/').last}',
           ),
@@ -1326,6 +1400,35 @@ class CodePushBuildService {
     ];
   }
 
+  /// Widget base classes marked extendable so a patch may declare new
+  /// subclasses (new screens/widgets): the compiler then guards
+  /// dispatch on these hierarchies so instances of classes registered
+  /// after the build dispatch correctly. The caller decides inclusion
+  /// (see [closureHasExtendableFramework]); [buildIosInterfaceFreezeYaml]
+  /// itself defaults the section off.
+  ///
+  /// Deliberate v1 scope: patches may subclass these three bases only.
+  /// InheritedWidget / RenderObjectWidget share the failure mode but
+  /// sit on the hottest dispatch surfaces in the framework — guarding
+  /// them costs every app on every build for a capability no patch
+  /// uses yet. Grow this list from patch reality, like the callable
+  /// list, and re-run the device validation when it grows. Kept
+  /// minimal because each entry disables devirtualization for its
+  /// whole hierarchy.
+  ///
+  /// Path assumption validated against Flutter 3.41.2 (real pre-pass
+  /// closure, 2026-08-14). A future SDK that moves or splits
+  /// framework.dart breaks the closure gate — re-verify on SDK layout
+  /// changes; the gate-miss error names "SDK newer than fcp" as a
+  /// candidate cause for exactly that case.
+  static const String kIosExtendableFrameworkLibrary =
+      'package:flutter/src/widgets/framework.dart';
+  static const List<String> kIosExtendableFrameworkClasses = [
+    'StatelessWidget',
+    'StatefulWidget',
+    'State',
+  ];
+
   /// Build the interface-freeze specification for an iOS release build:
   /// the compiler keeps the listed libraries' public call shapes intact
   /// (no signature specialization) so code delivered later can call
@@ -1333,6 +1436,7 @@ class CodePushBuildService {
   static String buildIosInterfaceFreezeYaml({
     required List<String> flutterLibraries,
     required List<String> appLibraries,
+    bool includeExtendable = false,
   }) {
     final buffer = StringBuffer()
       ..writeln('# Generated by fcp codepush release. Do not edit.')
@@ -1345,7 +1449,184 @@ class CodePushBuildService {
     ]) {
       buffer.writeln("  - library: '$lib'");
     }
+    if (includeExtendable) {
+      // One scalar entry per class: the schema's battle-tested form
+      // (the list form exists in the parser but is coverage-ignored
+      // upstream).
+      buffer.writeln('extendable:');
+      for (final cls in kIosExtendableFrameworkClasses) {
+        buffer
+          ..writeln("  - library: '$kIosExtendableFrameworkLibrary'")
+          ..writeln("    class: '$cls'");
+      }
+    }
     return buffer.toString();
+  }
+
+  /// Write the interface-freeze spec derived from [closurePaths] into
+  /// [specDirPath], returning a record with the written spec path, the
+  /// app and framework library counts, and whether the extendable
+  /// section was emitted. Pulls together the gate
+  /// ([closureHasExtendableFramework]), the library mapping, and the
+  /// yaml emission so the whole closure→file chain is testable.
+  /// Returns null (nothing written) when no app libraries map — the
+  /// caller treats that as fatal. A filesystem failure writing the
+  /// spec throws [FlutterCompileException] instead of returning null,
+  /// so the two failure classes stay distinguishable.
+  ///
+  /// `extendable` is false when [allowExtendable] is false OR the
+  /// framework library is not in the closure; the writer stays a
+  /// flag-agnostic API, so deciding how loud each cause must be —
+  /// including the un-chosen gate miss — is the caller's job.
+  /// `specChange` is three-valued: `changed` only when every swept
+  /// spec's name differs (the previous option string provably
+  /// differed, so a missing report afterwards cannot be explained by
+  /// compile reuse); `unchanged` when the single swept name matches;
+  /// `unknown` otherwise — an empty directory (wiped build/, full
+  /// clean, or a prior refusal's sweep) or an ambiguous multi-spec
+  /// sweep proves nothing either way.
+  ///
+  /// [allowExtendable] defaults ON — it carries the user-facing
+  /// `--extendable-widgets` opt-out — deliberately opposite to the pure
+  /// builder's `includeExtendable` default: the builder emits nothing
+  /// it was not explicitly asked for, while this writer applies the
+  /// product default.
+  ({
+    String specPath,
+    int appCount,
+    int flutterCount,
+    bool extendable,
+    freeze_files.InterfaceSpecChange specChange,
+  })? writeIosInterfaceFreezeSpec({
+    required Set<String> closurePaths,
+    required String projectRoot,
+    required String packageName,
+    required String specDirPath,
+    bool allowExtendable = true,
+    void Function(String path, String reason)? onSkip,
+  }) {
+    // Sweep BEFORE the mapping can refuse, so an aborted run leaves no
+    // previous spec behind (its report was already deleted by the
+    // command; the two artifacts must never describe different runs).
+    final sweptSpecs = freeze_files.sweepInterfaceSpecs(specDirPath);
+    final appLibraries = appLibrariesFromClosure(
+      closurePaths: closurePaths,
+      projectRoot: projectRoot,
+      packageName: packageName,
+      onSkip: onSkip,
+    );
+    if (appLibraries.isEmpty) return null;
+    final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
+    final includeExtendable =
+        allowExtendable && closureHasExtendableFramework(closurePaths);
+    final yaml = buildIosInterfaceFreezeYaml(
+      flutterLibraries: flutterLibraries,
+      appLibraries: appLibraries,
+      includeExtendable: includeExtendable,
+    );
+    // Content-addressed name: the build fingerprint includes the
+    // front-end option STRING, not the spec file's bytes, so a
+    // same-path spec with changed contents would be silently ignored
+    // by a cached kernel step. Hashing the content into the name makes
+    // any spec change bust the cache; the sweep above already cleared
+    // every stale sibling (hashed or the legacy fixed name).
+    final specName = freeze_files.interfaceSpecFilenameFor(yaml);
+    final specPath = '$specDirPath/$specName';
+    // Three states, not two: `changed` requires evidence (every swept
+    // name differs, so the previous option string — whichever it was —
+    // differed); `unchanged` requires the single swept name to match;
+    // everything else is `unknown` (an empty directory proves nothing:
+    // rm -rf build/, a full clean, or a prior refusal's sweep; a
+    // multi-spec sweep with one match is ambiguous). Downstream, only
+    // `changed` supports an actionable missing-report warning.
+    // (Heuristic even so: re-toggling an option back can land on an
+    // older warm env-hash directory.)
+    final freeze_files.InterfaceSpecChange specChange;
+    if (sweptSpecs.isEmpty) {
+      specChange = freeze_files.InterfaceSpecChange.unknown;
+    } else if (!sweptSpecs.contains(specName)) {
+      specChange = freeze_files.InterfaceSpecChange.changed;
+    } else if (sweptSpecs.length == 1) {
+      specChange = freeze_files.InterfaceSpecChange.unchanged;
+    } else {
+      specChange = freeze_files.InterfaceSpecChange.unknown;
+    }
+    try {
+      File(specPath).writeAsStringSync(yaml);
+    } on FileSystemException catch (e) {
+      // A disk/permission problem must not masquerade as the caller's
+      // "no app libraries mapped" null. The message travels on the
+      // typed exception; the CALLER logs it after failing its progress
+      // line so the guidance prints under the failure marker like
+      // every other error here (the runner's handler prints nothing).
+      final reason = e.osError?.message ?? e.message;
+      throw FlutterCompileException(
+        'Could not write $specPath ($reason). Check permissions and '
+        'free space on the build directory.',
+      );
+    }
+    // Breadcrumbs AFTER the write, so a failing verbose transcript
+    // never claims a spec state — or a from-scratch compile — for a
+    // file that was never created.
+    switch (specChange) {
+      case freeze_files.InterfaceSpecChange.unknown when sweptSpecs.isEmpty:
+        _logger.detail(
+          'No previous interface spec in the build directory; after a '
+          'full clean this release compiles from scratch.',
+        );
+      case freeze_files.InterfaceSpecChange.unknown:
+        _logger.detail(
+          'Multiple stale interface specs were swept; whether the '
+          'compile can be reused is unknown.',
+        );
+      case freeze_files.InterfaceSpecChange.changed:
+        // A changed option string is a new build environment: the next
+        // build compiles from scratch in a fresh directory. Deliberate
+        // (the recompile is the point), but it should not surprise
+        // silently — flutter clean reclaims the old directories.
+        _logger.detail(
+          "Interface spec changed (the app's library set or guarding "
+          'options differ from the previous build); this release will '
+          'compile from scratch in a fresh build directory.',
+        );
+      case freeze_files.InterfaceSpecChange.unchanged:
+        break;
+    }
+    final omittedReason =
+        allowExtendable ? 'framework library not in the compile' : 'disabled';
+    _logger.detail(
+      includeExtendable
+          ? 'Interface spec: widget base classes marked extendable.'
+          : 'Interface spec: extendable section omitted ($omittedReason).',
+    );
+    return (
+      specPath: specPath,
+      appCount: appLibraries.length,
+      flutterCount: flutterLibraries.length,
+      extendable: includeExtendable,
+      specChange: specChange,
+    );
+  }
+
+  /// Whether the compile closure contains the framework library whose
+  /// widget base classes we mark extendable — derived from
+  /// [kIosExtendableFrameworkLibrary] so the two can never drift. The
+  /// prefix assumption is pinned by the unit tests; the assert below is
+  /// debug-only and compiled out of the shipped CLI.
+  static bool closureHasExtendableFramework(
+    Set<String> closurePaths, {
+    bool? windowsPaths,
+  }) {
+    assert(
+      kIosExtendableFrameworkLibrary.startsWith('package:flutter/'),
+      'closureHasExtendableFramework assumes a package:flutter library',
+    );
+    final suffix = kIosExtendableFrameworkLibrary.replaceFirst(
+      'package:flutter/',
+      '/flutter/lib/',
+    );
+    return _normalizeClosure(closurePaths, windows: windowsPaths)
+        .any((p) => p.endsWith(suffix));
   }
 
   /// Return [extraArgs] with `--extra-front-end-options` carrying the
@@ -1354,8 +1635,9 @@ class CodePushBuildService {
   /// [freezeSpecPath] is the yaml written by
   /// [buildIosInterfaceFreezeYaml]; [reportPath], when given, asks the
   /// compiler to also write a machine-readable report of what was
-  /// frozen (kept as a build artifact for inspection; nothing reads it
-  /// programmatically today). Both paths must
+  /// frozen (load-bearing: the release archive copies it as the
+  /// compiler's own evidence and records it in the archive manifest —
+  /// see CodePushArchiveService). Both paths must
   /// not contain commas: the surrounding tooling joins and re-splits
   /// this option list on commas, so a comma in a path silently corrupts
   /// every option after it. Callers must reject such paths first.
@@ -1383,7 +1665,11 @@ class CodePushBuildService {
       // Dedupe by option NAME, not exact string: a user-supplied
       // `--dynamic-interface=<their path>` wins — appending a second one
       // would silently override theirs (last occurrence wins in the
-      // front-end), taking away the only escape hatch.
+      // front-end), taking away the only escape hatch. If a CLI path
+      // ever routes a user-supplied value through here, the command's
+      // attestation (writtenInterfaceSpec) must be cleared in lockstep:
+      // it assumes fcp's own spec is the one the build consumed.
+      // Unreachable today — extraBuildArgs carries only --dart-define.
       final name = option.substring(0, option.indexOf('=') + 1);
       if (!options.any((o) => o.startsWith(name))) {
         options.add(option);
@@ -1393,11 +1679,17 @@ class CodePushBuildService {
     return merged;
   }
 
-  /// Discover the app's compile closure by running a fast front-end
-  /// compile of [targetPath] with a depfile, without whole-program
-  /// optimization. Returns the set of source paths in the closure, or
-  /// null on failure (with diagnostics logged). Used to generate the
-  /// iOS interface freeze from what the build actually contains.
+  /// Filename of the front end's detailed interface report (canonical
+  /// value in interface_freeze_constants.dart; aliased here for the
+  /// command's path composition).
+  static const String kInterfaceReportFilename =
+      freeze_files.kInterfaceReportFilename;
+
+  /// Instance wrapper over [frontendSupportsDynamicInterface] so
+  /// command-level tests can stub the probe.
+  bool frontendSupportsFreeze(String flutterRoot) =>
+      frontendSupportsDynamicInterface(flutterRoot);
+
   /// Whether the SDK's front-end snapshot recognises the
   /// `--dynamic-interface` option, probed by scanning the snapshot for
   /// the option name (AOT snapshots embed their option strings).
@@ -1435,6 +1727,18 @@ class CodePushBuildService {
     return pubspec.lastModifiedSync().isAfter(config.lastModifiedSync());
   }
 
+  /// Discover the app's compile closure by running a fast front-end
+  /// compile of [targetPath] with a depfile, without whole-program
+  /// optimization. Returns the set of source paths in the closure, or
+  /// null on failure (with diagnostics logged). Used to generate the
+  /// iOS interface freeze from what the build actually contains.
+  ///
+  /// Scope note: [projectRootOverride] covers the PRE-FLIGHT gates
+  /// only (pub-get staleness, l10n detection). The compile itself —
+  /// the relative [targetPath], the package config, and the spawned
+  /// process — resolves against the current directory, which in
+  /// production IS the project root. A test that points the override
+  /// at a fixture root must also chdir there.
   Future<Set<String>?> discoverCompileClosure({
     required String targetPath,
     required String workDirPath,

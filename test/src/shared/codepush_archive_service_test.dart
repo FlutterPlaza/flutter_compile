@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:test/test.dart';
 
@@ -108,12 +109,17 @@ void main() {
       final manifest = jsonDecode(
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
-      expect(manifest['archive_format_version'], 1);
+      expect(manifest['archive_format_version'], 2);
       expect(manifest['release_id'], 'rel-2');
       expect(manifest['baseline_id'], 'base-2');
       expect(manifest['fcp_version'], '0.19.99');
       expect(manifest['platform'], 'ios-arm64');
       expect(manifest['has_dsym'], isFalse);
+      expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['interface_spec_source_name'], isNull);
+      expect(manifest['has_interface_report'], isFalse);
+      expect(manifest['interface_spec_change'], isNull);
+      expect(manifest['has_extendable_widgets'], isFalse);
       expect((manifest['framework_sha256'] as String).length, 64);
       expect((manifest['app_framework_sha256'] as String).length, 64);
       expect((manifest['runner_binary_sha256'] as String).length, 64);
@@ -140,6 +146,215 @@ void main() {
         File('${releaseDir.path}/manifest.json').readAsStringSync(),
       ) as Map<String, dynamic>;
       expect(manifest['has_dsym'], isTrue);
+    });
+
+    test('archives the spec and report this run attested to', () {
+      writeBaselineApp();
+      // Attest a HASHED source name: the manifest must carry it while
+      // the archived file lands under the canonical name — recording
+      // the destination instead would break the join key.
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_01dc0ffe01dc0ffe.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+      final reportPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_report.json';
+      File(reportPath).writeAsStringSync('{"extendable": []}\n');
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-spec',
+        baselineId: 'base-spec',
+        fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
+        interfaceReportPath: reportPath,
+        interfaceSpecExtendable: true,
+        interfaceSpecChange: InterfaceSpecChange.changed,
+      );
+
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-spec',
+      );
+      expect(
+        File('${releaseDir.path}/dynamic_interface.yaml').readAsStringSync(),
+        'callable:\n',
+      );
+      // The compiler's own account travels with the intent it proves.
+      expect(
+        File('${releaseDir.path}/dynamic_interface_report.json')
+            .readAsStringSync(),
+        '{"extendable": []}\n',
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isTrue);
+      expect(manifest['has_interface_report'], isTrue);
+      // The join key against env-hash build directories: the SOURCE
+      // name, not the canonical destination the file was copied to.
+      expect(
+        manifest['interface_spec_source_name'],
+        'dynamic_interface_01dc0ffe01dc0ffe.yaml',
+      );
+      // The manifest must answer "was guarding on?" without grepping
+      // the yaml.
+      expect(manifest['has_extendable_widgets'], isTrue);
+      // The writer's verdict travels: it interprets a null report.
+      expect(manifest['interface_spec_change'], 'changed');
+    });
+
+    test('an attested opt-out spec records true,false — not no-freeze', () {
+      // The --no-extendable-widgets release: the spec is real and
+      // archived, guarding is deliberately off. This is the one state
+      // that separates attestation from copy outcome — rewriting the
+      // key as `archivedSpec && extendable` must fail here.
+      writeBaselineApp();
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_02dc0ffe02dc0ffe.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-optout',
+        baselineId: 'base-optout',
+        fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
+        interfaceSpecExtendable: false,
+        interfaceSpecChange: InterfaceSpecChange.unchanged,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-optout/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isTrue);
+      expect(manifest['has_extendable_widgets'], isFalse);
+      expect(manifest['interface_spec_change'], 'unchanged');
+    });
+
+    test('a leftover spec from a previous run is never claimed', () {
+      writeBaselineApp();
+      // On disk (a previous run's), but THIS run attests to none.
+      File('${projectDir.path}/build/codepush/dynamic_interface.yaml')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-stale',
+        baselineId: 'base-stale',
+        fcpVersion: '0.0.0',
+      );
+
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-stale',
+      );
+      expect(
+        File('${releaseDir.path}/dynamic_interface.yaml').existsSync(),
+        isFalse,
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isFalse);
+      expect(manifest['has_interface_report'], isFalse);
+      expect(manifest['has_extendable_widgets'], isFalse);
+      // No attestation: both join keys are null, not stale values.
+      expect(manifest['interface_spec_source_name'], isNull);
+      expect(manifest['interface_spec_change'], isNull);
+    });
+
+    test('an attested report the build never produced is unknown, not false',
+        () {
+      writeBaselineApp();
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-warm',
+        baselineId: 'base-warm',
+        fcpVersion: '0.0.0',
+        interfaceReportPath: '${projectDir.path}/build/codepush/'
+            'dynamic_interface_report.json',
+        interfaceSpecExtendable: true,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-warm/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      // A warm rebuild's cached kernel step writes no report: the
+      // manifest must say unknown (null), not assert false.
+      expect(manifest.containsKey('has_interface_report'), isTrue);
+      expect(manifest['has_interface_report'], isNull);
+    });
+
+    test('a produced-then-lost report is false, not unknown', () {
+      writeBaselineApp();
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-lost',
+        baselineId: 'base-lost',
+        fcpVersion: '0.0.0',
+        interfaceReportPath: '${projectDir.path}/build/codepush/'
+            'dynamic_interface_report.json',
+        interfaceReportWasProduced: true,
+        interfaceSpecExtendable: true,
+      );
+      expect(ok, isTrue);
+      final manifest = jsonDecode(
+        File('${projectDir.path}/.fcp-archive/rel-lost/manifest.json')
+            .readAsStringSync(),
+      ) as Map<String, dynamic>;
+      // Observed after the build, gone at archive time: a known
+      // problem, distinct from the reused-compile unknown.
+      expect(manifest['has_interface_report'], isFalse);
+    });
+
+    test('a failed spec copy is non-fatal, like the dSYM', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      writeBaselineApp();
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+      Process.runSync('chmod', ['000', specPath]);
+      addTearDown(() => Process.runSync('chmod', ['644', specPath]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File(specPath).readAsStringSync();
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the file really is unreadable.
+      }
+
+      final ok = service.archiveIosRelease(
+        releaseId: 'rel-badspec',
+        baselineId: 'base-badspec',
+        fcpVersion: '0.0.0',
+        interfaceSpecPath: specPath,
+        interfaceSpecExtendable: true,
+      );
+
+      // The app-bundle archive survives; only the optional spec is lost.
+      expect(ok, isTrue);
+      final releaseDir = Directory(
+        '${projectDir.path}/.fcp-archive/rel-badspec',
+      );
+      expect(
+        File('${releaseDir.path}/manifest.json').existsSync(),
+        isTrue,
+      );
+      final manifest = jsonDecode(
+        File('${releaseDir.path}/manifest.json').readAsStringSync(),
+      ) as Map<String, dynamic>;
+      expect(manifest['has_interface_spec'], isFalse);
+      // Attestation, not copy outcome: guarding WAS on even though the
+      // yaml itself could not be archived.
+      expect(manifest['has_extendable_widgets'], isTrue);
     });
 
     test('does NOT write a project-level .gitignore inside the archive', () {

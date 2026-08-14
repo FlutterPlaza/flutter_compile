@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -662,6 +664,14 @@ void _interfaceFreeze() {
       expect(sources, {'/a/b.dart', '/c d/e.dart', '/f/g.dart'});
     });
 
+    test('normalizes doubled Windows backslashes to single separators', () {
+      final sources = CodePushBuildService.parseDepfileSources(
+        'out.dill: C:\\\\proj\\\\lib\\\\main.dart /a/b.dart\n',
+        windowsPaths: true,
+      );
+      expect(sources, {'C:/proj/lib/main.dart', '/a/b.dart'});
+    });
+
     test('returns empty on malformed input', () {
       expect(CodePushBuildService.parseDepfileSources('no colon'), isEmpty);
     });
@@ -736,6 +746,40 @@ void _interfaceFreeze() {
         'package:demo/main.dart',
         'package:demo/src/util.dart',
       ]);
+    });
+
+    test('backslashed closure spelling maps AND reads the real file', () {
+      // The file exists ONLY at the normalized location; the closure
+      // entry is its backslashed spelling. Passing requires both the
+      // prefix match and readPath to normalize.
+      File('${tmp.path}/lib/win_only.dart').writeAsStringSync('int w = 1;');
+      final backslashed = '${tmp.path}/lib/win_only.dart'.replaceAll('/', r'\');
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {backslashed},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        windowsPaths: true,
+      );
+      expect(uris, contains('package:demo/win_only.dart'));
+    });
+
+    test('a POSIX root containing a literal backslash still maps', () {
+      if (Platform.isWindows) {
+        markTestSkipped('backslashes are path separators on Windows');
+        return;
+      }
+      // Translation is Windows-only, so this layout keeps releasing —
+      // the pre-content-addressing behavior, restored.
+      final bsRoot = Directory('${tmp.path}/a\\b')..createSync();
+      Directory('${bsRoot.path}/lib').createSync();
+      File('${bsRoot.path}/lib/main.dart').writeAsStringSync('void main(){}');
+      final uris = CodePushBuildService.appLibrariesFromClosure(
+        closurePaths: {'${bsRoot.path}/lib/main.dart'},
+        projectRoot: bsRoot.path,
+        packageName: 'demo',
+        windowsPaths: false,
+      );
+      expect(uris, contains('package:demo/main.dart'));
     });
 
     test('relative depfile entries map and read correctly', () async {
@@ -956,6 +1000,408 @@ void _interfaceFreeze() {
       expect(yaml, contains("  - library: 'package:flutter/widgets.dart'"));
       expect(yaml, contains("  - library: 'package:app/a.dart'"));
       expect(yaml, isNot(contains('material.dart')));
+    });
+  });
+
+  group('extendable constants', () {
+    test('the guarded base-class list is pinned', () {
+      expect(
+        CodePushBuildService.kIosExtendableFrameworkClasses,
+        ['StatelessWidget', 'StatefulWidget', 'State'],
+      );
+      expect(
+        CodePushBuildService.kIosExtendableFrameworkLibrary,
+        'package:flutter/src/widgets/framework.dart',
+      );
+    });
+  });
+
+  group('buildIosInterfaceFreezeYaml extendable section', () {
+    test('included on request with the widget base classes', () {
+      final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: const ['package:flutter/widgets.dart'],
+        appLibraries: const ['package:app/a.dart'],
+        includeExtendable: true,
+      );
+      // Assert the exact block so mispaired library/class lines fail.
+      final expectedBlock = StringBuffer('extendable:\n');
+      for (final cls in CodePushBuildService.kIosExtendableFrameworkClasses) {
+        expectedBlock
+          ..writeln(
+            "  - library: "
+            "'package:flutter/src/widgets/framework.dart'",
+          )
+          ..writeln("    class: '$cls'");
+      }
+      expect(yaml, contains(expectedBlock.toString()));
+      expect(
+        yaml.indexOf('callable:'),
+        lessThan(yaml.indexOf('extendable:')),
+      );
+    });
+
+    test('omitted by default', () {
+      final yaml = CodePushBuildService.buildIosInterfaceFreezeYaml(
+        flutterLibraries: const [],
+        appLibraries: const [],
+      );
+      expect(yaml, isNot(contains('extendable:')));
+    });
+  });
+
+  group('writeIosInterfaceFreezeSpec', () {
+    late Directory tmp;
+    late MockLogger logger;
+    late CodePushBuildService service;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('spec_test');
+      logger = MockLogger();
+      service = CodePushBuildService(logger: logger);
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/main.dart').writeAsStringSync('void main() {}');
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('framework in closure => extendable section reaches the file', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '/sdk/packages/flutter/lib/widgets.dart',
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      final yaml = File(spec!.specPath).readAsStringSync();
+      expect(spec.appCount, 1);
+      expect(spec.flutterCount, greaterThan(0));
+      expect(spec.extendable, true);
+      expect(yaml, contains('extendable:'));
+      expect(yaml, contains("  - library: 'package:demo/main.dart'"));
+    });
+
+    test('allowExtendable=false omits the section despite the framework', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        allowExtendable: false,
+      );
+      expect(
+        File(spec!.specPath).readAsStringSync(),
+        isNot(contains('extendable:')),
+      );
+      expect(spec.extendable, false);
+      // Messaging is the command's job (opt-out warn, gate-miss hard
+      // stop) — the flag-agnostic writer stays quiet at default level.
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('no framework in closure => extendable omitted in the file', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(
+        File(spec!.specPath).readAsStringSync(),
+        isNot(contains('extendable:')),
+      );
+      // The gate miss travels on the record; the COMMAND turns it into
+      // a hard stop, so the writer must report it faithfully.
+      expect(spec.extendable, false);
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('unwritable spec dir => FlutterCompileException, not null', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      final roDir = Directory('${tmp.path}/ro')..createSync();
+      Process.runSync('chmod', ['555', roDir.path]);
+      addTearDown(() => Process.runSync('chmod', ['755', roDir.path]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        File('${roDir.path}/probe').writeAsStringSync('x');
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the directory really is unwritable.
+      }
+      expect(
+        () => service.writeIosInterfaceFreezeSpec(
+          closurePaths: {'${tmp.path}/lib/main.dart'},
+          projectRoot: tmp.path,
+          packageName: 'demo',
+          specDirPath: roDir.path,
+        ),
+        throwsA(
+          isA<FlutterCompileException>().having(
+            (e) => e.message,
+            'message',
+            contains('Check permissions'),
+          ),
+        ),
+      );
+    });
+
+    test('no mappable app libraries => null, and stale specs still swept', () {
+      // A refused run must not leave a previous run's spec behind: the
+      // command already deleted the report, and the two artifacts must
+      // never describe different runs. The report file, meanwhile,
+      // must SURVIVE the sweep (it is not a spec).
+      File('${tmp.path}/dynamic_interface_01dc0ffe01dc0ffe.yaml')
+          .writeAsStringSync('old\n');
+      File('${tmp.path}/dynamic_interface_report.json')
+          .writeAsStringSync('{}\n');
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: const {'/elsewhere/lib/x.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(spec, isNull);
+      expect(
+        File('${tmp.path}/dynamic_interface_report.json').existsSync(),
+        true,
+      );
+      expect(
+        tmp.listSync().whereType<File>().where(
+              (f) =>
+                  f.uri.pathSegments.last.startsWith('dynamic_interface') &&
+                  f.uri.pathSegments.last.endsWith('.yaml'),
+            ),
+        isEmpty,
+      );
+    });
+
+    test('a vanished closure entry is skipped as missing, not unreadable', () {
+      // A file the compile saw but the mapping cannot find gets the
+      // missing reason, split from the permissions case.
+      final reasons = <String>[];
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/ghost/g.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        onSkip: (path, reason) => reasons.add(reason),
+      );
+      expect(spec, isNotNull);
+      expect(reasons, hasLength(1));
+      expect(reasons.single, contains('missing on disk'));
+      expect(reasons.single, contains('unreadable parent directory'));
+    });
+
+    test('spec filename is content-addressed and stale specs are swept', () {
+      // A leftover from an older fcp (fixed name) and a stale hashed
+      // spec must both disappear: the build fingerprint keys on the
+      // option STRING, so only a changed filename busts the cache.
+      File('${tmp.path}/dynamic_interface.yaml').writeAsStringSync('old\n');
+      File('${tmp.path}/dynamic_interface_deadbeefdeadbeef.yaml')
+          .writeAsStringSync('old\n');
+
+      final first = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(
+        first!.specPath,
+        matches(RegExp(r'dynamic_interface_[0-9a-f]{16}\.yaml$')),
+      );
+      expect(
+        File('${tmp.path}/dynamic_interface.yaml').existsSync(),
+        false,
+      );
+      expect(
+        File('${tmp.path}/dynamic_interface_deadbeefdeadbeef.yaml')
+            .existsSync(),
+        false,
+      );
+      // Sweeping differently-named stale specs is a spec CHANGE — the
+      // next build recompiles from scratch, and the breadcrumb says so.
+      expect(first.specChange, InterfaceSpecChange.changed);
+      verify(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      ).called(1);
+
+      // Same inputs => same name (a cache hit stays a cache hit), and
+      // no spec-change breadcrumb.
+      final again = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(again!.specPath, first.specPath);
+      expect(again.specChange, InterfaceSpecChange.unchanged);
+      verifyNever(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      );
+
+      // Changed contents => changed name, previous spec swept.
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/extra.dart').writeAsStringSync('class E {}');
+      final changed = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/extra.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(changed!.specPath, isNot(first.specPath));
+      expect(changed.specChange, InterfaceSpecChange.changed);
+      expect(File(first.specPath).existsSync(), false);
+      expect(File(changed.specPath).existsSync(), true);
+      verify(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      ).called(1);
+    });
+
+    test('an ambiguous multi-spec sweep is unknown, with its breadcrumb', () {
+      // Reachable via an fcp downgrade then upgrade: the legacy fixed
+      // name AND this run's hashed name both on disk. Which one the
+      // last build used is not provable either way.
+      final first = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      File('${tmp.path}/dynamic_interface.yaml').writeAsStringSync('old\n');
+      final again = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(again!.specPath, first!.specPath);
+      expect(again.specChange, InterfaceSpecChange.unknown);
+      verify(
+        () => logger.detail(
+          any(that: contains('Multiple stale interface specs')),
+        ),
+      ).called(1);
+    });
+
+    test('an empty build directory is NOT a spec change', () {
+      // rm -rf build/ with an intact .dart_tool leaves the env hash
+      // warm and the compile reusable; claiming a spec change here
+      // would mis-lead the missing-report warning toward SDK drift.
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(spec!.specChange, InterfaceSpecChange.unknown);
+      verify(
+        () => logger.detail(
+          any(that: contains('No previous interface spec')),
+        ),
+      ).called(1);
+      verifyNever(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      );
+    });
+
+    test('an unreadable (but present) source is skipped as unreadable', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
+      final locked = File('${tmp.path}/lib/locked.dart')
+        ..writeAsStringSync('class L {}');
+      Process.runSync('chmod', ['000', locked.path]);
+      addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
+      try {
+        // Root (containers) ignores mode bits; then there is nothing to
+        // assert here.
+        locked.readAsStringSync();
+        markTestSkipped('running with privileges that bypass file modes');
+        return;
+      } on FileSystemException {
+        // Expected: the file really is unreadable.
+      }
+      final reasons = <String>[];
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          locked.path,
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        onSkip: (path, reason) => reasons.add(reason),
+      );
+      expect(spec, isNotNull);
+      expect(reasons.single, 'unreadable');
+    });
+  });
+
+  group('isAbsoluteSourcePath', () {
+    test('recognizes POSIX and Windows drive forms', () {
+      expect(CodePushBuildService.isAbsoluteSourcePath('/a/b.dart'), true);
+      expect(
+        CodePushBuildService.isAbsoluteSourcePath(r'C:\proj\lib\m.dart'),
+        true,
+      );
+      expect(
+        CodePushBuildService.isAbsoluteSourcePath('C:/proj/lib/m.dart'),
+        true,
+      );
+      expect(CodePushBuildService.isAbsoluteSourcePath('lib/m.dart'), false);
+    });
+  });
+
+  group('closureHasExtendableFramework', () {
+    test('accepts backslashed closure entries like its siblings', () {
+      expect(
+        CodePushBuildService.closureHasExtendableFramework(
+          {r'C:\\sdk\\packages\\flutter\\lib\\src\\widgets\\framework.dart'},
+          windowsPaths: true,
+        ),
+        true,
+      );
+      expect(
+        CodePushBuildService.flutterLibrariesFromClosure(
+          {r'C:\\sdk\\packages\\flutter\\lib\\widgets.dart'},
+          windowsPaths: true,
+        ),
+        ['package:flutter/widgets.dart'],
+      );
+    });
+
+    test('true only when the framework library file is in the closure', () {
+      expect(
+        CodePushBuildService.closureHasExtendableFramework({
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        }),
+        true,
+      );
+      expect(
+        CodePushBuildService.closureHasExtendableFramework({
+          '/sdk/packages/flutter/lib/widgets.dart',
+          '/app/lib/main.dart',
+        }),
+        false,
+      );
     });
   });
 
