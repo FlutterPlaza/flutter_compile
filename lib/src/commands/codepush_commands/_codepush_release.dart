@@ -582,7 +582,8 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     final specDir = Directory('$projectRoot/build/codepush')
       ..createSync(recursive: true);
-    final specPath = '${specDir.path}/dynamic_interface.yaml';
+    final specPath =
+        '${specDir.path}/${CodePushBuildService.kInterfaceSpecFilename}';
     final reportPath = '${specDir.path}/dynamic_interface_report.json';
     if (specPath.contains(',') || reportPath.contains(',')) {
       _logger.err(

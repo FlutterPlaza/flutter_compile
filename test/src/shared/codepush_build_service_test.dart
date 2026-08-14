@@ -746,20 +746,18 @@ void _interfaceFreeze() {
       ]);
     });
 
-    test('backslashed Windows depfile entries map correctly', () {
-      final winRoot = tmp.path;
-      // On POSIX a backslash is a legal filename character, so this
-      // creates one file at the literal closure path — enough to
-      // exercise the prefix match and the content read.
-      final winFile = File('$winRoot\\lib\\main.dart')
-        ..writeAsStringSync('void main() {}');
-      addTearDown(() => winFile.deleteSync());
+    test('backslashed closure spelling maps AND reads the real file', () {
+      // The file exists ONLY at the normalized location; the closure
+      // entry is its backslashed spelling. Passing requires both the
+      // prefix match and readPath to normalize.
+      File('${tmp.path}/lib/win_only.dart').writeAsStringSync('int w = 1;');
+      final backslashed = '${tmp.path}/lib/win_only.dart'.replaceAll('/', r'\');
       final uris = CodePushBuildService.appLibrariesFromClosure(
-        closurePaths: {'$winRoot\\lib\\main.dart'},
-        projectRoot: winRoot,
+        closurePaths: {backslashed},
+        projectRoot: tmp.path,
         packageName: 'demo',
       );
-      expect(uris, ['package:demo/main.dart']);
+      expect(uris, contains('package:demo/win_only.dart'));
     });
 
     test('relative depfile entries map and read correctly', () async {
@@ -1018,10 +1016,6 @@ void _interfaceFreeze() {
         yaml.indexOf('callable:'),
         lessThan(yaml.indexOf('extendable:')),
       );
-      expect(
-        yaml.indexOf('callable:'),
-        lessThan(yaml.indexOf('extendable:')),
-      );
     });
 
     test('omitted by default', () {
@@ -1078,6 +1072,10 @@ void _interfaceFreeze() {
     });
 
     test('unwritable spec dir => FlutterCompileException, not null', () {
+      if (Platform.isWindows) {
+        markTestSkipped('chmod semantics are POSIX-only');
+        return;
+      }
       final roDir = Directory('${tmp.path}/ro')..createSync();
       Process.runSync('chmod', ['555', roDir.path]);
       addTearDown(() => Process.runSync('chmod', ['755', roDir.path]));
@@ -1120,7 +1118,7 @@ void _interfaceFreeze() {
         false,
       );
     });
-  }, skip: Platform.isWindows ? 'POSIX path and permission semantics' : null);
+  });
 
   group('isAbsoluteSourcePath', () {
     test('recognizes POSIX and Windows drive forms', () {

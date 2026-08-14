@@ -1259,6 +1259,12 @@ class CodePushBuildService {
   /// Canonical path normalization: separators to '/', runs collapsed
   /// (Windows Make-escaping doubles backslashes). The parser and every
   /// defensive consumer use THIS so the sites cannot drift.
+  ///
+  /// Deliberate trade-off: the translation is unconditional, so a POSIX
+  /// project path CONTAINING a literal backslash is unsupported here —
+  /// accepted, because the alternative (host-conditional parsing)
+  /// would make the one iOS-relevant host behave differently from the
+  /// suite that tests it.
   static String _normalizePath(String p) =>
       p.replaceAll(r'\', '/').replaceAll(RegExp('/{2,}'), '/');
 
@@ -1297,7 +1303,7 @@ class CodePushBuildService {
     final libPrefixes = <String>{
       '$root/lib/',
       // The front-end may write resolved (symlink-free) paths...
-      '${_tryResolve(projectRoot).replaceAll(r'\', '/')}/lib/',
+      '${_normalizePath(_tryResolve(projectRoot))}/lib/',
       // ...or relative ones, depending on version.
       'lib/',
     };
@@ -1445,7 +1451,7 @@ class CodePushBuildService {
           : 'Interface spec: framework library not in the compile; '
               'extendable section omitted.',
     );
-    final specPath = '$specDirPath/dynamic_interface.yaml';
+    final specPath = '$specDirPath/$kInterfaceSpecFilename';
     try {
       File(specPath).writeAsStringSync(
         buildIosInterfaceFreezeYaml(
@@ -1477,6 +1483,10 @@ class CodePushBuildService {
   /// widget base classes we mark extendable — derived from
   /// [kIosExtendableFrameworkLibrary] so the two can never drift.
   static bool closureHasExtendableFramework(Set<String> closurePaths) {
+    assert(
+      kIosExtendableFrameworkLibrary.startsWith('package:flutter/'),
+      'closureHasExtendableFramework assumes a package:flutter library',
+    );
     final suffix = kIosExtendableFrameworkLibrary.replaceFirst(
       'package:flutter/',
       '/flutter/lib/',
@@ -1528,6 +1538,10 @@ class CodePushBuildService {
     merged[index] = '$prefix${options.join(',')}';
     return merged;
   }
+
+  /// Filename of the generated interface spec (single source for the
+  /// service writer and the command's comma guard).
+  static const String kInterfaceSpecFilename = 'dynamic_interface.yaml';
 
   /// Instance wrapper over [frontendSupportsDynamicInterface] so
   /// command-level tests can stub the probe.
