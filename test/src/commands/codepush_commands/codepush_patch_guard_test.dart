@@ -222,11 +222,19 @@ void main() {
       // runs; the post-build in-place check owns that flow. Rejecting
       // here broke `--build --patch-file build/codepush/patch.fcppatch`
       // on every fresh clone and CI runner.
+      // Every row has provenance INDEPENDENT of Directory.current —
+      // a row derived from the same cwd the comparator prefixes on
+      // its own side asserts norm(x) == norm(x) and passes for any
+      // normalizer.
       for (final spelling in [
         CodePushPatchSubCommand.kPatchOutputPath,
         './${CodePushPatchSubCommand.kPatchOutputPath}',
         'build/./codepush/patch.fcppatch',
-        File(CodePushPatchSubCommand.kPatchOutputPath).absolute.path,
+        'build/codepush/../codepush/patch.fcppatch',
+        // A symlinked/bind-mounted prefix (macOS /var → /private/var,
+        // a CI workspace mount): full-path comparison cannot equate
+        // these, so the basename clause must carry the row.
+        '/var/ci/workspace/proj/build/codepush/patch.fcppatch',
       ]) {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],

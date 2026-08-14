@@ -189,7 +189,12 @@ class CodePushPatchSubCommand extends Command<int> {
   /// check owns the call — a path-spelling gap must cost the old
   /// behavior, never a false rejection (the round-8 regression
   /// direction). Case-folding over-matches on case-sensitive
-  /// filesystems, which is also the open direction.
+  /// filesystems, which is also the open direction. CAVEAT: does not
+  /// resolve symlinks, so an absolute spelling through a symlinked
+  /// prefix (macOS `/var` → `/private/var`) compares unequal against
+  /// the getcwd-anchored side — callers must not treat a `false`
+  /// from this alone as proof of a different file; see the basename
+  /// clause in [earlyPatchFileError].
   static bool _plausiblySameFile(String a, String b) {
     try {
       String norm(String p) =>
@@ -201,23 +206,35 @@ class CodePushPatchSubCommand extends Command<int> {
   }
 
   /// The early `--patch-file` existence check. A missing file fails
-  /// fast — EXCEPT when `--build` is set and the argument names the
-  /// one path the build can bring into existence
+  /// fast — EXCEPT when `--build` is set and the argument may name
+  /// the one path the build can bring into existence
   /// ([kPatchOutputPath]): that file legitimately does not exist yet
-  /// on a clean tree, and the in-place post-build check owns it. A
-  /// typo'd path under `--build` still fails fast — it can never
-  /// appear, and discovering that after minutes of building violates
-  /// the pre-fetch invariant. Returns the error to print, or null
-  /// when the run may proceed. Public for tests; reads its own args
-  /// so a real-parse test covers the wire.
+  /// on a clean tree, and the in-place post-build check owns it.
+  /// "May name" is deliberately generous — full-path comparison
+  /// cannot see through symlinked prefixes (macOS `/var` →
+  /// `/private/var`, bind-mounted CI workspaces), so a matching
+  /// BASENAME also skips: the typo class this guard exists to catch
+  /// is a misspelled basename, and a right-basename-wrong-directory
+  /// value falls through to the late check (the pre-round-8
+  /// behavior — accepted cost). A basename typo under `--build`
+  /// still fails fast: it can never appear, and discovering that
+  /// after minutes of building violates the pre-fetch invariant.
+  /// Returns the error to print, or null when the run may proceed.
+  /// Public for tests; reads its own args so a real-parse test
+  /// covers the wire.
   String? earlyPatchFileError() {
     final explicitPatchFile = argResults?['patch-file'] as String?;
     if (explicitPatchFile == null || explicitPatchFile.isEmpty) return null;
     if (File(explicitPatchFile).existsSync()) return null;
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild &&
-        _plausiblySameFile(explicitPatchFile, kPatchOutputPath)) {
-      return null;
+    if (shouldBuild) {
+      final basename =
+          explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
+      final outputBasename = kPatchOutputPath.split('/').last;
+      if (basename == outputBasename ||
+          _plausiblySameFile(explicitPatchFile, kPatchOutputPath)) {
+        return null;
+      }
     }
     return 'Patch file not found: $explicitPatchFile';
   }
@@ -315,6 +332,8 @@ class CodePushPatchSubCommand extends Command<int> {
       final patchFileError = earlyPatchFileError();
       if (patchFileError != null) {
         _logger.err(patchFileError);
+        // 70 (software), not 64: continuity with the late post-build
+        // check, which has always exited 70 for a missing patch file.
         return ExitCode.software.code;
       }
 
