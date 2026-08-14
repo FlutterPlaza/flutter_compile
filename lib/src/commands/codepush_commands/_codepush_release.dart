@@ -561,6 +561,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       'Creating release v$version for $appId$versionSuffix',
     );
 
+    // Attest the interface state only for a build THIS run performed
+    // on iOS: writtenInterfaceSpec is non-null exactly when the freeze
+    // prep succeeded (a failed prep exits earlier), null when it was
+    // skipped via --no-interface-freeze. Snapshot uploads and Android
+    // builds attest nothing — unknown, never false.
+    final attestInterface = shouldBuild && builtPlatform == 'ios';
     try {
       final result = await client.createRelease(
         token: token,
@@ -569,6 +575,10 @@ class CodePushReleaseSubCommand extends Command<int> {
         snapshotData: snapshotData,
         flutterVersion: flutterVersion,
         baselineId: baselineId,
+        interfaceFreeze: attestInterface ? writtenInterfaceSpec != null : null,
+        extendableWidgets: attestInterface
+            ? (writtenInterfaceSpec?.extendable ?? false)
+            : null,
       );
 
       final statusCode = result['status_code'] as int;

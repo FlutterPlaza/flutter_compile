@@ -89,10 +89,53 @@ class CodePushPatchSubCommand extends Command<int> {
         help: 'iOS only. Additional library URI to include in the '
             'bytecode module (repeatable). For patch-side helper '
             'libraries not discovered automatically.',
+      )
+      ..addFlag(
+        'allow-unguarded-release',
+        help: 'Acknowledge patching an iOS release that was built '
+            'without widget guarding (or without the interface '
+            'freeze): silences the warning. Patches that add new '
+            'widget subclasses will still fail on such a release.',
+        negatable: false,
       );
   }
 
   final Logger _logger;
+
+  /// Warn when the target [release] (its server JSON, or null when it
+  /// could not be fetched) was recorded as built without widget
+  /// guarding or without the interface freeze. Reads the
+  /// `--allow-unguarded-release` acknowledgement itself so the flag
+  /// link is testable with real parsed args. Absent/null fields stay
+  /// silent — every pre-metadata release, old server, or fetch
+  /// failure is unknown, not unguarded. Public for tests ([run]
+  /// cannot be cheaply exercised).
+  void warnIfUnguardedRelease(
+    Map<String, dynamic>? release, {
+    required String? platform,
+  }) {
+    if (platform != 'ios' || release == null) return;
+    final acknowledged =
+        argResults?['allow-unguarded-release'] as bool? ?? false;
+    if (acknowledged) return;
+    if (release['extendable_widgets'] == false) {
+      _logger.warn(
+        'This release was built without widget guarding '
+        '(--no-extendable-widgets): a patch that declares new widget '
+        'subclasses — for example, a new screen — will crash on it. '
+        'Pass --allow-unguarded-release to acknowledge and silence '
+        'this warning.',
+      );
+    }
+    if (release['interface_freeze'] == false) {
+      _logger.warn(
+        'This release was built without the interface freeze '
+        '(--no-interface-freeze): it may not be reliably patchable. '
+        'Pass --allow-unguarded-release to acknowledge and silence '
+        'this warning.',
+      );
+    }
+  }
 
   @override
   final String name = 'patch';
@@ -511,12 +554,18 @@ class CodePushPatchSubCommand extends Command<int> {
       // When --release-id is provided, fetch the release's stored
       // hash from the server so hashes always agree with the
       // device's installed baseline.
+      // The patch's platform: explicit flag or the one this invocation
+      // just built. Also gates the unguarded-release warning below.
+      final patchPlatform =
+          (argResults?['platform'] as String?) ?? builtPlatform;
       String? baselineHash;
       try {
-        baselineHash = await client.getReleaseHash(
+        final releaseInfo = await client.getRelease(
           token: token,
           releaseId: releaseId,
         );
+        warnIfUnguardedRelease(releaseInfo, platform: patchPlatform);
+        baselineHash = releaseInfo?['snapshot_hash'] as String?;
       } catch (_) {
         // Best-effort — fall through to local computation.
       }
@@ -543,14 +592,12 @@ class CodePushPatchSubCommand extends Command<int> {
         // may be hashed (what devices actually run); the
         // merged_native_libs copy this used to hash is pre-strip and
         // hashes differently.
-        final fallbackPlatform =
-            (argResults?['platform'] as String?) ?? builtPlatform;
         final isAndroidFallback =
-            const {'apk', 'appbundle', 'android'}.contains(fallbackPlatform);
+            const {'apk', 'appbundle', 'android'}.contains(patchPlatform);
         final androidBaselineLib = isAndroidFallback
             ? buildService.findAndroidBaselineLibPath()
             : null;
-        final iosBaselineBinary = fallbackPlatform == 'ios'
+        final iosBaselineBinary = patchPlatform == 'ios'
             ? buildService.findIosBaselineAppBinaryPath()
             : null;
         final candidateAppFrameworks = [

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `fcp codepush patch` now warns when the target iOS release was built without widget guarding or without call-shape preservation; `--allow-unguarded-release` acknowledges and silences it. Releases created by older versions are not affected.
+
 - Fixed an issue where simple iOS patches (for example, a patch whose body is a single logging call) could crash or misbehave at run time.
 - Patches can now declare new `StatelessWidget` / `StatefulWidget` / `State` subclasses — for example, a patch that adds a new screen. The capability is applied at release build time: apps already in the field need one fresh `fcp codepush release --build` to benefit.
   - The preparation adds a small dispatch cost on the widget base classes; `--no-extendable-widgets` opts a release out of it (patches that add new screens will fail on such a release).

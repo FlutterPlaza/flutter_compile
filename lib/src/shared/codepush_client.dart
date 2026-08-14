@@ -178,6 +178,10 @@ class CodePushClient {
   ///
   /// [flutterVersion] is the Flutter SDK version this release was built
   /// with — required for server-side patch compilation.
+  /// [interfaceFreeze] / [extendableWidgets] attest whether the iOS
+  /// baseline was built with the interface freeze / widget guarding.
+  /// Null means unknown and is NOT sent — an old server ignores the
+  /// params either way, and absent must never read as "off".
   Future<Map<String, dynamic>> createRelease({
     required String token,
     required String appId,
@@ -185,6 +189,8 @@ class CodePushClient {
     required List<int> snapshotData,
     String? flutterVersion,
     String? baselineId,
+    bool? interfaceFreeze,
+    bool? extendableWidgets,
   }) async {
     return _postBinary(
       '/api/v1/releases',
@@ -195,12 +201,19 @@ class CodePushClient {
         'version': version,
         if (flutterVersion != null) 'flutter_version': flutterVersion,
         if (baselineId != null) 'baseline_id': baselineId,
+        if (interfaceFreeze != null)
+          'interface_freeze': interfaceFreeze.toString(),
+        if (extendableWidgets != null)
+          'extendable_widgets': extendableWidgets.toString(),
       },
     );
   }
 
-  /// Get the stored hash for a release, if available.
-  Future<String?> getReleaseHash({
+  /// Get a release's JSON by id, or null when it does not exist or
+  /// the server is unreachable — best-effort by design, so callers
+  /// (the patch flow) degrade to their local fallbacks instead of
+  /// failing the command on a metadata read.
+  Future<Map<String, dynamic>?> getRelease({
     required String token,
     required String releaseId,
   }) async {
@@ -211,11 +224,19 @@ class CodePushClient {
       );
       final releases = info['releases'] as List?;
       if (releases == null || releases.isEmpty) return null;
-      final release = releases.first as Map<String, dynamic>;
-      return release['snapshot_hash'] as String?;
+      return releases.first as Map<String, dynamic>;
     } catch (_) {
       return null;
     }
+  }
+
+  /// Get the stored hash for a release, if available.
+  Future<String?> getReleaseHash({
+    required String token,
+    required String releaseId,
+  }) async {
+    final release = await getRelease(token: token, releaseId: releaseId);
+    return release?['snapshot_hash'] as String?;
   }
 
   /// GET /api/v1/patches?release_id=...
