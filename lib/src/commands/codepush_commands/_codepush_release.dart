@@ -6,6 +6,7 @@ import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
@@ -547,7 +548,9 @@ class CodePushReleaseSubCommand extends Command<int> {
 
   /// Write the interface-freeze spec for this iOS release build and
   /// return a function that adds the front-end flags for it, or null
-  /// (with an error logged) when the freeze cannot be set up — building
+  /// (with an error logged) when the freeze cannot be set up — or
+  /// rethrows the service's typed exception on a spec write failure —
+  /// building
   /// without it would ship a baseline that later patches cannot call
   /// reliably, so that is a hard failure, not a warning.
   ///
@@ -601,13 +604,19 @@ class CodePushReleaseSubCommand extends Command<int> {
       progress.fail('Could not analyze the app for the release build');
       return null;
     }
-    final writtenSpec = buildService.writeIosInterfaceFreezeSpec(
-      closurePaths: closure,
-      projectRoot: projectRoot,
-      packageName: packageName,
-      specDirPath: specDir.path,
-      onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
-    );
+    final String? writtenSpec;
+    try {
+      writtenSpec = buildService.writeIosInterfaceFreezeSpec(
+        closurePaths: closure,
+        projectRoot: projectRoot,
+        packageName: packageName,
+        specDirPath: specDir.path,
+        onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
+      );
+    } on FlutterCompileException {
+      progress.fail('Could not write the interface spec');
+      rethrow; // message already logged by the service
+    }
     // The compile target lib/main.dart is always in its own closure, so
     // a null here means the path-prefix match failed, not that the app
     // has no libraries. Shipping without the app's own shapes frozen
