@@ -146,6 +146,55 @@ class CodePushPatchSubCommand extends Command<int> {
     }
   }
 
+  /// The release's stored `snapshot_hash`, or null when the value is
+  /// unusable. Same rule as [warnIfUnguardedRelease]'s tolerant read:
+  /// a server-shape surprise (non-String, empty, truncated) must
+  /// degrade to the local fallback — never crash after the whole
+  /// build, and never upload as a baseline identity no device can
+  /// match. The 16-char floor rejects definite-looking garbage while
+  /// admitting any real digest. Public for tests.
+  String? baselineHashFrom(Map<String, dynamic>? release) {
+    final rawHash = release?['snapshot_hash'];
+    return (rawHash is String && rawHash.length >= 16) ? rawHash : null;
+  }
+
+  /// Read the target release and inspect it BEFORE any build: the
+  /// null warn and the unguarded-release warn both fire here, where
+  /// aborting is still cheap. Generous default deadline: this fetch
+  /// also carries the release's stored baseline hash, and for a
+  /// patch-file-only invocation there is no local fallback — so a
+  /// timeout must be rare (30s tolerates a cold proxy handshake) and
+  /// degrade like every other failure. Public for tests ([run]
+  /// cannot be cheaply exercised), because this wire is the one
+  /// place where deleting a call leaves the whole guard feature
+  /// inert with every unit test still green.
+  Future<Map<String, dynamic>?> readTargetRelease({
+    required CodePushClient client,
+    required String token,
+    required String releaseId,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    _logger.detail('Reading release $releaseId…');
+    final releaseInfo = await client
+        .getRelease(token: token, releaseId: releaseId)
+        .timeout(timeout, onTimeout: () => null);
+    if (releaseInfo == null) {
+      // Cheap to say NOW, expensive to discover after the build: a
+      // typo'd release id, an expired login, an old server, and
+      // being offline all collapse into this null.
+      _logger.warn(
+        'Could not read release $releaseId from the server (wrong '
+        'id, expired login, offline, or an old server). Continuing '
+        "— the upload will verify the release id, but the release's "
+        'stored baseline hash could not be read: unless a local '
+        'build supplies one, this patch uploads without the '
+        'device-side baseline check.',
+      );
+    }
+    warnIfUnguardedRelease(releaseInfo);
+    return releaseInfo;
+  }
+
   @override
   final String name = 'patch';
   @override
@@ -182,29 +231,11 @@ class CodePushPatchSubCommand extends Command<int> {
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
       _logger.detail('Reading release $releaseId…');
-      // Generous deadline: this fetch also carries the release's
-      // stored baseline hash, and for a patch-file-only invocation
-      // (no --build, no --platform) there is no local fallback — a
-      // timeout here silently drops the device-side baseline check,
-      // not just this warning. 30s tolerates a cold proxy handshake;
-      // the onTimeout null degrades like every other failure.
-      final releaseInfo = await client
-          .getRelease(token: token, releaseId: releaseId)
-          .timeout(const Duration(seconds: 30), onTimeout: () => null);
-      if (releaseInfo == null) {
-        // Cheap to say NOW, expensive to discover after the build: a
-        // typo'd release id, an expired login, an old server, and
-        // being offline all collapse into this null.
-        _logger.warn(
-          'Could not read release $releaseId from the server (wrong '
-          'id, expired login, offline, or an old server). Continuing '
-          '— the upload will verify the release id, but the release\'s '
-          'stored baseline hash could not be read: unless a local '
-          'build supplies one, this patch uploads without the '
-          'device-side baseline check.',
-        );
-      }
-      warnIfUnguardedRelease(releaseInfo);
+      final releaseInfo = await readTargetRelease(
+        client: client,
+        token: token,
+        releaseId: releaseId,
+      );
 
       if (shouldBuild) {
         var platform = argResults?['platform'] as String?;
@@ -591,13 +622,10 @@ class CodePushPatchSubCommand extends Command<int> {
       // The baseline_hash must match what the DEVICE is running (the
       // release binary), not the binary we just built (post-edit).
       // The release was fetched before the build; WHEN the fetch
-      // succeeded and the release stores a hash, it agrees with the
-      // device's installed baseline — the fallback below covers every
-      // other case. Type-checked read: a non-String echo must degrade
-      // to the fallback, not throw an uncaught TypeError after the
-      // whole build (same server-type reasoning as isOff above).
-      final rawHash = releaseInfo?['snapshot_hash'];
-      var baselineHash = rawHash is String ? rawHash : null;
+      // succeeded and the release stores a usable hash, it agrees
+      // with the device's installed baseline — the fallback below
+      // covers every other case (shape rules: [baselineHashFrom]).
+      var baselineHash = baselineHashFrom(releaseInfo);
 
       if (baselineHash != null) {
         _logger.detail(
@@ -647,6 +675,13 @@ class CodePushPatchSubCommand extends Command<int> {
             break;
           }
         }
+      }
+      // Re-surface the guard warning at the decision point: with
+      // --build the early emission is minutes of build output up the
+      // scrollback by now. (The early emission stays — it fires
+      // where aborting is cheapest.)
+      if (shouldBuild) {
+        warnIfUnguardedRelease(releaseInfo);
       }
       final progress = _logger.progress(
         'Uploading patch${rollout < 100 ? ' ($rollout% rollout)' : ''}',

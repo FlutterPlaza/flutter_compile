@@ -1,10 +1,15 @@
+import 'dart:async';
+
 import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
+import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 class MockLogger extends Mock implements Logger {}
+
+class MockCodePushClient extends Mock implements CodePushClient {}
 
 /// Exposes the command with parsed args so the REAL flag read inside
 /// [CodePushPatchSubCommand.warnIfUnguardedRelease] executes against a
@@ -115,6 +120,116 @@ void main() {
       final option = command.argParser.options['allow-unguarded-release'];
       expect(option, isNotNull);
       expect(option!.negatable, isFalse);
+    });
+  });
+
+  group('readTargetRelease', () {
+    late MockLogger logger;
+    late CodePushPatchSubCommand command;
+    late MockCodePushClient client;
+
+    setUp(() {
+      logger = MockLogger();
+      when(() => logger.warn(any())).thenReturn(null);
+      when(() => logger.detail(any())).thenReturn(null);
+      command = CodePushPatchSubCommand(logger);
+      client = MockCodePushClient();
+    });
+
+    test('the fetched map is the one inspected — and is returned', () async {
+      // The wire this seam exists to pin: delete either link and the
+      // guard feature goes inert while every unit test stays green.
+      final release = <String, dynamic>{
+        'extendable_widgets': false,
+        'interface_freeze': true,
+      };
+      // Future typed explicitly: run()'s .timeout(onTimeout: () => null)
+      // dispatches on the future's RUNTIME type, and an inferred
+      // Future<Map<String, bool>> rejects the null-returning onTimeout.
+      when(
+        () => client.getRelease(token: 't', releaseId: 'r-1'),
+      ).thenAnswer((_) => Future<Map<String, dynamic>?>.value(release));
+
+      final result = await command.readTargetRelease(
+        client: client,
+        token: 't',
+        releaseId: 'r-1',
+      );
+      expect(result, same(release));
+      verify(
+        () => logger.warn(any(that: contains('without widget guarding'))),
+      ).called(1);
+    });
+
+    test('a hung fetch degrades to null and warns about the lost gate',
+        () async {
+      when(() => client.getRelease(token: 't', releaseId: 'r-2')).thenAnswer(
+        (_) => Completer<Map<String, dynamic>?>().future,
+      );
+
+      final result = await command.readTargetRelease(
+        client: client,
+        token: 't',
+        releaseId: 'r-2',
+        timeout: const Duration(milliseconds: 50),
+      );
+      expect(result, isNull);
+      verify(
+        () => logger.warn(
+          any(
+            that: allOf(
+              contains('Could not read release r-2'),
+              contains('device-side baseline check'),
+            ),
+          ),
+        ),
+      ).called(1);
+    });
+
+    test('a null fetch warns once and stays silent on guarding', () async {
+      when(
+        () => client.getRelease(token: 't', releaseId: 'r-3'),
+      ).thenAnswer((_) => Future<Map<String, dynamic>?>.value(null));
+
+      final result = await command.readTargetRelease(
+        client: client,
+        token: 't',
+        releaseId: 'r-3',
+      );
+      expect(result, isNull);
+      // Exactly the fetch warn — warnIfUnguardedRelease's
+      // null-stays-silent contract must hold through the seam.
+      verify(() => logger.warn(any())).called(1);
+    });
+  });
+
+  group('baselineHashFrom', () {
+    late CodePushPatchSubCommand command;
+
+    setUp(() {
+      command = CodePushPatchSubCommand(MockLogger());
+    });
+
+    test(
+        'definite-looking garbage degrades to null, not a crash or '
+        'a bogus gate', () {
+      // Same rule as the 'FALSE' pin above: shapes a server should
+      // never send must fall into the local fallback.
+      expect(command.baselineHashFrom(null), isNull);
+      expect(command.baselineHashFrom({}), isNull);
+      expect(command.baselineHashFrom({'snapshot_hash': 42}), isNull);
+      expect(command.baselineHashFrom({'snapshot_hash': ''}), isNull);
+      // Shorter than the 16-char floor: a truncated echo must not
+      // become a baseline identity no device can match.
+      expect(command.baselineHashFrom({'snapshot_hash': 'abc123'}), isNull);
+    });
+
+    test('a real digest passes through untouched', () {
+      final digest = 'a' * 64;
+      expect(
+        command.baselineHashFrom({'snapshot_hash': digest}),
+        digest,
+      );
     });
   });
 }

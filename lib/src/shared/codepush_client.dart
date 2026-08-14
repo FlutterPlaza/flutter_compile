@@ -243,7 +243,10 @@ class CodePushClient {
   }) async {
     try {
       final info = await _get(
-        '/api/v1/releases?release_id=$releaseId',
+        // Encoded: a space/&/# in a mistyped id must surface as
+        // release-not-found, not as a malformed URI that the caller's
+        // warn misreads as a session or connectivity problem.
+        '/api/v1/releases?release_id=${Uri.encodeQueryComponent(releaseId)}',
         token: token,
       );
       final releases = info['releases'] as List?;
