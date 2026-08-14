@@ -52,6 +52,14 @@ class CodePushReleaseSubCommand extends Command<int> {
             'stamped automatically.',
       )
       ..addFlag(
+        'extendable-widgets',
+        defaultsTo: true,
+        help: 'Allow patches to declare new widget subclasses by '
+            'guarding dispatch on the widget base classes. Disabling '
+            'removes that guarding (and its dispatch cost) — patches '
+            'that add new screens will fail on such a release.',
+      )
+      ..addFlag(
         'interface-freeze',
         defaultsTo: true,
         help: 'Preserve public call shapes in the built iOS app so '
@@ -619,6 +627,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         projectRoot: projectRoot,
         packageName: packageName,
         specDirPath: specDir.path,
+        allowExtendable: argResults?['extendable-widgets'] as bool? ?? true,
         onSkip: (path, reason) => _logger.warn('Not frozen ($reason): $path'),
       );
     } on FlutterCompileException catch (e) {

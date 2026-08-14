@@ -1058,6 +1058,23 @@ void _interfaceFreeze() {
       expect(yaml, contains("  - library: 'package:demo/main.dart'"));
     });
 
+    test('allowExtendable=false omits the section despite the framework', () {
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '/sdk/packages/flutter/lib/src/widgets/framework.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        allowExtendable: false,
+      );
+      expect(
+        File(spec!.specPath).readAsStringSync(),
+        isNot(contains('extendable:')),
+      );
+    });
+
     test('no framework in closure => extendable omitted in the file', () {
       final spec = service.writeIosInterfaceFreezeSpec(
         closurePaths: {'${tmp.path}/lib/main.dart'},

@@ -1434,6 +1434,7 @@ class CodePushBuildService {
     required String projectRoot,
     required String packageName,
     required String specDirPath,
+    bool allowExtendable = true,
     void Function(String path, String reason)? onSkip,
   }) {
     final appLibraries = appLibrariesFromClosure(
@@ -1444,12 +1445,13 @@ class CodePushBuildService {
     );
     if (appLibraries.isEmpty) return null;
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
-    final includeExtendable = closureHasExtendableFramework(closurePaths);
+    final includeExtendable =
+        allowExtendable && closureHasExtendableFramework(closurePaths);
     _logger.detail(
       includeExtendable
           ? 'Interface spec: widget base classes marked extendable.'
-          : 'Interface spec: framework library not in the compile; '
-              'extendable section omitted.',
+          : 'Interface spec: extendable section omitted '
+              '(disabled or framework library not in the compile).',
     );
     final specPath = '$specDirPath/$kInterfaceSpecFilename';
     try {
