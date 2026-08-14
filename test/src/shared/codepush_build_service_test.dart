@@ -1213,8 +1213,9 @@ void _interfaceFreeze() {
       );
       // Sweeping differently-named stale specs is a spec CHANGE — the
       // next build recompiles from scratch, and the breadcrumb says so.
+      expect(first.specChanged, true);
       verify(
-        () => logger.detail(any(that: contains('compile from scratch'))),
+        () => logger.detail(any(that: contains('Interface spec changed'))),
       ).called(1);
 
       // Same inputs => same name (a cache hit stays a cache hit), and
@@ -1228,7 +1229,7 @@ void _interfaceFreeze() {
       expect(again!.specPath, first.specPath);
       expect(again.specChanged, false);
       verifyNever(
-        () => logger.detail(any(that: contains('compile from scratch'))),
+        () => logger.detail(any(that: contains('Interface spec changed'))),
       );
 
       // Changed contents => changed name, previous spec swept.
@@ -1248,8 +1249,29 @@ void _interfaceFreeze() {
       expect(File(first.specPath).existsSync(), false);
       expect(File(changed.specPath).existsSync(), true);
       verify(
-        () => logger.detail(any(that: contains('compile from scratch'))),
+        () => logger.detail(any(that: contains('Interface spec changed'))),
       ).called(1);
+    });
+
+    test('an empty build directory is NOT a spec change', () {
+      // rm -rf build/ with an intact .dart_tool leaves the env hash
+      // warm and the compile reusable; claiming a spec change here
+      // would mis-lead the missing-report warning toward SDK drift.
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      expect(spec!.specChanged, false);
+      verify(
+        () => logger.detail(
+          any(that: contains('No previous interface spec')),
+        ),
+      ).called(1);
+      verifyNever(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      );
     });
 
     test('an unreadable (but present) source is skipped as unreadable', () {

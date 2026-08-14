@@ -1462,10 +1462,12 @@ class CodePushBuildService {
   /// framework library is not in the closure; the writer stays a
   /// flag-agnostic API, so deciding how loud each cause must be —
   /// including the un-chosen gate miss — is the caller's job.
-  /// `specChanged` is true when no previous spec existed or its name
-  /// differed — i.e. the build system has (almost certainly) never
-  /// seen this option string, so a fresh compile is expected and a
-  /// missing report afterwards cannot be explained by compile reuse.
+  /// `specChanged` is true ONLY when a previous spec existed under a
+  /// different name — the one case where the option string provably
+  /// differs from the last run's, so a missing report afterwards
+  /// cannot be explained by compile reuse. An empty sweep proves
+  /// nothing (a wiped build/ with an intact .dart_tool still reuses
+  /// the compile) and stays false.
   ///
   /// [allowExtendable] defaults ON — it carries the user-facing
   /// `--extendable-widgets` opt-out — deliberately opposite to the pure
@@ -1513,17 +1515,18 @@ class CodePushBuildService {
     // every stale sibling (hashed or the legacy fixed name).
     final specName = freeze_files.interfaceSpecFilenameFor(yaml);
     final specPath = '$specDirPath/$specName';
-    // specChanged: no previous spec, or a previous spec with a
-    // different name. Either way the option string is (almost
-    // certainly) new to the build system, so a fresh full compile is
-    // expected — and, downstream, a MISSING report cannot be explained
-    // by compile reuse. (Heuristic: re-toggling an option back can
-    // land on an older warm env-hash directory.)
-    final specChanged = sweptSpecs.isEmpty || !sweptSpecs.contains(specName);
+    // specChanged: a previous spec existed under a DIFFERENT name —
+    // the one case where the option string provably differs from the
+    // last run's, so a missing report downstream cannot be explained
+    // by compile reuse. An empty sweep proves nothing (rm -rf build/
+    // with an intact .dart_tool leaves the env hash warm and the spec
+    // content identical), so it stays false and downstream keeps the
+    // hedged wording. (Heuristic even so: re-toggling an option back
+    // can land on an older warm env-hash directory.)
+    final specChanged = sweptSpecs.isNotEmpty && !sweptSpecs.contains(specName);
     if (sweptSpecs.isEmpty) {
       _logger.detail(
-        'No previous interface spec in the build directory; this '
-        'release compiles from scratch.',
+        'No previous interface spec in the build directory.',
       );
     } else if (!sweptSpecs.contains(specName)) {
       // A changed option string is a new build environment: the next

@@ -148,8 +148,11 @@ void main() {
 
     test('archives the spec and report this run attested to', () {
       writeBaselineApp();
+      // Attest a HASHED source name: the manifest must carry it while
+      // the archived file lands under the canonical name — recording
+      // the destination instead would break the join key.
       final specPath = '${projectDir.path}/build/codepush/'
-          'dynamic_interface.yaml';
+          'dynamic_interface_01dc0ffe01dc0ffe.yaml';
       File(specPath)
         ..createSync(recursive: true)
         ..writeAsStringSync('callable:\n');
@@ -185,10 +188,11 @@ void main() {
       ) as Map<String, dynamic>;
       expect(manifest['has_interface_spec'], isTrue);
       expect(manifest['has_interface_report'], isTrue);
-      // The join key against env-hash build directories.
+      // The join key against env-hash build directories: the SOURCE
+      // name, not the canonical destination the file was copied to.
       expect(
         manifest['interface_spec_source_name'],
-        'dynamic_interface.yaml',
+        'dynamic_interface_01dc0ffe01dc0ffe.yaml',
       );
       // The manifest must answer "was guarding on?" without grepping
       // the yaml.

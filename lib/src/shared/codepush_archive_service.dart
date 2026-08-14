@@ -51,9 +51,10 @@ class CodePushArchiveService {
   })  : _logger = logger,
         _projectDir = projectDir ?? Directory.current;
 
-  // v2: adds has_interface_spec, has_interface_report and
-  // has_extendable_widgets. The bump is what lets a reader distinguish
-  // "guarding was off" from "this manifest predates the keys".
+  // v2: adds has_interface_spec, has_interface_report,
+  // has_extendable_widgets and interface_spec_source_name. The bump is
+  // what lets a reader distinguish "guarding was off" from "this
+  // manifest predates the keys".
   static const int _archiveFormatVersion = 2;
   static const String _archiveDirName = '.fcp-archive';
   static const String _excludeRule = '.fcp-archive/';
