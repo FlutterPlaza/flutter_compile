@@ -291,6 +291,9 @@ void main() {
 
       expect(parsed(['--rollout', '50']), 50);
       expect(parsed([]), 100);
+      // Padded is trimmed at the boundary like --release-id: ' 50'
+      // was correct before the strict parse and stays correct.
+      expect(parsed(['--rollout', ' 50 ']), 50);
       // Every invalid shape is a rejection, NOT a silent 100.
       expect(parsed(['--rollout', '50%']), isNull);
       expect(parsed(['--rollout', '0.5']), isNull);

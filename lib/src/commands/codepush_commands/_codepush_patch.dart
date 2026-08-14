@@ -168,7 +168,9 @@ class CodePushPatchSubCommand extends Command<int> {
   /// Public for tests; reads its own args so a real-parse test
   /// covers the wire.
   int? parseRollout() {
-    final raw = argResults?['rollout'] as String? ?? '100';
+    // Trimmed like every boundary read: ' 50' from a CI variable was
+    // correct before the strict parse and must stay correct.
+    final raw = (argResults?['rollout'] as String? ?? '100').trim();
     // Digits only: bare int.tryParse would also admit '0x64' and
     // '+50', which would make "null on ANY invalid value" a lie.
     if (!RegExp(r'^\d+$').hasMatch(raw)) return null;
@@ -212,13 +214,25 @@ class CodePushPatchSubCommand extends Command<int> {
       final basename =
           explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
       if (basename == kPatchOutputPath.split('/').last) return null;
-      // Reachable only via a basename the build can never produce —
-      // the reader almost certainly meant the build's own output.
-      return 'Patch file not found: $explicitPatchFile. With --build the '
-          'patch is written to $kPatchOutputPath — pass that path, or drop '
-          '--patch-file entirely.';
     }
-    return 'Patch file not found: $explicitPatchFile';
+    return missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild);
+  }
+
+  /// The missing-patch-file error. Under `--build` it names the path
+  /// the build writes ([kPatchOutputPath]) and that `--patch-file`
+  /// can be dropped — the fix the operator almost certainly wants,
+  /// whether the miss was caught BEFORE the build (a basename the
+  /// build can never produce) or AFTER it (right basename, wrong
+  /// directory — the fail-open case, where the guidance matters most
+  /// because minutes were already spent).
+  static String missingPatchFileMessage(
+    String path, {
+    required bool withBuild,
+  }) {
+    if (!withBuild) return 'Patch file not found: $path';
+    return 'Patch file not found: $path. With --build the patch is '
+        'written to $kPatchOutputPath — pass that path, or drop '
+        '--patch-file entirely.';
   }
 
   /// Read the target release and inspect it BEFORE any build: the
@@ -649,9 +663,13 @@ class CodePushPatchSubCommand extends Command<int> {
 
       // Re-checked here because patchPath may be a build OUTPUT (the
       // explicit --patch-file arg was validated before the fetch).
+      // Same guided message as the early check: the fail-open cases
+      // (right basename, wrong directory) land HERE after a full
+      // build — the reader who most needs to know where the build
+      // actually wrote the file.
       final patchFile = File(patchPath);
       if (!patchFile.existsSync()) {
-        _logger.err('Patch file not found: $patchPath');
+        _logger.err(missingPatchFileMessage(patchPath, withBuild: shouldBuild));
         return ExitCode.software.code;
       }
 
