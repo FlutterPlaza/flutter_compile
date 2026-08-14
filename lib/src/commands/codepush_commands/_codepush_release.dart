@@ -117,10 +117,14 @@ class CodePushReleaseSubCommand extends Command<int> {
     interfaceReportObservedAfterBuild = File(spec.reportPath).existsSync();
     if (!interfaceReportObservedAfterBuild) {
       _logger.warn(
-        'The compiler wrote no interface report this build — an '
-        'unchanged compile was reused. The interface spec is '
-        'content-addressed, so a reused compile still matches this '
-        "run's spec; the archive will record the report as unknown.",
+        'No interface report was found at ${spec.reportPath} after the '
+        'build. Likeliest cause: an unchanged compile was reused — '
+        'safe, because the spec filename is content-addressed, so a '
+        'reused compile can only pair with this exact spec. But if '
+        'your Flutter SDK is newer than this fcp version supports, '
+        'the compiler may no longer write the report where fcp '
+        'expects it. The archive records the report as unknown '
+        'either way.',
       );
     }
   }
@@ -757,10 +761,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       return null;
     }
-    // Guard the path the front end will actually receive — the one the
-    // service composed — plus the report path composed above; the
+    // Defence-in-depth: the directory portion was already refused up
+    // front and the hashed filename is comma-free by construction, so
+    // this fires only if either composition ever changes shape. The
     // surrounding tooling re-splits the option list on commas, so a
-    // comma in either would silently corrupt every option after it.
+    // comma here would silently corrupt every option after it.
     if (writtenSpec.specPath.contains(',') || reportPath.contains(',')) {
       progress.fail('Could not use the interface spec path');
       _logger.err(

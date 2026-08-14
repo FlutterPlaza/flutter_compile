@@ -1133,7 +1133,12 @@ void _interfaceFreeze() {
       );
     });
 
-    test('no mappable app libraries => null, nothing written', () {
+    test('no mappable app libraries => null, and stale specs still swept', () {
+      // A refused run must not leave a previous run's spec behind: the
+      // command already deleted the report, and the two artifacts must
+      // never describe different runs.
+      File('${tmp.path}/dynamic_interface_0ldc0ffe.yaml')
+          .writeAsStringSync('old\n');
       final spec = service.writeIosInterfaceFreezeSpec(
         closurePaths: const {'/elsewhere/lib/x.dart'},
         projectRoot: tmp.path,
@@ -1147,6 +1152,27 @@ void _interfaceFreeze() {
             ),
         isEmpty,
       );
+    });
+
+    test('a normalized-away path is skipped as missing, not unreadable', () {
+      // The closure arrives pre-normalized, so a directory whose real
+      // name contains a literal backslash surfaces here as a path that
+      // does not exist. The reason must say so.
+      final reasons = <String>[];
+      final spec = service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/ghost/g.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+        onSkip: (path, reason) => reasons.add(reason),
+      );
+      expect(spec, isNotNull);
+      expect(reasons, hasLength(1));
+      expect(reasons.single, contains('missing on disk'));
+      expect(reasons.single, contains('backslash'));
     });
 
     test('spec filename is content-addressed and stale specs are swept', () {

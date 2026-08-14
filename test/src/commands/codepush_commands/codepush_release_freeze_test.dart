@@ -483,8 +483,18 @@ void main() {
       );
       command.checkInterfaceReportAfterBuild();
       expect(command.interfaceReportObservedAfterBuild, false);
+      // Observation (path included) plus BOTH candidate causes — the
+      // benign reuse and the SDK-drift case.
       verify(
-        () => logger.warn(any(that: contains('no interface report'))),
+        () => logger.warn(
+          any(
+            that: allOf(
+              contains('No interface report was found at'),
+              contains(report.path),
+              contains('SDK is newer'),
+            ),
+          ),
+        ),
       ).called(1);
 
       report.writeAsStringSync('{}');

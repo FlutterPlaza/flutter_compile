@@ -1337,17 +1337,18 @@ class CodePushBuildService {
           allowMalformed: true,
         );
       } on FileSystemException {
-        // When the raw entry carried a backslash that normalization
-        // folded away, the unreadable path is the fold's doing — name
-        // that, so the operator is not chasing a permissions ghost.
-        // A backslashed entry whose normalized file EXISTS (Windows
-        // Make-escaping) still maps above; only the failure is
-        // re-attributed.
+        // Observation, not diagnosis: the closure arrives already
+        // normalized (parseDepfileSources), so the raw spelling is
+        // gone by here. A path that is MISSING (vs unreadable) is the
+        // signature of normalization folding a literal backslash out
+        // of a real directory name — name that possibility so the
+        // operator is not chasing a permissions ghost.
         onSkip?.call(
           path,
-          rawPath.contains(r'\')
-              ? 'path contains a backslash (unsupported)'
-              : 'unreadable',
+          File(readPath).existsSync()
+              ? 'unreadable'
+              : 'missing on disk — a backslash or other unsupported '
+                  'character in the path, folded by normalization?',
         );
         continue;
       }
@@ -1476,6 +1477,27 @@ class CodePushBuildService {
     bool allowExtendable = true,
     void Function(String path, String reason)? onSkip,
   }) {
+    // Sweep BEFORE the mapping can refuse, so an aborted run leaves no
+    // previous spec behind (its report was already deleted by the
+    // command; the two artifacts must never describe different runs).
+    // Per-entry catch: one undeletable stale file must not shield the
+    // rest — the directory-holds-one-spec invariant is load-bearing.
+    try {
+      for (final entity in Directory(specDirPath).listSync()) {
+        final name = entity.uri.pathSegments.last;
+        if (entity is File &&
+            name.startsWith(freeze_files.kInterfaceSpecFilenamePrefix) &&
+            name.endsWith('.yaml')) {
+          try {
+            entity.deleteSync();
+          } on FileSystemException {
+            // Keep sweeping; the write below is the guarded step.
+          }
+        }
+      }
+    } on FileSystemException {
+      // Directory unlistable: the write below hard-fails with guidance.
+    }
     final appLibraries = appLibrariesFromClosure(
       closurePaths: closurePaths,
       projectRoot: projectRoot,
@@ -1495,22 +1517,10 @@ class CodePushBuildService {
     // front-end option STRING, not the spec file's bytes, so a
     // same-path spec with changed contents would be silently ignored
     // by a cached kernel step. Hashing the content into the name makes
-    // any spec change bust the cache. Stale siblings (hashed or the
-    // legacy fixed name) are swept so the directory holds one spec.
+    // any spec change bust the cache; the sweep above already cleared
+    // every stale sibling (hashed or the legacy fixed name).
     final specPath =
         '$specDirPath/${freeze_files.interfaceSpecFilenameFor(yaml)}';
-    try {
-      for (final entity in Directory(specDirPath).listSync()) {
-        final name = entity.uri.pathSegments.last;
-        if (entity is File &&
-            name.startsWith(freeze_files.kInterfaceSpecFilenamePrefix) &&
-            name.endsWith('.yaml')) {
-          entity.deleteSync();
-        }
-      }
-    } on FileSystemException {
-      // Sweep is best-effort; the write below is the guarded step.
-    }
     try {
       File(specPath).writeAsStringSync(yaml);
     } on FileSystemException catch (e) {
@@ -1609,14 +1619,9 @@ class CodePushBuildService {
     return merged;
   }
 
-  /// Filename of the generated interface spec (canonical value in
-  /// interface_freeze_constants.dart; aliased here for existing
-  /// call sites).
-  static const String kInterfaceSpecFilename =
-      freeze_files.kInterfaceSpecFilename;
-
   /// Filename of the front end's detailed interface report (canonical
-  /// value in interface_freeze_constants.dart).
+  /// value in interface_freeze_constants.dart; aliased here for the
+  /// command's path composition).
   static const String kInterfaceReportFilename =
       freeze_files.kInterfaceReportFilename;
 
