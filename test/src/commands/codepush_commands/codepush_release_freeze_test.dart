@@ -381,6 +381,10 @@ void main() {
 
     test('gate miss without the opt-out is a hard stop with guidance',
         () async {
+      // A real file, so the abort's clean-up of the just-written spec
+      // is observable.
+      final orphanSpec = File('${tmp.path}/dynamic_interface.yaml')
+        ..writeAsStringSync('callable:\n');
       when(
         () => buildService.writeIosInterfaceFreezeSpec(
           closurePaths: any(named: 'closurePaths'),
@@ -392,7 +396,7 @@ void main() {
         ),
       ).thenReturn(
         (
-          specPath: '/spec/dynamic_interface.yaml',
+          specPath: orphanSpec.path,
           appCount: 1,
           flutterCount: 0,
           extendable: false
@@ -403,8 +407,10 @@ void main() {
         projectRootOverride: tmp.path,
       );
       expect(freeze, isNull);
-      // A failed freeze must leave nothing for the archive to claim.
+      // A failed freeze must leave nothing for the archive to claim —
+      // neither the field nor the just-written file.
       expect(command.writtenInterfaceSpec, isNull);
+      expect(orphanSpec.existsSync(), false);
       verify(
         () =>
             progress.fail('Widget base classes could not be marked extendable'),

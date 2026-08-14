@@ -7,8 +7,8 @@ import 'package:crypto/crypto.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 import 'codepush_artifact_manager.dart';
-import 'exception.dart';
 import 'codepush_client.dart';
+import 'exception.dart';
 
 /// Outcome of a build-tool subprocess step.
 ///
@@ -1268,8 +1268,10 @@ class CodePushBuildService {
   /// prefix (`\\server\share`) into a POSIX-looking `/server/share`, so
   /// UNC project roots are unsupported too — moot for the iOS release
   /// flow, which never runs on a Windows host.
+  static final RegExp _slashRuns = RegExp('/{2,}');
+
   static String _normalizePath(String p) =>
-      p.replaceAll(r'\', '/').replaceAll(RegExp('/{2,}'), '/');
+      p.replaceAll(r'\', '/').replaceAll(_slashRuns, '/');
 
   /// Separator-normalize closure entries so every consumer agrees even
   /// when handed a closure that skipped [parseDepfileSources].
@@ -1381,8 +1383,9 @@ class CodePushBuildService {
   /// sit on the hottest dispatch surfaces in the framework — guarding
   /// them costs every app on every build for a capability no patch
   /// uses yet. Grow this list from patch reality, like the callable
-  /// list, and re-run the device validation when it grows. Kept minimal — each entry
-  /// disables devirtualization for its hierarchy.
+  /// list, and re-run the device validation when it grows. Kept
+  /// minimal because each entry disables devirtualization for its
+  /// whole hierarchy.
   static const String kIosExtendableFrameworkLibrary =
       'package:flutter/src/widgets/framework.dart';
   static const List<String> kIosExtendableFrameworkClasses = [

@@ -625,8 +625,9 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     if (packageName == null) {
       _logger.err(
-        'Could not read the package name from pubspec.yaml; cannot '
-        'prepare the iOS release build.',
+        'Could not read the package name from pubspec.yaml (check that '
+        'the file exists and is readable); cannot prepare the iOS '
+        'release build.',
       );
       return null;
     }
@@ -652,8 +653,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     // archiving stale evidence under this run's attestation.
     try {
       File(reportPath).deleteSync();
-    } on FileSystemException {
+    } on PathNotFoundException {
       // Absent — the common case.
+    } on FileSystemException catch (e) {
+      // A surviving leftover would defeat the stale-evidence guarantee;
+      // an unwritable directory hard-stops at the spec write below, so
+      // a breadcrumb suffices here.
+      _logger.detail('Could not delete a previous interface report: $e');
     }
     final flutterRoot = buildService.findFlutterRootForProbe();
     if (flutterRoot == null ||
@@ -742,6 +748,13 @@ class CodePushReleaseSubCommand extends Command<int> {
         'to acknowledge shipping without widget guarding, or report this '
         'with your project layout.',
       );
+      // The spec was already written above; the build it described was
+      // just refused, so no artifact should suggest this run used it.
+      try {
+        File(writtenSpec.specPath).deleteSync();
+      } on FileSystemException {
+        // Best effort; the next successful run overwrites it.
+      }
       return null;
     }
     progress.complete(
