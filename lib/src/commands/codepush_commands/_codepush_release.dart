@@ -102,7 +102,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     String path,
     String reportPath,
     bool extendable,
-    bool specChanged
+    freeze_files.InterfaceSpecChange specChange
   })? writtenInterfaceSpec;
 
   /// Whether the front end's report was observed on disk after the
@@ -123,25 +123,31 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (spec == null) return;
     interfaceReportObservedAfterBuild = File(spec.reportPath).existsSync();
     if (!interfaceReportObservedAfterBuild) {
-      // Lead with the likelier cause: when THIS run's spec changed,
-      // the option string is new to the build system, so compile
-      // reuse cannot explain the missing report.
-      _logger.warn(
-        spec.specChanged
-            ? 'No interface report was found at ${spec.reportPath} '
-                'after the build, and the interface spec changed this '
-                'run — compile reuse does not usually explain that. If '
-                'your Flutter SDK is newer than this fcp version '
-                'supports, the compiler may not write the report where '
-                'fcp expects it. The archive records the report as '
-                'unknown.'
-            : 'No interface report was found at ${spec.reportPath} '
-                'after the build. Likeliest cause: an unchanged '
-                'compile was reused — safe, because the spec filename '
-                'is content-addressed, so a reused compile can only '
-                'pair with this exact spec. The archive records the '
-                'report as unknown.',
-      );
+      // Lead with what the evidence supports: `changed` is the one
+      // state where compile reuse cannot explain the missing report.
+      _logger.warn(switch (spec.specChange) {
+        freeze_files.InterfaceSpecChange.changed =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build, and the interface spec changed this run — '
+              'compile reuse does not usually explain that. If your '
+              'Flutter SDK is newer than this fcp version supports, '
+              'the compiler may not write the report where fcp '
+              'expects it. The archive records the report as unknown.',
+        freeze_files.InterfaceSpecChange.unchanged =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build. Likeliest cause: an unchanged compile was '
+              'reused — safe, because the spec filename is '
+              'content-addressed, so a reused compile can only pair '
+              'with this exact spec. The archive records the report '
+              'as unknown.',
+        freeze_files.InterfaceSpecChange.unknown =>
+          'No interface report was found at ${spec.reportPath} after '
+              'the build, and fcp cannot tell whether the compile was '
+              'reused (no previous spec to compare against). If your '
+              'Flutter SDK is newer than this fcp version supports, '
+              'the compiler may not write the report where fcp '
+              'expects it. The archive records the report as unknown.',
+      });
     }
   }
 
@@ -754,7 +760,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       int appCount,
       int flutterCount,
       bool extendable,
-      bool specChanged
+      freeze_files.InterfaceSpecChange specChange
     })? writtenSpec;
     try {
       writtenSpec = buildService.writeIosInterfaceFreezeSpec(
@@ -839,7 +845,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       path: frozenSpecPath,
       reportPath: reportPath,
       extendable: writtenSpec.extendable,
-      specChanged: writtenSpec.specChanged,
+      specChange: writtenSpec.specChange,
     );
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,

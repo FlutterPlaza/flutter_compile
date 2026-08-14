@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -1213,7 +1214,7 @@ void _interfaceFreeze() {
       );
       // Sweeping differently-named stale specs is a spec CHANGE — the
       // next build recompiles from scratch, and the breadcrumb says so.
-      expect(first.specChanged, true);
+      expect(first.specChange, InterfaceSpecChange.changed);
       verify(
         () => logger.detail(any(that: contains('Interface spec changed'))),
       ).called(1);
@@ -1227,7 +1228,7 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(again!.specPath, first.specPath);
-      expect(again.specChanged, false);
+      expect(again.specChange, InterfaceSpecChange.unchanged);
       verifyNever(
         () => logger.detail(any(that: contains('Interface spec changed'))),
       );
@@ -1245,7 +1246,7 @@ void _interfaceFreeze() {
         specDirPath: tmp.path,
       );
       expect(changed!.specPath, isNot(first.specPath));
-      expect(changed.specChanged, true);
+      expect(changed.specChange, InterfaceSpecChange.changed);
       expect(File(first.specPath).existsSync(), false);
       expect(File(changed.specPath).existsSync(), true);
       verify(
@@ -1263,7 +1264,7 @@ void _interfaceFreeze() {
         packageName: 'demo',
         specDirPath: tmp.path,
       );
-      expect(spec!.specChanged, false);
+      expect(spec!.specChange, InterfaceSpecChange.unknown);
       verify(
         () => logger.detail(
           any(that: contains('No previous interface spec')),

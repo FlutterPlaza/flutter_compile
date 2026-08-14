@@ -18,9 +18,18 @@ import 'package:crypto/crypto.dart';
 const String kInterfaceSpecFilename = 'dynamic_interface.yaml';
 
 /// Prefix shared by the canonical name and every content-addressed
-/// name; the writer sweeps `<prefix>*.yaml` before writing so the
-/// build directory holds exactly one spec.
+/// name. The sweep deletes exactly the names fcp writes (the fixed
+/// name or a 16-hex hashed one — see [sweepInterfaceSpecs]), so the
+/// build directory holds exactly one fcp-written spec while a
+/// user-parked file under a similar name survives.
 const String kInterfaceSpecFilenamePrefix = 'dynamic_interface';
+
+/// Whether this run's spec name provably differs from the previous
+/// build's ([changed]), provably matches it ([unchanged]), or there
+/// was nothing to compare against ([unknown] — an empty directory
+/// after a full clean, a wiped build/, or a prior refusal's sweep;
+/// also an ambiguous multi-spec sweep).
+enum InterfaceSpecChange { changed, unchanged, unknown }
 
 /// The content-addressed filename for a spec with [yamlContent].
 /// 16 hex chars (64 bits): a collision with any previously built spec
@@ -37,9 +46,13 @@ String interfaceSpecFilenameFor(String yamlContent) {
 /// content-addressed one. The sweep matches ONLY these, so a spec a
 /// user parked under a similar name in build/codepush (the documented
 /// user-supplied `--dynamic-interface` escape hatch) is never eaten.
+/// The prefix interpolates verbatim — it contains only letters and an
+/// underscore, no regex metacharacters — and the dot is hand-escaped:
+/// RegExp.escape is a Dart 3.6+ API, newer than this package's
+/// declared SDK floor, and an install-time compile error on older
+/// SDKs is the one failure pub cannot warn about.
 final RegExp _fcpSpecName = RegExp(
-  '^(${RegExp.escape(kInterfaceSpecFilename)}|'
-  '${RegExp.escape(kInterfaceSpecFilenamePrefix)}_[0-9a-f]{16}\\.yaml)\$',
+  '^$kInterfaceSpecFilenamePrefix(_[0-9a-f]{16})?\\.yaml\$',
 );
 
 /// Delete every interface spec fcp itself wrote (hashed or legacy

@@ -1462,12 +1462,13 @@ class CodePushBuildService {
   /// framework library is not in the closure; the writer stays a
   /// flag-agnostic API, so deciding how loud each cause must be —
   /// including the un-chosen gate miss — is the caller's job.
-  /// `specChanged` is true ONLY when a previous spec existed under a
-  /// different name — the one case where the option string provably
-  /// differs from the last run's, so a missing report afterwards
-  /// cannot be explained by compile reuse. An empty sweep proves
-  /// nothing (a wiped build/ with an intact .dart_tool still reuses
-  /// the compile) and stays false.
+  /// `specChange` is three-valued: `changed` only when every swept
+  /// spec's name differs (the previous option string provably
+  /// differed, so a missing report afterwards cannot be explained by
+  /// compile reuse); `unchanged` when the single swept name matches;
+  /// `unknown` otherwise — an empty directory (wiped build/, full
+  /// clean, or a prior refusal's sweep) or an ambiguous multi-spec
+  /// sweep proves nothing either way.
   ///
   /// [allowExtendable] defaults ON — it carries the user-facing
   /// `--extendable-widgets` opt-out — deliberately opposite to the pure
@@ -1479,7 +1480,7 @@ class CodePushBuildService {
     int appCount,
     int flutterCount,
     bool extendable,
-    bool specChanged,
+    freeze_files.InterfaceSpecChange specChange,
   })? writeIosInterfaceFreezeSpec({
     required Set<String> closurePaths,
     required String projectRoot,
@@ -1515,29 +1516,48 @@ class CodePushBuildService {
     // every stale sibling (hashed or the legacy fixed name).
     final specName = freeze_files.interfaceSpecFilenameFor(yaml);
     final specPath = '$specDirPath/$specName';
-    // specChanged: a previous spec existed under a DIFFERENT name —
-    // the one case where the option string provably differs from the
-    // last run's, so a missing report downstream cannot be explained
-    // by compile reuse. An empty sweep proves nothing (rm -rf build/
-    // with an intact .dart_tool leaves the env hash warm and the spec
-    // content identical), so it stays false and downstream keeps the
-    // hedged wording. (Heuristic even so: re-toggling an option back
-    // can land on an older warm env-hash directory.)
-    final specChanged = sweptSpecs.isNotEmpty && !sweptSpecs.contains(specName);
+    // Three states, not two: `changed` requires evidence (every swept
+    // name differs, so the previous option string — whichever it was —
+    // differed); `unchanged` requires the single swept name to match;
+    // everything else is `unknown` (an empty directory proves nothing:
+    // rm -rf build/, a full clean, or a prior refusal's sweep; a
+    // multi-spec sweep with one match is ambiguous). Downstream, only
+    // `changed` supports an actionable missing-report warning.
+    // (Heuristic even so: re-toggling an option back can land on an
+    // older warm env-hash directory.)
+    final freeze_files.InterfaceSpecChange specChange;
     if (sweptSpecs.isEmpty) {
-      _logger.detail(
-        'No previous interface spec in the build directory.',
-      );
+      specChange = freeze_files.InterfaceSpecChange.unknown;
     } else if (!sweptSpecs.contains(specName)) {
-      // A changed option string is a new build environment: the next
-      // build compiles from scratch in a fresh directory. Deliberate
-      // (the recompile is the point), but it should not surprise
-      // silently — flutter clean reclaims the old directories.
-      _logger.detail(
-        "Interface spec changed (the app's library set or guarding "
-        'options differ from the previous build); this release will '
-        'compile from scratch in a fresh build directory.',
-      );
+      specChange = freeze_files.InterfaceSpecChange.changed;
+    } else if (sweptSpecs.length == 1) {
+      specChange = freeze_files.InterfaceSpecChange.unchanged;
+    } else {
+      specChange = freeze_files.InterfaceSpecChange.unknown;
+    }
+    switch (specChange) {
+      case freeze_files.InterfaceSpecChange.unknown when sweptSpecs.isEmpty:
+        _logger.detail(
+          'No previous interface spec in the build directory; after a '
+          'full clean this release compiles from scratch.',
+        );
+      case freeze_files.InterfaceSpecChange.unknown:
+        _logger.detail(
+          'Multiple stale interface specs were swept; whether the '
+          'compile can be reused is unknown.',
+        );
+      case freeze_files.InterfaceSpecChange.changed:
+        // A changed option string is a new build environment: the next
+        // build compiles from scratch in a fresh directory. Deliberate
+        // (the recompile is the point), but it should not surprise
+        // silently — flutter clean reclaims the old directories.
+        _logger.detail(
+          "Interface spec changed (the app's library set or guarding "
+          'options differ from the previous build); this release will '
+          'compile from scratch in a fresh build directory.',
+        );
+      case freeze_files.InterfaceSpecChange.unchanged:
+        break;
     }
     try {
       File(specPath).writeAsStringSync(yaml);
@@ -1567,7 +1587,7 @@ class CodePushBuildService {
       appCount: appLibraries.length,
       flutterCount: flutterLibraries.length,
       extendable: includeExtendable,
-      specChanged: specChanged,
+      specChange: specChange,
     );
   }
 

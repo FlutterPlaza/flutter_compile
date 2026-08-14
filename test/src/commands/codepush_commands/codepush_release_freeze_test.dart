@@ -5,6 +5,7 @@ import 'package:flutter_compile/src/commands/codepush_commands/_codepush_release
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
+import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -133,7 +134,7 @@ void main() {
           appCount: 1,
           flutterCount: 2,
           extendable: true,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -153,7 +154,7 @@ void main() {
           reportPath: '${tmp.path}/build/codepush/'
               'dynamic_interface_report.json',
           extendable: true,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
     });
@@ -190,7 +191,7 @@ void main() {
           appCount: 1,
           flutterCount: 2,
           extendable: false,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       final freeze = await cmd.prepareIosInterfaceFreeze(
@@ -237,7 +238,7 @@ void main() {
           appCount: 1,
           flutterCount: 2,
           extendable: true,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       await cmd.prepareIosInterfaceFreeze(
@@ -343,7 +344,7 @@ void main() {
           appCount: 1,
           flutterCount: 2,
           extendable: true,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -410,7 +411,7 @@ void main() {
           appCount: 1,
           flutterCount: 0,
           extendable: false,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       final freeze = await command.prepareIosInterfaceFreeze(
@@ -488,7 +489,7 @@ void main() {
         path: '${tmp.path}/dynamic_interface_abcd1234abcd1234.yaml',
         reportPath: report.path,
         extendable: true,
-        specChanged: false
+        specChange: InterfaceSpecChange.unchanged
       );
       command.checkInterfaceReportAfterBuild();
       expect(command.interfaceReportObservedAfterBuild, false);
@@ -510,7 +511,7 @@ void main() {
         path: '${tmp.path}/dynamic_interface_abcd1234abcd1234.yaml',
         reportPath: report.path,
         extendable: true,
-        specChanged: true
+        specChange: InterfaceSpecChange.changed
       );
       command.checkInterfaceReportAfterBuild();
       verify(
@@ -520,6 +521,23 @@ void main() {
               contains('the interface spec changed this run'),
               contains('SDK is newer'),
             ),
+          ),
+        ),
+      ).called(1);
+
+      // Unknown (nothing to compare against): genuinely neutral
+      // wording, asserting neither reuse nor a fresh compile.
+      command.writtenInterfaceSpec = (
+        path: '${tmp.path}/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: report.path,
+        extendable: true,
+        specChange: InterfaceSpecChange.unknown
+      );
+      command.checkInterfaceReportAfterBuild();
+      verify(
+        () => logger.warn(
+          any(
+            that: contains('cannot tell whether the compile was reused'),
           ),
         ),
       ).called(1);
@@ -553,7 +571,7 @@ void main() {
         path: '/x/dynamic_interface.yaml',
         reportPath: '/x/dynamic_interface_report.json',
         extendable: true,
-        specChanged: false
+        specChange: InterfaceSpecChange.unchanged
       );
       cmd.interfaceReportObservedAfterBuild = true;
       cmd.archiveIosBaseline(releaseId: 'rel-1', baselineId: 'base-1');
@@ -601,7 +619,7 @@ void main() {
           appCount: 1,
           flutterCount: 2,
           extendable: true,
-          specChanged: false
+          specChange: InterfaceSpecChange.unchanged
         ),
       );
       // fcp never writes the report; only the build does. A leftover
@@ -626,7 +644,7 @@ void main() {
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
         extendable: true,
-        specChanged: false
+        specChange: InterfaceSpecChange.unchanged
       );
       expect(
         command.buildFailureFreezeHint(),
@@ -640,7 +658,7 @@ void main() {
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
         extendable: false,
-        specChanged: false
+        specChange: InterfaceSpecChange.unchanged
       );
       expect(
         command.buildFailureFreezeHint(),
@@ -656,7 +674,7 @@ void main() {
         path: '/spec/dynamic_interface.yaml',
         reportPath: '/spec/dynamic_interface_report.json',
         extendable: true,
-        specChanged: false
+        specChange: InterfaceSpecChange.unchanged
       );
       command.failReleaseStep(progress, 'Build failed', diagnostics: 'boom');
       verify(() => progress.fail('Build failed')).called(1);
