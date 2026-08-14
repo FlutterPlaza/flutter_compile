@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `fcp codepush patch` now warns when the target iOS release was built without widget guarding or without call-shape preservation; `--allow-unguarded-release` acknowledges and silences it. Releases created by older versions are not affected.
+- `fcp codepush patch` now warns when the target iOS release was built without widget guarding or without the interface freeze; `--allow-unguarded-release` acknowledges and silences it. Releases created by older versions are not affected.
   - **Behavior change:** invalid `--rollout` values (for example `50%` or `fifty`) are now rejected up front instead of being silently treated as a full rollout, and argument mistakes are reported before any build work runs.
 
 - Fixed an issue where simple iOS patches (for example, a patch whose body is a single logging call) could crash or misbehave at run time.

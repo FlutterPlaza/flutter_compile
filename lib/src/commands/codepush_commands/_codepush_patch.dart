@@ -212,6 +212,11 @@ class CodePushPatchSubCommand extends Command<int> {
       final basename =
           explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
       if (basename == kPatchOutputPath.split('/').last) return null;
+      // Reachable only via a basename the build can never produce —
+      // the reader almost certainly meant the build's own output.
+      return 'Patch file not found: $explicitPatchFile. With --build the '
+          'patch is written to $kPatchOutputPath — pass that path, or drop '
+          '--patch-file entirely.';
     }
     return 'Patch file not found: $explicitPatchFile';
   }
@@ -266,7 +271,9 @@ class CodePushPatchSubCommand extends Command<int> {
       return ExitCode.software.code;
     }
 
-    final releaseId = argResults?['release-id'] as String?;
+    // Trimmed at the boundary so the query, the listing comparison,
+    // and the upload all agree on the same spelling.
+    final releaseId = (argResults?['release-id'] as String?)?.trim();
     if (releaseId == null || releaseId.isEmpty) {
       _logger.err('--release-id is required.');
       return ExitCode.usage.code;

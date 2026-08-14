@@ -251,7 +251,12 @@ void main() {
       );
       expect(
         cmd.earlyPatchFileError(),
-        contains('build/codepush/patch.fcpatch'),
+        allOf(
+          contains('build/codepush/patch.fcpatch'),
+          // The --build message names the path the build writes —
+          // the fix the operator almost certainly wants.
+          contains(CodePushPatchSubCommand.kPatchOutputPath),
+        ),
       );
     });
 
