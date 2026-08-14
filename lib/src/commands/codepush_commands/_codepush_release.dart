@@ -631,9 +631,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       return null;
     }
     progress.complete('Interface spec written');
+    // Captured variables do not promote; bind the non-null value.
+    final String frozenSpecPath = writtenSpec;
     return (args) => CodePushBuildService.withIosReleaseFrontEndOptions(
           args,
-          freezeSpecPath: writtenSpec,
+          freezeSpecPath: frozenSpecPath,
           reportPath: reportPath,
         );
   }
