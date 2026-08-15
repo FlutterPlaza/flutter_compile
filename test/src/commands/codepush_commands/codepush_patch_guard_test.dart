@@ -211,6 +211,10 @@ void main() {
 
   group('early argument validation', () {
     late ParsedArgsPatchCommand cmd;
+    // Hermetic stored-key stand-ins: the rewrite advisory keys on
+    // whether a key WILL sign, so machine config must never decide.
+    Future<String?> hasKey() async => '/stored/key.pem';
+    Future<String?> noKey() async => null;
 
     setUp(() {
       cmd = ParsedArgsPatchCommand(MockLogger());
@@ -218,7 +222,7 @@ void main() {
 
     test(
         '--build with a --patch-file naming the future build output '
-        'is NOT rejected up front — in any legitimate spelling', () {
+        'is NOT rejected up front — in any legitimate spelling', () async {
       // On a clean tree the output does not exist until the build
       // runs; the post-build in-place check owns that flow. Rejecting
       // here broke `--build --patch-file build/codepush/patch.fcppatch`
@@ -247,19 +251,21 @@ void main() {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],
         );
-        expect(cmd.patchFileArgCheck().error, isNull, reason: spelling);
+        expect(
+            (await cmd.patchFileArgCheck(readStoredKey: hasKey)).error, isNull,
+            reason: spelling);
       }
     });
 
     test(
         '--build with a TYPO in --patch-file fails fast — the build '
-        'can never create that path', () {
+        'can never create that path', () async {
       cmd.parsedArgs = cmd.argParser.parse(
         // One 'p' — the classic misspelling of the output path.
         ['--build', '--patch-file', 'build/codepush/patch.fcpatch'],
       );
       expect(
-        cmd.patchFileArgCheck().error,
+        (await cmd.patchFileArgCheck(readStoredKey: hasKey)).error,
         allOf(
           contains('build/codepush/patch.fcpatch'),
           // The --build message names the path the build writes —
@@ -269,12 +275,12 @@ void main() {
       );
     });
 
-    test('without --build a missing explicit patch file fails fast', () {
+    test('without --build a missing explicit patch file fails fast', () async {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--patch-file', '/definitely/not/there.fcppatch'],
       );
       expect(
-        cmd.patchFileArgCheck().error,
+        (await cmd.patchFileArgCheck(readStoredKey: hasKey)).error,
         allOf(
           contains('/definitely/not/there.fcppatch'),
           // The --build guidance must be ABSENT here: without --build
@@ -287,12 +293,12 @@ void main() {
 
     test(
         'patch-file: empty rejects; existing-elsewhere under --build '
-        'warns that the build output is ignored', () {
+        'warns that the build output is ignored', () async {
       // Present-but-blank REJECTS like its five siblings — the
       // blank-means-absent reading fell through to auto-discovery
       // and shipped whatever stale patch the workspace held.
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', '']);
-      final blank = cmd.patchFileArgCheck();
+      final blank = (await cmd.patchFileArgCheck(readStoredKey: hasKey));
       expect(blank.error, contains('Empty --patch-file'));
       // The 64/70 split is structural, not prose-matched: blank is a
       // usage error like its five siblings.
@@ -309,7 +315,7 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-file', saved.path],
       );
-      final existing = cmd.patchFileArgCheck();
+      final existing = (await cmd.patchFileArgCheck(readStoredKey: hasKey));
       expect(existing.error, isNull);
       expect(
         existing.warning,
@@ -318,27 +324,34 @@ void main() {
           contains(CodePushPatchSubCommand.kPatchOutputPath),
         ),
       );
-      // Without --build, a SIGNED upload rewrites the named file in
-      // place — the saved-artifact flow is exactly where an
-      // untouched copy is expected, so the advisory fires here...
+      // Without --build, an upload that WILL SIGN rewrites the named
+      // file in place — and --unsigned does not stop that when a
+      // stored key resolves ('--unsigned cannot skip a configured
+      // stored key'), so the advisory fires in BOTH shapes...
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', saved.path]);
       expect(
-        cmd.patchFileArgCheck().warning,
+        (await cmd.patchFileArgCheck(readStoredKey: hasKey)).warning,
         contains('rewrite'),
       );
-      // ...and --unsigned uploads (no rewrite) stay silent.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--unsigned', '--patch-file', saved.path],
       );
       expect(
-        cmd.patchFileArgCheck(),
+        (await cmd.patchFileArgCheck(readStoredKey: hasKey)).warning,
+        contains('rewrite'),
+      );
+      // ...and only a run with NO key anywhere (nothing will sign,
+      // nothing is touched) stays silent.
+      expect(
+        await cmd.patchFileArgCheck(readStoredKey: noKey),
         (warning: null, error: null, isUsageError: false),
       );
       // A MISSING file keeps the software (70) classification.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--patch-file', '/definitely/not/there.fcppatch'],
       );
-      expect(cmd.patchFileArgCheck().isUsageError, isFalse);
+      expect((await cmd.patchFileArgCheck(readStoredKey: hasKey)).isUsageError,
+          isFalse);
     });
 
     test('blankArgError: blank rejects, absent keeps the fallback', () {
@@ -555,14 +568,15 @@ void main() {
 
     test(
         'an existing explicit patch file passes; absent flag checks '
-        'auto-discovery up front', () {
+        'auto-discovery up front', () async {
       final tmp = File(
         '${Directory.systemTemp.createTempSync('fcp_guard').path}/p.fcppatch',
       )..writeAsBytesSync([1]);
       addTearDown(() => tmp.parent.deleteSync(recursive: true));
 
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', tmp.path]);
-      expect(cmd.patchFileArgCheck().error, isNull);
+      expect(
+          (await cmd.patchFileArgCheck(readStoredKey: hasKey)).error, isNull);
 
       // No flag, no --build, nothing discoverable: fail BEFORE the
       // fetch — the unguarded-release warning must not fire on a run
@@ -571,7 +585,8 @@ void main() {
       final bare = Directory.systemTemp.createTempSync('fcp_bare');
       addTearDown(() => bare.deleteSync(recursive: true));
       cmd.parsedArgs = cmd.argParser.parse([]);
-      final none = cmd.patchFileArgCheck(projectRootOverride: bare.path);
+      final none = (await cmd.patchFileArgCheck(
+          readStoredKey: hasKey, projectRootOverride: bare.path));
       expect(none.error, contains('No patch file found'));
       expect(none.isUsageError, isTrue);
 
@@ -584,20 +599,24 @@ void main() {
         ..createSync(recursive: true)
         ..writeAsBytesSync([1]);
       expect(
-        cmd.patchFileArgCheck(projectRootOverride: discoverable.path).error,
+        (await cmd.patchFileArgCheck(
+                readStoredKey: hasKey, projectRootOverride: discoverable.path))
+            .error,
         isNull,
       );
       // --build with no flag also proceeds (the build creates it).
       cmd.parsedArgs = cmd.argParser.parse(['--build']);
       expect(
-        cmd.patchFileArgCheck(projectRootOverride: bare.path).error,
+        (await cmd.patchFileArgCheck(
+                readStoredKey: hasKey, projectRootOverride: bare.path))
+            .error,
         isNull,
       );
     });
 
     test(
         'an EXISTING file under --build is judged by exact path: the '
-        'legacy candidate with the matching basename warns', () {
+        'legacy candidate with the matching basename warns', () async {
       // A stale build/patch.fcppatch (same basename as the output)
       // used to slip the warning and be silently uploaded over the
       // fresh build output.
@@ -611,7 +630,7 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-file', stale.path],
       );
-      final check = cmd.patchFileArgCheck();
+      final check = (await cmd.patchFileArgCheck(readStoredKey: hasKey));
       expect(check.error, isNull);
       expect(
         check.warning,
@@ -646,7 +665,9 @@ void main() {
           ['--build', '--patch-file', spelling],
         );
         expect(
-          cmd.patchFileArgCheck(projectRootOverride: sameRoot.path).warning,
+          (await cmd.patchFileArgCheck(
+                  readStoredKey: hasKey, projectRootOverride: sameRoot.path))
+              .warning,
           isNull,
           reason: spelling,
         );
@@ -663,7 +684,8 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-file', 'saved/keep.fcppatch'],
       );
-      final rel = cmd.patchFileArgCheck(projectRootOverride: sameRoot.path);
+      final rel = (await cmd.patchFileArgCheck(
+          readStoredKey: hasKey, projectRootOverride: sameRoot.path));
       expect(rel.error, isNull);
       expect(rel.warning, contains('saved/keep.fcppatch'));
     });

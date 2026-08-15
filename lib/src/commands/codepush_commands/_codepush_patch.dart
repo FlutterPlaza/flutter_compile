@@ -231,9 +231,23 @@ class CodePushPatchSubCommand extends Command<int> {
   /// every relative path this check stats or compares (discovery
   /// candidates, the output, a relative --patch-file) so tests hold
   /// rows under a temp root; production passes none.
-  ({String? warning, String? error, bool isUsageError}) patchFileArgCheck({
+  Future<({String? warning, String? error, bool isUsageError})>
+      patchFileArgCheck({
     String? projectRootOverride,
-  }) {
+    Future<String?> Function() readStoredKey =
+        CodePushClient.getStoredSigningKey,
+  }) async {
+    // Will a signing key be USED? The rewrite happens whenever one
+    // resolves — --unsigned does not stop it ('--unsigned cannot
+    // skip a configured stored key'), so the advisory keys on this,
+    // not the flag. Evaluated lazily: only the branches that warn
+    // about the rewrite need it.
+    Future<bool> willSign() async {
+      final explicitKey = (argResults?['signing-key'] as String?) ?? '';
+      if (explicitKey.trim().isNotEmpty) return true;
+      return ((await readStoredKey()) ?? '').trim().isNotEmpty;
+    }
+
     const ok = (warning: null, error: null, isUsageError: false);
     final root = projectRootOverride == null ? '' : '$projectRootOverride/';
     final explicitPatchFile = argResults?['patch-file'] as String?;
@@ -310,22 +324,28 @@ class CodePushPatchSubCommand extends Command<int> {
           // filesystems, so for those spellings the comparison is
           // wrong and an assertive warning would state the opposite
           // of what happens. The conditional is true in every case.
+          // The rewrite suffix appears only when a key will be used
+          // — an unsigned upload with no key never touches the file.
+          final rewriteSuffix = await willSign()
+              ? ' — and signing rewrites the named file in place to '
+                  'embed the signature.'
+              : '.';
           return (
             warning: '--patch-file $explicitPatchFile already exists: if '
                 'this is not the build output, the build will run but '
                 'THIS pre-existing file is what uploads (the build '
-                'writes to $kPatchOutputPath) — and signing rewrites '
-                'the named file in place to embed the signature.',
+                'writes to $kPatchOutputPath)$rewriteSuffix',
             error: null,
             isUsageError: false,
           );
         }
       }
-      if (!shouldBuild && !(argResults?['unsigned'] as bool? ?? false)) {
-        // The rewrite is NOT gated on --build: every signed upload
-        // re-signs the named file IN PLACE — and the saved-artifact
-        // flow (re-sign and upload a kept patch) is exactly where an
-        // untouched copy is expected.
+      if (!shouldBuild && await willSign()) {
+        // The rewrite is NOT gated on --build OR on --unsigned: the
+        // signing step runs whenever a key resolves and re-signs the
+        // named file IN PLACE — the saved-artifact flow (re-sign and
+        // upload a kept patch) is exactly where an untouched copy is
+        // expected.
         return (
           warning: 'Signing will rewrite $explicitPatchFile in place to '
               'embed the signature — keep a copy elsewhere if you need '
@@ -784,7 +804,7 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       final channel = resolvedChannel!;
-      final patchCheck = patchFileArgCheck();
+      final patchCheck = await patchFileArgCheck();
       if (patchCheck.error != null) {
         _logger.err(patchCheck.error!);
         return patchCheck.isUsageError
