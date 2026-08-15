@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:crypto/crypto.dart' show sha256;
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
@@ -220,39 +221,17 @@ class CodePushPatchSubCommand extends Command<int> {
     return missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild);
   }
 
-  /// Every value the command understands: the six documented ones
-  /// plus 'android', the alias the local-hash fallback has always
-  /// accepted.
-  static const knownPlatforms = {
-    'apk',
-    'appbundle',
-    'android',
-    'ios',
-    'linux',
-    'macos',
-    'windows',
-  };
-
-  /// Normalizes and validates `--platform`. A free-text value that
-  /// matches no branch would flow to the local-hash fallback, match
-  /// neither platform set, and silently drop the device-side
-  /// baseline check (served, not gated) — the platform the user
-  /// EXPLICITLY named must never be silently not-understood.
-  /// Returns (normalized value, error); a non-null error means exit
-  /// 64. Public for tests; reads its own args.
-  (String?, String?) platformArgOrError() {
-    final raw = (argResults?['platform'] as String?)?.trim();
-    if (raw == null || raw.isEmpty) return (null, null);
-    final normalized = raw.toLowerCase();
-    if (!knownPlatforms.contains(normalized)) {
-      return (
-        null,
-        'Unknown --platform "$raw". Use one of: '
-            'apk, appbundle, android, ios, linux, macos, windows.',
-      );
-    }
-    return (normalized, null);
-  }
+  /// Normalizes and validates `--platform` via the shared
+  /// [normalizeCodePushPlatformArg] (one rule for the patch AND
+  /// release commands). A free-text value that matches no branch
+  /// would flow to the local-hash fallback, match neither platform
+  /// set, and silently drop the device-side baseline check (served,
+  /// not gated) — the platform the user EXPLICITLY named must never
+  /// be silently not-understood. Returns (normalized value, error);
+  /// a non-null error means exit 64. Public for tests; reads its own
+  /// args.
+  (String?, String?) platformArgOrError() =>
+      normalizeCodePushPlatformArg(argResults?['platform'] as String?);
 
   /// The no-key message — one source for the early precondition and
   /// the late backstop, so the two sites cannot drift.
@@ -275,8 +254,19 @@ class CodePushPatchSubCommand extends Command<int> {
   /// without a config seam.
   Future<String?> signingPreconditionError() async {
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
-    if (allowUnsigned) return null;
     final explicitKey = argResults?['signing-key'] as String?;
+    // A NON-EMPTY explicit key is checked even under --unsigned: the
+    // late block signs whenever a key path is present, so a broken
+    // explicit key would still end the run post-build.
+    if (explicitKey != null && explicitKey.isNotEmpty) {
+      if (!File(explicitKey).existsSync()) {
+        return 'Signing key not found: $explicitKey';
+      }
+      return null;
+    }
+    // --unsigned with no usable key: proceeds unsigned, matching the
+    // late block (which also ignores an empty key under --unsigned).
+    if (allowUnsigned) return null;
     if (explicitKey != null) {
       // Empty is REJECTED, not treated as absent: an unset CI
       // variable expanding to '' is the commonest way this flag goes
@@ -284,14 +274,8 @@ class CodePushPatchSubCommand extends Command<int> {
       // sign with a key the user did not name. Deciding it here
       // keeps the two sites' answers identical (the late backstop
       // also treats '' as unusable).
-      if (explicitKey.isEmpty) {
-        return 'Empty --signing-key value (an unset CI variable?). Pass a '
-            'key path, drop the flag to use the stored key, or --unsigned.';
-      }
-      if (!File(explicitKey).existsSync()) {
-        return 'Signing key not found: $explicitKey';
-      }
-      return null;
+      return 'Empty --signing-key value (an unset CI variable?). Pass a '
+          'key path, drop the flag to use the stored key, or --unsigned.';
     }
     final storedKey = await CodePushClient.getStoredSigningKey();
     if (storedKey == null || storedKey.isEmpty) {
@@ -301,6 +285,29 @@ class CodePushPatchSubCommand extends Command<int> {
       return 'Stored signing key not found: $storedKey (from '
           '~/.flutter_compilerc). Re-run "fcp codepush keys generate", '
           'or pass --signing-key <path>.';
+    }
+    return null;
+  }
+
+  /// The pre-build `--baseline` advisory, or null. Both directions
+  /// are warnings, not exits: without `--build` the flag is read by
+  /// nothing (the diff comes from the freshly built snapshot) — the
+  /// quiet misreading worth flagging; with `--build`, a path that
+  /// does not exist means a full-snapshot upload, legitimate but
+  /// worth saying where the operator can still cheaply abort (the
+  /// packaging step repeats it in context). Empty values are
+  /// ignored at both this and the packaging-time site. Public for
+  /// tests; reads its own args.
+  String? baselineArgWarning() {
+    final baselineArg = argResults?['baseline'] as String?;
+    if (baselineArg == null || baselineArg.isEmpty) return null;
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (!shouldBuild) {
+      return '--baseline is only used together with --build; ignoring it.';
+    }
+    if (!File(baselineArg).existsSync()) {
+      return 'Baseline not found at $baselineArg — the patch will upload '
+          'as a full snapshot, not a diff.';
     }
     return null;
   }
@@ -431,25 +438,9 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err(signingError);
         return ExitCode.software.code;
       }
-      final baselineArg = argResults?['baseline'] as String?;
-      if (baselineArg != null && baselineArg.isNotEmpty) {
-        if (!shouldBuild) {
-          // The diff is computed from the freshly built snapshot, so
-          // without --build this flag is read by nothing — the quiet
-          // misreading worth a warning.
-          _logger.warn(
-            '--baseline is only used together with --build; ignoring it.',
-          );
-        } else if (!File(baselineArg).existsSync()) {
-          // Not an exit — the run legitimately continues as a full
-          // snapshot — but say so HERE, where the operator can still
-          // cheaply abort, not buried mid-build (the packaging step
-          // repeats it in context).
-          _logger.warn(
-            'Baseline not found at $baselineArg — the patch will upload '
-            'as a full snapshot, not a diff.',
-          );
-        }
+      final baselineWarning = baselineArgWarning();
+      if (baselineWarning != null) {
+        _logger.warn(baselineWarning);
       }
 
       // Fetch the target release's metadata next — still ahead of any

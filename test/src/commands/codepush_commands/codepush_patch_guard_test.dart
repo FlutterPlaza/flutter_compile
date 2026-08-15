@@ -300,6 +300,22 @@ void main() {
         contains('Empty --signing-key'),
       );
 
+      // A broken explicit key fails fast EVEN under --unsigned: the
+      // late block signs whenever a key path is present, so this
+      // state would otherwise still die after the whole build.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--unsigned', '--signing-key', '/definitely/not/a.pem'],
+      );
+      expect(
+        await cmd.signingPreconditionError(),
+        contains('/definitely/not/a.pem'),
+      );
+
+      // --unsigned with an EMPTY key proceeds (unsigned) — matching
+      // the late block, which ignores an empty key under --unsigned.
+      cmd.parsedArgs = cmd.argParser.parse(['--unsigned', '--signing-key', '']);
+      expect(await cmd.signingPreconditionError(), isNull);
+
       // An explicit key that exists passes without a config lookup.
       final key = File(
         '${Directory.systemTemp.createTempSync('fcp_sign').path}/k.pem',
@@ -347,6 +363,32 @@ void main() {
       // Passes the regex, overflows the parse: must be a clean null,
       // not a FormatException with a stack trace.
       expect(parsed(['--rollout', '9' * 20]), isNull);
+    });
+
+    test('baselineArgWarning: both silent-failure directions pinned', () {
+      final baseline = File(
+        '${Directory.systemTemp.createTempSync('fcp_base').path}/b.so',
+      )..writeAsBytesSync([1]);
+      addTearDown(() => baseline.parent.deleteSync(recursive: true));
+
+      // Valid baseline WITHOUT --build: read by nothing — the quiet
+      // misreading must warn, not silently ignore.
+      cmd.parsedArgs = cmd.argParser.parse(['--baseline', baseline.path]);
+      expect(cmd.baselineArgWarning(), contains('only used together'));
+
+      // Missing baseline WITH --build: full-snapshot advisory.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline', '/definitely/not/b.so'],
+      );
+      expect(cmd.baselineArgWarning(), contains('full snapshot'));
+
+      // Valid + --build: silent. Empty: silent (no 'not found at ').
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline', baseline.path],
+      );
+      expect(cmd.baselineArgWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(['--baseline', '']);
+      expect(cmd.baselineArgWarning(), isNull);
     });
 
     test('platformArgOrError: normalize, validate, never silently drop', () {

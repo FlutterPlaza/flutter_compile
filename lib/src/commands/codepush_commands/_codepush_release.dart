@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
 import 'package:flutter_compile/src/shared/android_baseline_yaml.dart';
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
@@ -213,8 +214,20 @@ class CodePushReleaseSubCommand extends Command<int> {
     String? originalAndroidYaml;
     String? builtPlatform;
 
+    // Shared --platform rule with the patch command: every platform
+    // gate below is an exact-string compare that fails OPEN — a
+    // wrong-cased value would skip the iOS baseline-identity
+    // requirement and the Android packaged-lib rule silently. A
+    // value the command does not understand must be a fast exit.
+    final (platformArg, platformError) =
+        normalizeCodePushPlatformArg(argResults?['platform'] as String?);
+    if (platformError != null) {
+      _logger.err(platformError);
+      return ExitCode.usage.code;
+    }
+
     if (shouldBuild) {
-      var platform = argResults?['platform'] as String?;
+      var platform = platformArg;
       platform ??= buildService.detectPlatform();
       if (platform == null) {
         _logger.err(
@@ -388,7 +401,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     // by a flagless release would route into the Android branch — and
     // could upload a stale Android library as this version's baseline.
     // Creating a server record deserves an explicit choice.
-    final explicitPlatform = argResults?['platform'] as String?;
+    final explicitPlatform = platformArg;
     if (CodePushBuildService.releaseNeedsExplicitPlatform(
       explicitPlatform: explicitPlatform,
       builtPlatform: builtPlatform,
