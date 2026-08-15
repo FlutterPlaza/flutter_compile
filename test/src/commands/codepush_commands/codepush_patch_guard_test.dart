@@ -266,8 +266,40 @@ void main() {
       );
       expect(
         cmd.earlyPatchFileError(),
-        contains('/definitely/not/there.fcppatch'),
+        allOf(
+          contains('/definitely/not/there.fcppatch'),
+          // The --build guidance must be ABSENT here: without --build
+          // the user genuinely named a missing file, and pointing at
+          // the build output would mislead. Pins the branch flag.
+          isNot(contains(CodePushPatchSubCommand.kPatchOutputPath)),
+        ),
       );
+    });
+
+    test('signing preconditions are checked before any build work', () async {
+      // --unsigned decides without touching config or disk.
+      cmd.parsedArgs = cmd.argParser.parse(['--unsigned']);
+      expect(await cmd.signingPreconditionError(), isNull);
+
+      // An explicit key naming a missing file is a pure argument
+      // mistake — the worst place to learn it is after the build.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--signing-key', '/definitely/not/a.pem'],
+      );
+      expect(
+        await cmd.signingPreconditionError(),
+        contains('/definitely/not/a.pem'),
+      );
+
+      // An explicit key that exists passes without a config lookup.
+      final key = File(
+        '${Directory.systemTemp.createTempSync('fcp_sign').path}/k.pem',
+      )..writeAsBytesSync([1]);
+      addTearDown(() => key.parent.deleteSync(recursive: true));
+      cmd.parsedArgs = cmd.argParser.parse(['--signing-key', key.path]);
+      expect(await cmd.signingPreconditionError(), isNull);
+      // The no-flag row depends on ~/.flutter_compilerc and is
+      // deliberately not pinned here (no config seam).
     });
 
     test('an existing explicit patch file passes; absent flag passes', () {

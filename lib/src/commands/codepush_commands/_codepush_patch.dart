@@ -218,6 +218,47 @@ class CodePushPatchSubCommand extends Command<int> {
     return missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild);
   }
 
+  /// The no-key message — one source for the early precondition and
+  /// the late backstop, so the two sites cannot drift.
+  static const missingSigningKeyMessage =
+      'No signing key found. Patches must be signed for production.\n'
+      '  Run "fcp codepush keys generate" to create a key pair, then\n'
+      '  "fcp codepush keys register" to upload the public key, or\n'
+      '  pass --signing-key <path>.\n'
+      '  To bypass (testing only): --unsigned';
+
+  /// The signing preconditions, checkable BEFORE any build work: on
+  /// a fresh machine or a new CI runner with no registered key the
+  /// run can only ever end at the no-key error, and the remedy is a
+  /// two-step key setup — the worst thing to learn after minutes of
+  /// building. An explicit `--signing-key` naming a missing file is
+  /// the same class. Returns the error to print, or null. The late
+  /// signing block stays as the backstop. Public for tests; reads
+  /// its own args, and the stored-key lookup runs only when no
+  /// explicit flag decides first — so tests pin the arg-driven rows
+  /// without a config seam.
+  Future<String?> signingPreconditionError() async {
+    final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
+    if (allowUnsigned) return null;
+    final explicitKey = argResults?['signing-key'] as String?;
+    if (explicitKey != null && explicitKey.isNotEmpty) {
+      if (!File(explicitKey).existsSync()) {
+        return 'Signing key not found: $explicitKey';
+      }
+      return null;
+    }
+    final storedKey = await CodePushClient.getStoredSigningKey();
+    if (storedKey == null || storedKey.isEmpty) {
+      return missingSigningKeyMessage;
+    }
+    if (!File(storedKey).existsSync()) {
+      return 'Stored signing key not found: $storedKey (from '
+          '~/.flutter_compilerc). Re-run "fcp codepush keys generate", '
+          'or pass --signing-key <path>.';
+    }
+    return null;
+  }
+
   /// The missing-patch-file error. Under `--build` it names the path
   /// the build writes ([kPatchOutputPath]) and that `--patch-file`
   /// can be dropped — the fix the operator almost certainly wants,
@@ -333,6 +374,24 @@ class CodePushPatchSubCommand extends Command<int> {
         // 70 (software), not 64: continuity with the late post-build
         // check, which has always exited 70 for a missing patch file.
         return ExitCode.software.code;
+      }
+      final signingError = await signingPreconditionError();
+      if (signingError != null) {
+        _logger.err(signingError);
+        return ExitCode.software.code;
+      }
+      final baselineArg = argResults?['baseline'] as String?;
+      if (baselineArg != null &&
+          baselineArg.isNotEmpty &&
+          !File(baselineArg).existsSync()) {
+        // Not an exit — the run legitimately continues as a full
+        // snapshot — but say so HERE, where the operator can still
+        // cheaply abort, not buried mid-build (the packaging step
+        // repeats it in context).
+        _logger.warn(
+          'Baseline not found at $baselineArg — the patch will upload '
+          'as a full snapshot, not a diff.',
+        );
       }
 
       // Fetch the target release's metadata next — still ahead of any
@@ -693,18 +752,17 @@ class CodePushPatchSubCommand extends Command<int> {
           artifactManager: artifactManagerForSigning,
         );
         if (signatureBase64 == null) {
-          signProgress.fail('Signing failed');
+          // Name the key in use: a wrong path, an unreadable file, a
+          // bad format, and a tool failure all land here — the path
+          // separates the first case from the rest.
+          signProgress.fail('Signing failed (key: $signingKeyPath)');
           return ExitCode.software.code;
         }
         signProgress.complete('Signed and embedded');
       } else if (!allowUnsigned) {
-        _logger.err(
-          'No signing key found. Patches must be signed for production.\n'
-          '  Run "fcp codepush keys generate" to create a key pair, then\n'
-          '  "fcp codepush keys register" to upload the public key, or\n'
-          '  pass --signing-key <path>.\n'
-          '  To bypass (testing only): --unsigned',
-        );
+        // Backstop only: signingPreconditionError() reported this
+        // before any build work; a key can still vanish in between.
+        _logger.err(missingSigningKeyMessage);
         return ExitCode.software.code;
       } else {
         _logger.warn(
