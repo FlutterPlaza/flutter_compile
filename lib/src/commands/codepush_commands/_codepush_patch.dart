@@ -184,41 +184,66 @@ class CodePushPatchSubCommand extends Command<int> {
 
   /// Path the `--build` flow writes its packaged patch to. A class
   /// const shared with the packaging and candidate-search sites, so
-  /// [earlyPatchFileError]'s one-output-path premise is enforced by
+  /// [patchFileArgCheck]'s one-output-path premise is enforced by
   /// the compiler rather than a duplicated literal.
   static const kPatchOutputPath = 'build/codepush/patch.fcppatch';
 
-  /// The early `--patch-file` existence check. A missing file fails
-  /// fast — EXCEPT when `--build` is set and the argument may name
-  /// the one path the build can bring into existence
-  /// ([kPatchOutputPath]): that file legitimately does not exist yet
-  /// on a clean tree, and the in-place post-build check owns it.
-  /// "May name" is judged by BASENAME alone, deliberately: the typo
-  /// class this guard exists to catch is a misspelled basename, and
-  /// any full-path comparison is strictly narrower while being
-  /// wrong through symlinked prefixes (macOS `/var` →
-  /// `/private/var`, bind-mounted CI workspaces — getcwd is
-  /// physical, the user's spelling is not). Every path a full-path
-  /// match would accept ends in the output basename anyway, so the
-  /// basename clause subsumes it; a right-basename-wrong-directory
-  /// value falls through to the late check (the pre-round-8
-  /// behavior — accepted cost). A basename typo under `--build`
-  /// still fails fast: it can never appear, and discovering that
-  /// after minutes of building violates the pre-fetch invariant.
-  /// Returns the error to print, or null when the run may proceed.
-  /// Public for tests; reads its own args so a real-parse test
-  /// covers the wire.
-  String? earlyPatchFileError() {
+  /// The early `--patch-file` check: (warning, error). Present-but-
+  /// blank REJECTS like its five siblings — the blank-means-absent
+  /// reading was the worst of the six: run() re-reads the arg for
+  /// path resolution, so an unset CI variable fell through to
+  /// auto-discovery and shipped whatever stale patch an earlier job
+  /// step left in the workspace. A missing file fails fast — EXCEPT
+  /// when `--build` is set and the argument may name the one path
+  /// the build can bring into existence ([kPatchOutputPath]): that
+  /// file legitimately does not exist yet on a clean tree, and the
+  /// in-place post-build check owns it. "May name" is judged by
+  /// BASENAME alone, deliberately: the typo class this guard exists
+  /// to catch is a misspelled basename, and any full-path
+  /// comparison is strictly narrower while being wrong through
+  /// symlinked prefixes (macOS `/var` → `/private/var`,
+  /// bind-mounted CI workspaces — getcwd is physical, the user's
+  /// spelling is not); a right-basename-wrong-directory value falls
+  /// through to the late check (accepted cost). An EXISTING file
+  /// whose basename is not the output's, under `--build`, warns:
+  /// the build will run and its output will be silently discarded
+  /// in favor of this pre-existing file — legitimate (re-sign and
+  /// upload a saved patch) but worth naming both paths. The path
+  /// value is deliberately NOT trimmed (a leading space can be a
+  /// legitimate filename); the trim below only classifies
+  /// blank-as-unset. Public for tests; reads its own args so a
+  /// real-parse test covers the wire.
+  (String?, String?) patchFileArgCheck() {
     final explicitPatchFile = argResults?['patch-file'] as String?;
-    if (explicitPatchFile == null || explicitPatchFile.isEmpty) return null;
-    if (File(explicitPatchFile).existsSync()) return null;
-    final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild) {
-      final basename =
-          explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
-      if (basename == kPatchOutputPath.split('/').last) return null;
+    if (explicitPatchFile == null) return (null, null);
+    if (explicitPatchFile.trim().isEmpty) {
+      return (
+        null,
+        'Empty --patch-file value (an unset CI variable?). Pass a patch '
+            'path, or drop the flag to use the build output.',
+      );
     }
-    return missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild);
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    final basename =
+        explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
+    final outputBasename = kPatchOutputPath.split('/').last;
+    if (File(explicitPatchFile).existsSync()) {
+      if (shouldBuild && basename != outputBasename) {
+        return (
+          '--patch-file $explicitPatchFile already exists and is not the '
+              'build output: the build will run, but its output '
+              '($kPatchOutputPath) will be ignored — this pre-existing '
+              'file is what uploads.',
+          null,
+        );
+      }
+      return (null, null);
+    }
+    if (shouldBuild && basename == outputBasename) return (null, null);
+    return (
+      null,
+      missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild),
+    );
   }
 
   /// Normalizes and validates `--platform` via the shared
@@ -324,10 +349,28 @@ class CodePushPatchSubCommand extends Command<int> {
     return (trimmed, null);
   }
 
+  /// The rejection message for an invalid `--rollout`: leads with
+  /// the likely cause for the unset-variable shape (its siblings'
+  /// convention — the readable line in a CI log), the value domain
+  /// otherwise. [parseRollout] collapses every invalid shape to
+  /// null, so the split happens here. Public for tests; reads its
+  /// own args.
+  String rolloutErrorMessage() {
+    final raw = (argResults?['rollout'] as String? ?? '100').trim();
+    if (raw.isEmpty) {
+      return 'Empty --rollout value (an unset CI variable?). Pass an '
+          'integer between 1 and 100, or drop the flag (default: 100).';
+    }
+    return 'Rollout percentage must be an integer between 1 and 100.';
+  }
+
   /// The pre-build `--baseline` check: (warning, error). Present-
   /// but-blank is an ERROR like every other boundary read (an unset
   /// CI variable — pre-fix it silently uploaded a full snapshot
   /// with BOTH advisories suppressed by the isEmpty guards). The
+  /// path value is deliberately NOT trimmed for the stat (a leading
+  /// space can be a legitimate filename; the trim below only
+  /// classifies blank-as-unset), matching the late reader. The
   /// two advisory directions stay warnings, not exits: without
   /// `--build` the flag is read by nothing (the diff comes from the
   /// freshly built snapshot) — the quiet misreading worth flagging;
@@ -472,7 +515,7 @@ class CodePushPatchSubCommand extends Command<int> {
       // build) has already happened.
       final rollout = parseRollout();
       if (rollout == null) {
-        _logger.err('Rollout percentage must be an integer between 1 and 100.');
+        _logger.err(rolloutErrorMessage());
         return ExitCode.usage.code;
       }
       final (resolvedChannel, channelError) = resolvedChannelOrError();
@@ -481,12 +524,15 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       final channel = resolvedChannel!;
-      final patchFileError = earlyPatchFileError();
+      final (patchFileWarning, patchFileError) = patchFileArgCheck();
       if (patchFileError != null) {
         _logger.err(patchFileError);
         // 70 (software), not 64: continuity with the late post-build
         // check, which has always exited 70 for a missing patch file.
         return ExitCode.software.code;
+      }
+      if (patchFileWarning != null) {
+        _logger.warn(patchFileWarning);
       }
       final signingError = await signingPreconditionError();
       if (signingError != null) {

@@ -246,7 +246,7 @@ void main() {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],
         );
-        expect(cmd.earlyPatchFileError(), isNull, reason: spelling);
+        expect(cmd.patchFileArgCheck().$2, isNull, reason: spelling);
       }
     });
 
@@ -258,7 +258,7 @@ void main() {
         ['--build', '--patch-file', 'build/codepush/patch.fcpatch'],
       );
       expect(
-        cmd.earlyPatchFileError(),
+        cmd.patchFileArgCheck().$2,
         allOf(
           contains('build/codepush/patch.fcpatch'),
           // The --build message names the path the build writes —
@@ -273,7 +273,7 @@ void main() {
         ['--patch-file', '/definitely/not/there.fcppatch'],
       );
       expect(
-        cmd.earlyPatchFileError(),
+        cmd.patchFileArgCheck().$2,
         allOf(
           contains('/definitely/not/there.fcppatch'),
           // The --build guidance must be ABSENT here: without --build
@@ -282,6 +282,50 @@ void main() {
           isNot(contains(CodePushPatchSubCommand.kPatchOutputPath)),
         ),
       );
+    });
+
+    test(
+        'patch-file: empty rejects; existing-elsewhere under --build '
+        'warns that the build output is ignored', () {
+      // Present-but-blank REJECTS like its five siblings — the
+      // blank-means-absent reading fell through to auto-discovery
+      // and shipped whatever stale patch the workspace held.
+      cmd.parsedArgs = cmd.argParser.parse(['--patch-file', '']);
+      expect(cmd.patchFileArgCheck().$2, contains('Empty --patch-file'));
+
+      // Third state: the argument names a file that already EXISTS
+      // elsewhere — under --build the build runs and its output is
+      // silently discarded in favor of this file. Warn, not exit
+      // (re-signing a saved patch is legitimate), naming both paths.
+      final saved = File(
+        '${Directory.systemTemp.createTempSync('fcp_saved').path}/old.fcppatch',
+      )..writeAsBytesSync([1]);
+      addTearDown(() => saved.parent.deleteSync(recursive: true));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--patch-file', saved.path],
+      );
+      final (warning, error) = cmd.patchFileArgCheck();
+      expect(error, isNull);
+      expect(
+        warning,
+        allOf(
+          contains(saved.path),
+          contains(CodePushPatchSubCommand.kPatchOutputPath),
+        ),
+      );
+      // Without --build the same file is the normal flow: silent.
+      cmd.parsedArgs = cmd.argParser.parse(['--patch-file', saved.path]);
+      expect(cmd.patchFileArgCheck(), (null, null));
+    });
+
+    test(
+        'rolloutErrorMessage names the unset-variable cause for the '
+        'empty shape', () {
+      cmd.parsedArgs = cmd.argParser.parse(['--rollout', '']);
+      expect(cmd.parseRollout(), isNull);
+      expect(cmd.rolloutErrorMessage(), contains('Empty --rollout'));
+      cmd.parsedArgs = cmd.argParser.parse(['--rollout', '50%']);
+      expect(cmd.rolloutErrorMessage(), contains('must be an integer'));
     });
 
     test('signing preconditions are checked before any build work', () async {
@@ -351,10 +395,10 @@ void main() {
       addTearDown(() => tmp.parent.deleteSync(recursive: true));
 
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', tmp.path]);
-      expect(cmd.earlyPatchFileError(), isNull);
+      expect(cmd.patchFileArgCheck().$2, isNull);
 
       cmd.parsedArgs = cmd.argParser.parse([]);
-      expect(cmd.earlyPatchFileError(), isNull);
+      expect(cmd.patchFileArgCheck().$2, isNull);
     });
 
     test('parseRollout: strict — a typo re-runs, never widens', () {
