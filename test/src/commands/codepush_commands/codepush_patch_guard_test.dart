@@ -355,6 +355,45 @@ void main() {
       expect(cmd.rolloutErrorMessage(), contains('must be an integer'));
     });
 
+    test('patchEntryFileArgError: missing and outside-lib fail early', () {
+      final root = Directory.systemTemp.createTempSync('fcp_entry');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/lib/patch.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void codePushPatch() {}');
+      File('${root.path}/tool/outside.dart')
+        ..createSync(recursive: true)
+        ..writeAsStringSync('void codePushPatch() {}');
+
+      // Missing: a pure argument mistake that used to surface only
+      // after the fetch and the guard warning.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-entry-file', 'lib/typo.dart'],
+      );
+      expect(
+        cmd.patchEntryFileArgError(projectRootOverride: root.path),
+        contains('Patch entry source not found'),
+      );
+      // Outside lib/: same class, same early exit.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-entry-file', 'tool/outside.dart'],
+      );
+      expect(
+        cmd.patchEntryFileArgError(projectRootOverride: root.path),
+        contains('under `lib/`'),
+      );
+      // Valid and absent both pass (auto-discovery stays late).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-entry-file', 'lib/patch.dart'],
+      );
+      expect(
+        cmd.patchEntryFileArgError(projectRootOverride: root.path),
+        isNull,
+      );
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.patchEntryFileArgError(), isNull);
+    });
+
     test('signing preconditions are checked before any build work', () async {
       // (A bare --unsigned row would read the machine's stored-key
       // config — deliberately unpinned, no config seam. The rows

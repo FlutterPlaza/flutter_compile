@@ -330,6 +330,28 @@ class CodePushPatchSubCommand extends Command<int> {
     );
   }
 
+  /// Early check for an EXPLICIT --patch-entry-file: the
+  /// missing-file and outside-lib shapes are pure argument mistakes
+  /// (one stat plus a string rule) that used to surface only after
+  /// the fetch and the guard warning. Message text matches the late
+  /// resolver exactly so the two sites cannot drift; auto-discovery
+  /// (no flag) stays late — it scans lib/. Blank is blankArgError's.
+  /// Public for tests; [projectRootOverride] anchors a relative stat.
+  String? patchEntryFileArgError({String? projectRootOverride}) {
+    final raw = argResults?['patch-entry-file'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
+    final anchoredPath = File(raw).isAbsolute ? raw : '$root$raw';
+    if (!File(anchoredPath).existsSync()) {
+      return 'Patch entry source not found: $raw';
+    }
+    if (importPathForPatchSource(anchoredPath, libDirPath: '${root}lib') ==
+        null) {
+      return '--patch-entry-file must point to a Dart file under `lib/`.';
+    }
+    return null;
+  }
+
   /// Same contract as the release command's blankArgError, for the
   /// boundary reads the per-flag helpers here do not own. A blank
   /// --flutter-version silently fell through to local detection,
@@ -693,6 +715,13 @@ class CodePushPatchSubCommand extends Command<int> {
       if (baselineError != null) {
         _logger.err(baselineError);
         return ExitCode.usage.code;
+      }
+      if (builtPlatform == 'ios') {
+        final entryError = patchEntryFileArgError();
+        if (entryError != null) {
+          _logger.err(entryError);
+          return ExitCode.software.code;
+        }
       }
       if (patchCheck.warning != null) {
         _logger.warn(patchCheck.warning!);

@@ -158,14 +158,30 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
-  /// Whether an explicit `--snapshot` overrode the built bytes —
-  /// ONE read shared by the attestation, the baseline-app save, and
-  /// the archive gate, so the three records cannot disagree by
-  /// drift (they agreed before only because the expression was
-  /// character-identical at two sites). Public for tests; reads its
-  /// own args.
-  bool get usedExplicitSnapshot =>
-      (argResults?['snapshot'] as String?)?.isNotEmpty ?? false;
+  /// Whether an explicit `--snapshot` names bytes OTHER than this
+  /// run's build output — ONE read shared by the attestation, the
+  /// baseline-app save, and the archive gate, so the three records
+  /// cannot disagree by drift. The flag alone is not the question:
+  /// a CI script that passes the built binary's own path explicitly
+  /// (the exact spelling the command's guidance teaches) is still
+  /// uploading the frozen build and keeps its attestation, saved
+  /// app, and archive. Trimmed like every boundary read. An
+  /// undecidable comparison resolves to TRUE (foreign): never
+  /// attest or archive on a guess — the closed-but-safe direction,
+  /// since the cost is a skipped record, not a rejection. Public
+  /// for tests; reads its own args.
+  bool get usedExplicitSnapshot {
+    final raw = (argResults?['snapshot'] as String?)?.trim();
+    if (raw == null || raw.isEmpty) return false;
+    final appDir = builtIosAppDirFromBinaryPath(raw);
+    if (appDir == null) return true;
+    String norm(String p) => File(p).absolute.uri.normalizePath().toFilePath();
+    try {
+      return norm(appDir) != norm(kDefaultBuiltIosAppPath);
+    } catch (_) {
+      return true;
+    }
+  }
 
   /// Twin of the patch command's platformArgOrError — the tested
   /// wire from this command to the shared rule, so `forBuild` cannot
@@ -808,9 +824,18 @@ class CodePushReleaseSubCommand extends Command<int> {
       // snapshot_hash is the foreign bytes'), and a device installed
       // from it would silently fail the baseline check on every
       // patch.
-      if (builtPlatform == 'ios' &&
-          baselineId != null &&
-          !usedExplicitSnapshot) {
+      final snapshotIsForeign = usedExplicitSnapshot;
+      if (builtPlatform == 'ios' && baselineId != null && snapshotIsForeign) {
+        // The skip must not be silent: pre-gate this invocation
+        // printed the loud saved-app block, and nothing else says
+        // why it stopped.
+        _logger.detail(
+          'Skipping the saved baseline app and per-release archive: '
+          '--snapshot named bytes other than this build\'s output, so '
+          'the built bundle is not what this release serves.',
+        );
+      }
+      if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
         _saveIosBaselineApp(baselineId: baselineId);
 
         // Archive the saved baseline app + dSYM into a per-release

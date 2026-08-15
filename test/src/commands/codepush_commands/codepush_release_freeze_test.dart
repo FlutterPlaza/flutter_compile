@@ -1033,18 +1033,31 @@ void main() {
       );
     });
 
-    test('usedExplicitSnapshot: one read, pinned', () {
+    test('usedExplicitSnapshot: foreign bytes, not the flag', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // Shared by the attestation, the baseline-app save, and the
       // archive gate — the three records agree because this is ONE
-      // read, not three character-identical expressions.
+      // read. The question is byte provenance: the built binary's
+      // OWN path passed explicitly (the spelling the guidance
+      // teaches) is still the frozen build.
       cmd.parsedArgs = cmd.argParser.parse(['--snapshot', 'app.bin']);
+      expect(cmd.usedExplicitSnapshot, isTrue);
+      cmd.parsedArgs = cmd.argParser.parse([
+        '--snapshot',
+        'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+      ]);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '/elsewhere/Other.app/Frameworks/App.framework/App'],
+      );
       expect(cmd.usedExplicitSnapshot, isTrue);
       cmd.parsedArgs = cmd.argParser.parse([]);
       expect(cmd.usedExplicitSnapshot, isFalse);
-      // Blank is rejected earlier by blankArgError; the getter alone
-      // reads it as absent, matching the attestation's prior rule.
+      // Blank AND whitespace read as absent (trimmed like every
+      // boundary read); blankArgError rejects both earlier in run().
       cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '']);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '  ']);
       expect(cmd.usedExplicitSnapshot, isFalse);
     });
 
