@@ -1181,13 +1181,18 @@ void main() {
       File('${root.path}/build/codepush')
         ..parent.createSync(recursive: true)
         ..writeAsBytesSync([1]);
-      cmd.saveIosBaselineApp(
+      final saved = cmd.saveIosBaselineApp(
         baselineId: 'b-1',
         projectRootOverride: root.path,
       );
       verify(
         () => logger.warn(any(that: contains('Saved-baseline step skipped'))),
       ).called(1);
+      // FALSE gates the archive at the caller: archiving whatever
+      // (possibly the PREVIOUS release's bundle) sits at the saved
+      // path under this release's id would break two-records-one-
+      // story.
+      expect(saved, isFalse);
     });
 
     test('dartDefineValues (release): filter applied at this command', () {

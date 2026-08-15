@@ -122,6 +122,16 @@ void main() {
       verify(() => logger.warn(any())).called(1);
     });
 
+    test('repeat emission carries the as-noted lead-in', () {
+      command.warnIfUnguardedRelease(
+        {'extendable_widgets': false},
+        repeat: true,
+      );
+      verify(
+        () => logger.warn(any(that: contains('As noted before the build'))),
+      ).called(1);
+    });
+
     test('the flag is registered and not negatable', () {
       final option = command.argParser.options['allow-unguarded-release'];
       expect(option, isNotNull);
@@ -340,6 +350,17 @@ void main() {
         (await cmd.patchFileArgCheck(readStoredKey: hasKey)).warning,
         contains('rewrite'),
       );
+      // A BLANK explicit key under --unsigned mirrors the late
+      // block's ??=: the flag is non-null, so the stored key is
+      // never consulted and nothing signs — no rewrite claim.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--unsigned', '--signing-key', '', '--patch-file', saved.path],
+      );
+      expect(
+        (await cmd.patchFileArgCheck(readStoredKey: hasKey)).warning,
+        isNull,
+      );
+      cmd.parsedArgs = cmd.argParser.parse(['--patch-file', saved.path]);
       // ...and only a run with NO key anywhere (nothing will sign,
       // nothing is touched) stays silent.
       expect(

@@ -243,10 +243,7 @@ class CodePushClient {
   }) async {
     try {
       final info = await _get(
-        // Encoded: a space/&/# in a mistyped id must surface as
-        // release-not-found, not as a malformed URI that the caller's
-        // warn misreads as a session or connectivity problem.
-        '/api/v1/releases?release_id=${Uri.encodeQueryComponent(releaseId)}',
+        releaseQueryPath(releaseId),
         token: token,
       );
       return releaseFromListing(info, releaseId);
@@ -254,6 +251,15 @@ class CodePushClient {
       return null;
     }
   }
+
+  /// The GET path for a single-release lookup. Encoded: a space/&/#
+  /// in a mistyped id must surface as release-not-found, not as a
+  /// malformed URI that the caller's warn misreads as a session or
+  /// connectivity problem. Extracted (and static) so the encoding
+  /// cannot silently vanish — the POST side's releaseQueryParams
+  /// precedent. Public for tests.
+  static String releaseQueryPath(String releaseId) =>
+      '/api/v1/releases?release_id=${Uri.encodeQueryComponent(releaseId)}';
 
   /// Picks the requested release out of a listing response, or null.
   /// SEARCHES the whole list rather than trusting index 0: every
@@ -294,7 +300,12 @@ class CodePushClient {
     required String token,
     required String releaseId,
   }) async {
-    return _get('/api/v1/patches?release_id=$releaseId', token: token);
+    // Same encoding rule as releaseQueryPath — the same
+    // user-supplied id flows here from the status command.
+    return _get(
+      '/api/v1/patches?release_id=${Uri.encodeQueryComponent(releaseId)}',
+      token: token,
+    );
   }
 
   /// POST /api/v1/patches — upload a patch.

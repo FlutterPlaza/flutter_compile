@@ -51,6 +51,21 @@ void main() {
     });
   });
 
+  group('CodePushClient.releaseQueryPath', () {
+    test('the id is encoded — the GET twin of releaseQueryParams', () {
+      // (encodeQueryComponent encodes a space as '+', per the
+      // application/x-www-form-urlencoded rule servers parse.)
+      expect(
+        CodePushClient.releaseQueryPath('r 1&x=#y'),
+        '/api/v1/releases?release_id=r+1%26x%3D%23y',
+      );
+      expect(
+        CodePushClient.releaseQueryPath('r-1'),
+        '/api/v1/releases?release_id=r-1',
+      );
+    });
+  });
+
   group('CodePushClient.releaseFromListing', () {
     test('the requested id is the premise — a mismatch is null', () {
       // A server that ignored the release_id filter (unparseable id

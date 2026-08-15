@@ -115,8 +115,12 @@ class CodePushPatchSubCommand extends Command<int> {
   /// pre-metadata release, old server, or fetch failure is unknown,
   /// not unguarded. Public for tests ([run] cannot be cheaply
   /// exercised).
-  void warnIfUnguardedRelease(Map<String, dynamic>? release) {
+  void warnIfUnguardedRelease(
+    Map<String, dynamic>? release, {
+    bool repeat = false,
+  }) {
     if (release == null) return;
+    final lead = repeat ? 'As noted before the build: ' : '';
     final acknowledged =
         argResults?['allow-unguarded-release'] as bool? ?? false;
     if (acknowledged) return;
@@ -133,7 +137,7 @@ class CodePushPatchSubCommand extends Command<int> {
       // Freeze off implies guarding off too — warn once, naming the
       // root cause, not a flag the user never passed.
       _logger.warn(
-        'This release was built without the interface freeze '
+        '${lead}This release was built without the interface freeze '
         '(--no-interface-freeze): it may not be reliably patchable, '
         'and patches that declare new widget subclasses will crash on '
         'it. Pass --allow-unguarded-release to acknowledge and '
@@ -141,7 +145,7 @@ class CodePushPatchSubCommand extends Command<int> {
       );
     } else if (isOff(release['extendable_widgets'])) {
       _logger.warn(
-        'This release was built without widget guarding '
+        '${lead}This release was built without widget guarding '
         '(--no-extendable-widgets): a patch that declares new widget '
         'subclasses — for example, a new screen — will crash on it. '
         'Pass --allow-unguarded-release to acknowledge and silence '
@@ -243,8 +247,12 @@ class CodePushPatchSubCommand extends Command<int> {
     // not the flag. Evaluated lazily: only the branches that warn
     // about the rewrite need it.
     Future<bool> willSign() async {
-      final explicitKey = (argResults?['signing-key'] as String?) ?? '';
-      if (explicitKey.trim().isNotEmpty) return true;
+      // Mirrors the late block's ??= exactly: only a NULL flag falls
+      // back to the stored key. A present-but-blank flag (allowed
+      // through under --unsigned) makes the late block sign NOTHING
+      // — so it must not claim a rewrite here.
+      final explicitKey = argResults?['signing-key'] as String?;
+      if (explicitKey != null) return explicitKey.trim().isNotEmpty;
       return ((await readStoredKey()) ?? '').trim().isNotEmpty;
     }
 
@@ -1326,7 +1334,7 @@ class CodePushPatchSubCommand extends Command<int> {
       // scrollback by now. (The early emission stays — it fires
       // where aborting is cheapest.)
       if (shouldBuild) {
-        warnIfUnguardedRelease(releaseInfo);
+        warnIfUnguardedRelease(releaseInfo, repeat: true);
       }
       final progress = _logger.progress(
         'Uploading patch${rollout < 100 ? ' ($rollout% rollout)' : ''}',

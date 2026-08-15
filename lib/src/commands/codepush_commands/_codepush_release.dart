@@ -990,7 +990,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
-        saveIosBaselineApp(baselineId: baselineId);
+        // The archive is gated on the SAVE having succeeded: a failed
+        // delete leaves the PREVIOUS release's bundle at the saved
+        // path, and archiving it under this release's id would break
+        // the two-records-one-story invariant the best-effort
+        // conversion must not trade away.
+        final saved = saveIosBaselineApp(baselineId: baselineId);
 
         // Archive the saved baseline app + dSYM into a per-release
         // directory so a future device replay can reinstall the exact
@@ -1003,7 +1008,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         // archive is written for that release at all (the two records
         // must tell the same story).
         final releaseId = release?['id'] as String?;
-        if (releaseId != null) {
+        if (saved && releaseId != null) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         }
       }
@@ -1331,7 +1336,7 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// whole body is inside the try — deleting a caller-side wrapper
   /// can no longer restore the exit-70 path. Public for tests;
   /// [projectRootOverride] anchors the const paths.
-  void saveIosBaselineApp({
+  bool saveIosBaselineApp({
     required String baselineId,
     String? projectRootOverride,
   }) {
@@ -1339,17 +1344,18 @@ class CodePushReleaseSubCommand extends Command<int> {
     final source = '$root$kDefaultBuiltIosAppPath';
     final dest = '${root}build/codepush/baseline/Runner.app';
     try {
-      _saveIosBaselineAppUnguarded(
+      return _saveIosBaselineAppUnguarded(
         baselineId: baselineId,
         source: source,
         dest: dest,
       );
     } catch (e) {
       _logger.warn('Saved-baseline step skipped: $e');
+      return false;
     }
   }
 
-  void _saveIosBaselineAppUnguarded({
+  bool _saveIosBaselineAppUnguarded({
     required String baselineId,
     required String source,
     required String dest,
@@ -1357,7 +1363,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final sourceDir = Directory(source);
     if (!sourceDir.existsSync()) {
       _logger.detail('No built Runner.app to save.');
-      return;
+      return false;
     }
 
     // Remove any previous saved baseline.
@@ -1371,7 +1377,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final result = Process.runSync('cp', ['-R', source, dest]);
     if (result.exitCode != 0) {
       _logger.warn('Could not save baseline app to $dest');
-      return;
+      return false;
     }
 
     _logger.info('');
@@ -1381,5 +1387,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       '  If installing manually on device, re-sign the saved '
       'app bundle recursively after any framework repair.',
     );
+    return true;
   }
 }
