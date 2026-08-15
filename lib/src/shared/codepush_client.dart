@@ -165,7 +165,12 @@ class CodePushClient {
     required String token,
     required String appId,
   }) async {
-    return _get('/api/v1/releases?app_id=$appId', token: token);
+    // Same encoding rule as releaseQueryPath — user-supplied ids
+    // must never reshape the query.
+    return _get(
+      '/api/v1/releases?app_id=${Uri.encodeQueryComponent(appId)}',
+      token: token,
+    );
   }
 
   /// POST /api/v1/releases — upload a release baseline.

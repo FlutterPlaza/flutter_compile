@@ -404,31 +404,11 @@ class CodePushPatchSubCommand extends Command<int> {
   /// tests; reads its own args.
   String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild) {
-      // Second axis: the documented "iOS only." flags on a build for
-      // another platform — read by nothing there, the mirror of the
-      // no---build asymmetry this helper already closes.
-      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
-      final iosOnly = <String>[
-        if (((argResults?['patch-entry-file'] as String?) ?? '')
-            .trim()
-            .isNotEmpty)
-          '--patch-entry-file',
-        if (((argResults?['package-prefix'] as String?) ?? '')
-            .trim()
-            .isNotEmpty)
-          '--package-prefix',
-        if (argResults?['swap-mode'] as bool? ?? false) '--swap-mode',
-        if ((argResults?['include-uri'] as List<String>? ?? const [])
-            .any((u) => u.trim().isNotEmpty))
-          '--include-uri',
-      ];
-      if (iosOnly.isEmpty) return null;
-      return '${iosOnly.join(', ')} '
-          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
-          'a $resolvedPlatform build.';
-    }
-    final ignored = <String>[
+    // ONE list for the "iOS only." flags, consumed by both axes — a
+    // fifth entry added to one axis and missed on the other was a
+    // silent regression on the missed axis. The repeatable options
+    // go through their own pinned helpers.
+    final iosOnly = <String>[
       if (((argResults?['patch-entry-file'] as String?) ?? '')
           .trim()
           .isNotEmpty)
@@ -436,12 +416,21 @@ class CodePushPatchSubCommand extends Command<int> {
       if (((argResults?['package-prefix'] as String?) ?? '').trim().isNotEmpty)
         '--package-prefix',
       if (argResults?['swap-mode'] as bool? ?? false) '--swap-mode',
-      if ((argResults?['include-uri'] as List<String>? ?? const [])
-          .any((u) => u.trim().isNotEmpty))
-        '--include-uri',
-      if ((argResults?['dart-define'] as List<String>? ?? const [])
-          .any((u) => u.trim().isNotEmpty))
-        '--dart-define',
+      if (includeUriValues().isNotEmpty) '--include-uri',
+    ];
+    if (shouldBuild) {
+      // Second axis: the documented "iOS only." flags on a build for
+      // another platform — read by nothing there, the mirror of the
+      // no---build asymmetry this helper already closes.
+      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      if (iosOnly.isEmpty) return null;
+      return '${iosOnly.join(', ')} '
+          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
+          'a $resolvedPlatform build.';
+    }
+    final ignored = <String>[
+      ...iosOnly,
+      if (dartDefineValues().isNotEmpty) '--dart-define',
       // Read at exactly one site, inside the build path — and the
       // flag this command's own blankArgError calls dangerous when
       // mis-set. (On release it IS read without --build: it becomes
@@ -812,7 +801,12 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       final channel = resolvedChannel!;
-      final patchCheck = await patchFileArgCheck();
+      // ONE stored-key read per run: the rewrite advisory and the
+      // signing precondition must describe the same key (a rotation
+      // between two reads would split them).
+      final storedSigningKey = await CodePushClient.getStoredSigningKey();
+      Future<String?> storedKeyOnce() async => storedSigningKey;
+      final patchCheck = await patchFileArgCheck(readStoredKey: storedKeyOnce);
       if (patchCheck.error != null) {
         _logger.err(patchCheck.error!);
         return patchCheck.isUsageError
@@ -827,7 +821,8 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err(blankError);
         return ExitCode.usage.code;
       }
-      final signingCheck = await signingPreconditionError();
+      final signingCheck =
+          await signingPreconditionError(readStoredKey: storedKeyOnce);
       if (signingCheck.error != null) {
         _logger.err(signingCheck.error!);
         return signingCheck.isUsageError

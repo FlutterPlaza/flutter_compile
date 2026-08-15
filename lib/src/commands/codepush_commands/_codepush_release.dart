@@ -222,34 +222,32 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// or null. Public for tests; reads its own args.
   String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
     final shouldBuild = argResults?['build'] as bool? ?? false;
+    // ONE list for the iOS-shaped flags, consumed by both axes — a
+    // fifth entry added to one axis and missed on the other was a
+    // silent regression on the missed axis.
+    final iosOnly = <String>[
+      if (argResults?.wasParsed('extendable-widgets') ?? false)
+        '--[no-]extendable-widgets',
+      if (argResults?.wasParsed('interface-freeze') ?? false)
+        '--[no-]interface-freeze',
+      if (((argResults?['baseline-id'] as String?) ?? '').trim().isNotEmpty)
+        '--baseline-id',
+      if (argResults?['allow-missing-baseline'] as bool? ?? false)
+        '--allow-missing-baseline',
+    ];
     if (shouldBuild) {
       // Second axis (the patch command's rule, both halves ported):
       // the iOS-shaped flags on a build for another platform are
       // read by nothing and must say so.
       if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
-      final iosOnly = <String>[
-        if (argResults?.wasParsed('extendable-widgets') ?? false)
-          '--[no-]extendable-widgets',
-        if (argResults?.wasParsed('interface-freeze') ?? false)
-          '--[no-]interface-freeze',
-        if (((argResults?['baseline-id'] as String?) ?? '').trim().isNotEmpty)
-          '--baseline-id',
-        if (argResults?['allow-missing-baseline'] as bool? ?? false)
-          '--allow-missing-baseline',
-      ];
       if (iosOnly.isEmpty) return null;
       return '${iosOnly.join(', ')} '
           '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
           'a $resolvedPlatform build.';
     }
     final ignored = <String>[
-      if (argResults?.wasParsed('extendable-widgets') ?? false)
-        '--[no-]extendable-widgets',
-      if (argResults?.wasParsed('interface-freeze') ?? false)
-        '--[no-]interface-freeze',
-      if ((argResults?['dart-define'] as List<String>? ?? const [])
-          .any((u) => u.trim().isNotEmpty))
-        '--dart-define',
+      ...iosOnly,
+      if (dartDefineValues().isNotEmpty) '--dart-define',
     ];
     if (ignored.isEmpty) return null;
     return '${ignored.join(', ')} '
@@ -1010,6 +1008,15 @@ class CodePushReleaseSubCommand extends Command<int> {
         final releaseId = release?['id'] as String?;
         if (saved && releaseId != null) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
+        } else {
+          // The block's rule: no silent skips. Covers every inner
+          // save failure (the false) and the no-release-id corner.
+          _logger.info(
+            'Skipping the per-release archive: '
+            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (see above)'}'
+            ' — archiving would record a bundle that did not produce '
+            'this release.',
+          );
         }
       }
 
