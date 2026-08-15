@@ -801,9 +801,17 @@ class CodePushReleaseSubCommand extends Command<int> {
         // Archive the saved baseline app + dSYM into a per-release
         // directory so a future device replay can reinstall the exact
         // bundle that produced this release. Best-effort; never fails
-        // a successful release.
+        // a successful release. Mirrors interfaceAttestation's
+        // --snapshot un-attestation: when an explicit --snapshot
+        // overrode the built bytes, the archived bundle would NOT be
+        // what this release serves, and a manifest claiming its spec
+        // attestation would out-claim the server record — so no
+        // archive is written for that release at all (the two records
+        // must tell the same story).
+        final usedExplicitSnapshot =
+            (argResults?['snapshot'] as String?)?.isNotEmpty ?? false;
         final releaseId = release?['id'] as String?;
-        if (releaseId != null) {
+        if (releaseId != null && !usedExplicitSnapshot) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         }
       }

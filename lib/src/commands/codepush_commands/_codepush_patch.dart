@@ -674,9 +674,9 @@ class CodePushPatchSubCommand extends Command<int> {
             ? ExitCode.usage.code
             : ExitCode.software.code;
       }
-      if (patchCheck.warning != null) {
-        _logger.warn(patchCheck.warning!);
-      }
+      // (patchCheck.warning is held until every rejection below has
+      // passed: an advisory about a build must not print on a run
+      // that then exits without building.)
       final blankError = blankArgError();
       if (blankError != null) {
         _logger.err(blankError);
@@ -693,6 +693,9 @@ class CodePushPatchSubCommand extends Command<int> {
       if (baselineError != null) {
         _logger.err(baselineError);
         return ExitCode.usage.code;
+      }
+      if (patchCheck.warning != null) {
+        _logger.warn(patchCheck.warning!);
       }
       if (baselineWarning != null) {
         _logger.warn(baselineWarning);
@@ -1107,9 +1110,12 @@ class CodePushPatchSubCommand extends Command<int> {
           '${baselineHash.substring(0, 16)}…',
         );
       } else {
-        // A PRESENT but unusable hash is otherwise indistinguishable
-        // from an absent key: name it at --verbose.
-        if (releaseInfo != null && releaseInfo.containsKey('snapshot_hash')) {
+        // A present NON-NULL but unusable hash is otherwise
+        // indistinguishable from an absent one: name it at
+        // --verbose. Value read, not containsKey — a toJson that
+        // emits every column sends an explicit null for no-hash,
+        // which is absence, not garbage.
+        if (releaseInfo?['snapshot_hash'] != null) {
           _logger.detail(
             'Release carries an unusable snapshot_hash; falling back '
             'to local build output.',
@@ -1159,11 +1165,17 @@ class CodePushPatchSubCommand extends Command<int> {
         if (baselineHash == null) {
           // The one outcome that drops the gate must say so — this
           // is the fetch-failure warn's sentence, stated where it is
-          // a fact rather than a prediction.
+          // a fact rather than a prediction — and, when the fallback
+          // was empty by construction (no definitive platform), it
+          // names the one-flag remedy.
+          final remedy = patchPlatform == null
+              ? ' Pass --platform ios (or apk) if the released build '
+                  'tree is on this machine.'
+              : '';
           _logger.warn(
             'No baseline hash available: this patch will upload '
             'without the device-side baseline check (devices fall '
-            'back to the coarser engine compatibility check).',
+            'back to the coarser engine compatibility check).$remedy',
           );
         }
       }

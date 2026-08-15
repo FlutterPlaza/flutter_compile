@@ -534,6 +534,11 @@ void main() {
         '${sameRoot.path}/${CodePushPatchSubCommand.kPatchOutputPath}',
         '${sameRoot.path}/./${CodePushPatchSubCommand.kPatchOutputPath}',
         '${sameRoot.path}/build/./codepush/patch.fcppatch',
+        // RELATIVE arg: exercises anchored()'s false branch — both
+        // sides must resolve under the override root, or a relative
+        // --patch-file would stat the process cwd while the output
+        // resolves under the override (two roots, green tests).
+        CodePushPatchSubCommand.kPatchOutputPath,
       ]) {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],
