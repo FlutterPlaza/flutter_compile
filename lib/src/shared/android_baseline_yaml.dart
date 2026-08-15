@@ -66,10 +66,13 @@ void _atomicWrite(String path, String content) {
   // which Gradle packages wholesale, and AAPT's default
   // ignoreAssetsPattern excludes dotfiles — a leftover temp (kill
   // between write and rename, or a failed cleanup) must not ship in
-  // the APK. Same directory keeps the rename atomic.
+  // the APK. Same directory keeps the rename atomic. The split must
+  // accept BOTH separators (kDefaultAndroidCodePushYamlPath is a
+  // forward-slash literal, and Windows accepts either), and a '/'
+  // join is valid on every platform.
   final dir = File(path).parent.path;
-  final base = path.split(Platform.pathSeparator).last;
-  final tempFile = File('$dir${Platform.pathSeparator}.$base.$pid.tmp');
+  final base = path.split(RegExp(r'[/\\]')).last;
+  final tempFile = File('$dir/.$base.$pid.tmp');
   try {
     tempFile.writeAsStringSync(content);
     tempFile.renameSync(path);

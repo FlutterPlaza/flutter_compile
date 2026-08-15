@@ -966,7 +966,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      final release = result['release'] as Map<String, dynamic>?;
+      // The 201 already happened: from here on a shape surprise must
+      // degrade to the unarchived-but-released path, never throw into
+      // the outer catch (exit 70 reads as failure and invites the CI
+      // retry that duplicates the release).
+      final rawRelease = result['release'];
+      final release = rawRelease is Map<String, dynamic> ? rawRelease : null;
       progress.complete('Release $version uploaded');
 
       if (release != null) {
@@ -1405,7 +1410,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     // the previous bundle before the copy is known to land would
     // trade good replayable state for nothing on a full disk (the
     // realistic failure — this runs right after the build filled
-    // build/).
+    // build/). The 2x peak footprint while both copies coexist is
+    // the accepted price. A kill mid-copy can leave a full-size
+    // <dest>.tmp behind; it lives under build/ (ships nowhere) and
+    // the delete below clears it on the next run.
     final destDir = Directory(dest);
     final tmpDest = Directory('$dest.tmp');
     if (tmpDest.existsSync()) {
@@ -1414,7 +1422,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     destDir.parent.createSync(recursive: true);
     final result = Process.runSync('cp', ['-R', source, tmpDest.path]);
     if (result.exitCode != 0) {
-      _logger.warn('Could not save baseline app to $dest');
+      final stderr = result.stderr.toString().trim();
+      _logger.warn(
+        'Could not copy the built app into $dest'
+        '${stderr.isEmpty ? '' : ': $stderr'}. '
+        'Any previously saved bundle was left in place.',
+      );
       if (tmpDest.existsSync()) {
         tmpDest.deleteSync(recursive: true);
       }

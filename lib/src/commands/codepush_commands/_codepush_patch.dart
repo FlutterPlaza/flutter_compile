@@ -709,6 +709,10 @@ class CodePushPatchSubCommand extends Command<int> {
     required CodePushClient client,
     required String token,
     required String releaseId,
+    // Matches the client-wide connectionTimeout on purpose: for a
+    // stalled CONNECT the two fire together; this one additionally
+    // covers a server that accepts and then stalls on the body,
+    // which the connect deadline cannot see. Neither is redundant.
     Duration timeout = const Duration(seconds: 30),
   }) async {
     _logger.detail('Reading release $releaseId…');
@@ -1380,7 +1384,9 @@ class CodePushPatchSubCommand extends Command<int> {
           return ExitCode.software.code;
         }
 
-        final patch = result['patch'] as Map<String, dynamic>?;
+        // Post-201: tolerate any shape, as on the release path.
+        final rawPatch = result['patch'];
+        final patch = rawPatch is Map<String, dynamic> ? rawPatch : null;
         progress.complete('Patch uploaded');
 
         if (patch != null) {
