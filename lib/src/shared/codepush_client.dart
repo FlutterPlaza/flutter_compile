@@ -22,12 +22,19 @@ class CodePushClient {
 
   /// Creates an [HttpClient] with optional certificate pinning.
   static HttpClient _createHttpClient(String? pinnedCertificatePath) {
+    // One connect deadline for EVERY call site: without it a stalled
+    // connect can hang the 'Uploading patch' spinner forever AFTER
+    // the whole build/sign pipeline (readTargetRelease's explicit
+    // timeout becomes a backstop rather than the only deadline).
+    // Connect-only, so a slow-but-progressing large upload is never
+    // cut off.
+    const connectDeadline = Duration(seconds: 30);
     if (pinnedCertificatePath == null) {
-      return HttpClient();
+      return HttpClient()..connectionTimeout = connectDeadline;
     }
     final context = SecurityContext(withTrustedRoots: false);
     context.setTrustedCertificates(pinnedCertificatePath);
-    return HttpClient(context: context);
+    return HttpClient(context: context)..connectionTimeout = connectDeadline;
   }
 
   /// Read the stored pinned certificate path from ~/.flutter_compilerc.

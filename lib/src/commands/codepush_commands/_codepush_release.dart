@@ -256,10 +256,22 @@ class CodePushReleaseSubCommand extends Command<int> {
       ...iosBuildOnly,
       if (dartDefineValues().isNotEmpty) '--dart-define',
     ];
-    if (ignored.isEmpty) return null;
-    return '${ignored.join(', ')} '
-        '${ignored.length == 1 ? 'is' : 'are'} only used together with '
-        '--build; ignoring.';
+    final identityIgnored =
+        (resolvedPlatform != null && resolvedPlatform != 'ios')
+            ? iosIdentity
+            : const <String>[];
+    final buildOnlyMsg = ignored.isEmpty
+        ? null
+        : '${ignored.join(', ')} '
+            '${ignored.length == 1 ? 'is' : 'are'} only used together '
+            'with --build; ignoring.';
+    final identityMsg = identityIgnored.isEmpty
+        ? null
+        : '${identityIgnored.join(', ')} '
+            '${identityIgnored.length == 1 ? 'is' : 'are'} only used for '
+            'iOS releases; ignoring on $resolvedPlatform.';
+    if (buildOnlyMsg == null && identityMsg == null) return null;
+    return [buildOnlyMsg, identityMsg].whereType<String>().join(' ');
   }
 
   /// The --dart-define values, through the shared filter — public
@@ -487,13 +499,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(versionError);
       return ExitCode.usage.code;
     }
-    // Advisories print behind every argResults-only rejection (the
-    // patch command's invariant); later I/O-dependent exits (missing
-    // artifacts, identity resolution) may still follow this line.
-    final releaseBuildOnlyWarning = buildOnlyFlagsWarning();
-    if (releaseBuildOnlyWarning != null) {
-      _logger.warn(releaseBuildOnlyWarning);
-    }
 
     // If --build is set, build the app first.
     final shouldBuild = argResults?['build'] as bool? ?? false;
@@ -701,6 +706,19 @@ class CodePushReleaseSubCommand extends Command<int> {
         builtPlatform ??
         buildService.detectPlatform() ??
         'apk';
+
+    // The no-build advisory emits HERE, where the platform is known:
+    // the identity flags are iOS-only reads, and the round-46 split
+    // made 'iOS' the load-bearing word — a no-build apk release with
+    // --baseline-id was read by nothing and said nothing. (The build
+    // path's emission point is inside the build block.)
+    if (!shouldBuild) {
+      final releaseBuildOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: resolvedPlatform);
+      if (releaseBuildOnlyWarning != null) {
+        _logger.warn(releaseBuildOnlyWarning);
+      }
+    }
 
     // Resolve snapshot path.
     var snapshotPath = argResults?['snapshot'] as String?;
@@ -1012,8 +1030,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         // attestation would out-claim the server record — so no
         // archive is written for that release at all (the two records
         // must tell the same story).
-        final releaseId = release?['id'] as String?;
-        if (saved && releaseId != null) {
+        // Tolerant read (the releaseFromListing rule): a non-String
+        // id must not throw a TypeError AFTER the release was
+        // created — CI would retry and duplicate the release.
+        final releaseId = release?['id']?.toString().trim();
+        if (saved && releaseId != null && releaseId.isNotEmpty) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         } else {
           // The block's rule: no silent skips. Covers every inner
@@ -1380,19 +1401,29 @@ class CodePushReleaseSubCommand extends Command<int> {
       return false;
     }
 
-    // Remove any previous saved baseline.
+    // Copy to a sibling temp destination FIRST, then swap: deleting
+    // the previous bundle before the copy is known to land would
+    // trade good replayable state for nothing on a full disk (the
+    // realistic failure — this runs right after the build filled
+    // build/).
     final destDir = Directory(dest);
+    final tmpDest = Directory('$dest.tmp');
+    if (tmpDest.existsSync()) {
+      tmpDest.deleteSync(recursive: true);
+    }
+    destDir.parent.createSync(recursive: true);
+    final result = Process.runSync('cp', ['-R', source, tmpDest.path]);
+    if (result.exitCode != 0) {
+      _logger.warn('Could not save baseline app to $dest');
+      if (tmpDest.existsSync()) {
+        tmpDest.deleteSync(recursive: true);
+      }
+      return false;
+    }
     if (destDir.existsSync()) {
       destDir.deleteSync(recursive: true);
     }
-    destDir.parent.createSync(recursive: true);
-
-    // Copy recursively.
-    final result = Process.runSync('cp', ['-R', source, dest]);
-    if (result.exitCode != 0) {
-      _logger.warn('Could not save baseline app to $dest');
-      return false;
-    }
+    tmpDest.renameSync(dest);
 
     _logger.info('');
     _logger.success('Saved baseline app: $dest');

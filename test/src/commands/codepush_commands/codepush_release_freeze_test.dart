@@ -1151,6 +1151,24 @@ void main() {
       );
     });
 
+    test('identity flags on a non-iOS NO-BUILD release warn', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // The split made 'iOS' the load-bearing word: a no-build apk
+      // release with --baseline-id is read by nothing and must say
+      // so — while on ios it is genuinely read and stays silent.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--baseline-id', 'u-1', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('only used for iOS releases'),
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
+        isNull,
+      );
+    });
+
     test('the identity flags are NOT build-only: no false ignore', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // The documented pre-built-app flow: --baseline-id (and its

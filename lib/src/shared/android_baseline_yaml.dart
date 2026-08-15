@@ -62,7 +62,14 @@ void restoreAndroidYaml(
 /// rename, so a failed or concurrent write can never leave the target
 /// truncated.
 void _atomicWrite(String path, String content) {
-  final tempFile = File('$path.$pid.tmp');
+  // Dot-prefixed BASENAME: the target lives under src/main/assets/,
+  // which Gradle packages wholesale, and AAPT's default
+  // ignoreAssetsPattern excludes dotfiles — a leftover temp (kill
+  // between write and rename, or a failed cleanup) must not ship in
+  // the APK. Same directory keeps the rename atomic.
+  final dir = File(path).parent.path;
+  final base = path.split(Platform.pathSeparator).last;
+  final tempFile = File('$dir${Platform.pathSeparator}.$base.$pid.tmp');
   try {
     tempFile.writeAsStringSync(content);
     tempFile.renameSync(path);
