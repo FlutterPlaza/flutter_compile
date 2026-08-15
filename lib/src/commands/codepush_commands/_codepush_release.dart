@@ -158,6 +158,15 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Whether an explicit `--snapshot` overrode the built bytes —
+  /// ONE read shared by the attestation, the baseline-app save, and
+  /// the archive gate, so the three records cannot disagree by
+  /// drift (they agreed before only because the expression was
+  /// character-identical at two sites). Public for tests; reads its
+  /// own args.
+  bool get usedExplicitSnapshot =>
+      (argResults?['snapshot'] as String?)?.isNotEmpty ?? false;
+
   /// Twin of the patch command's platformArgOrError — the tested
   /// wire from this command to the shared rule, so `forBuild` cannot
   /// silently flip (re-opening `release --build --platform android`)
@@ -740,8 +749,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final attestation = interfaceAttestation(
       shouldBuild: shouldBuild,
       builtPlatform: builtPlatform,
-      usedExplicitSnapshot:
-          (argResults?['snapshot'] as String?)?.isNotEmpty ?? false,
+      usedExplicitSnapshot: usedExplicitSnapshot,
     );
     try {
       final result = await client.createRelease(
@@ -794,8 +802,15 @@ class CodePushReleaseSubCommand extends Command<int> {
         }
       }
 
-      // Save the iOS baseline app for later device install.
-      if (builtPlatform == 'ios' && baselineId != null) {
+      // Save the iOS baseline app for later device install — gated
+      // like the archive below: with an explicit --snapshot the
+      // saved bundle is NOT what this release serves (the recorded
+      // snapshot_hash is the foreign bytes'), and a device installed
+      // from it would silently fail the baseline check on every
+      // patch.
+      if (builtPlatform == 'ios' &&
+          baselineId != null &&
+          !usedExplicitSnapshot) {
         _saveIosBaselineApp(baselineId: baselineId);
 
         // Archive the saved baseline app + dSYM into a per-release
@@ -808,10 +823,8 @@ class CodePushReleaseSubCommand extends Command<int> {
         // attestation would out-claim the server record — so no
         // archive is written for that release at all (the two records
         // must tell the same story).
-        final usedExplicitSnapshot =
-            (argResults?['snapshot'] as String?)?.isNotEmpty ?? false;
         final releaseId = release?['id'] as String?;
-        if (releaseId != null && !usedExplicitSnapshot) {
+        if (releaseId != null) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
         }
       }

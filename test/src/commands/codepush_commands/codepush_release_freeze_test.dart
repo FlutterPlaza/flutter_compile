@@ -1033,6 +1033,21 @@ void main() {
       );
     });
 
+    test('usedExplicitSnapshot: one read, pinned', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Shared by the attestation, the baseline-app save, and the
+      // archive gate — the three records agree because this is ONE
+      // read, not three character-identical expressions.
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', 'app.bin']);
+      expect(cmd.usedExplicitSnapshot, isTrue);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      // Blank is rejected earlier by blankArgError; the getter alone
+      // reads it as absent, matching the attestation's prior rule.
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '']);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+    });
+
     test('platformArgOrError twin: forBuild wired, call pinned', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // Flipping forBuild to false re-opens `release --build

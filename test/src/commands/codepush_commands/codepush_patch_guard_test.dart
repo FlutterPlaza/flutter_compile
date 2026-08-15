@@ -549,6 +549,21 @@ void main() {
           reason: spelling,
         );
       }
+
+      // The STAT side of anchored(): a relative arg whose basename
+      // is NOT the output's, so the two possible stat answers land
+      // in different branches — without anchoring, the miss falls to
+      // the basename clause (no match) and becomes a hard 'not
+      // found' error instead of the existing-file advisory.
+      File('${sameRoot.path}/saved/keep.fcppatch')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--patch-file', 'saved/keep.fcppatch'],
+      );
+      final rel = cmd.patchFileArgCheck(projectRootOverride: sameRoot.path);
+      expect(rel.error, isNull);
+      expect(rel.warning, contains('saved/keep.fcppatch'));
     });
 
     test('parseRollout: strict — a typo re-runs, never widens', () {
