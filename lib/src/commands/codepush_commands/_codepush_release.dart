@@ -170,7 +170,15 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// attest or archive on a guess — the closed-but-safe direction,
   /// since the cost is a skipped record, not a rejection. Public
   /// for tests; reads its own args.
-  bool get usedExplicitSnapshot {
+  bool get usedExplicitSnapshot => snapshotIsForeignTo();
+
+  /// Implementation of [usedExplicitSnapshot] with a root seam so
+  /// the PHYSICAL tier is testable without touching the checkout
+  /// (the default side is cwd-anchored in production).
+  bool snapshotIsForeignTo({String? projectRootOverride}) {
+    final defaultAppPath = projectRootOverride == null
+        ? kDefaultBuiltIosAppPath
+        : '$projectRootOverride/$kDefaultBuiltIosAppPath';
     final raw = argResults?['snapshot'] as String?;
     // Blankness classified on the trimmed value; the PATH itself is
     // deliberately untrimmed so this classifies the same string
@@ -187,7 +195,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     // undecidable still resolves foreign via the catch.
     try {
       return Directory(appDir).resolveSymbolicLinksSync() !=
-          Directory(kDefaultBuiltIosAppPath).resolveSymbolicLinksSync();
+          Directory(defaultAppPath).resolveSymbolicLinksSync();
     } on FileSystemException {
       // A side does not exist (e.g. --snapshot without --build, where
       // no default output was produced): physical resolution is
@@ -197,7 +205,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       try {
         String norm(String p) =>
             File(p).absolute.uri.normalizePath().toFilePath();
-        return norm(appDir) != norm(kDefaultBuiltIosAppPath);
+        return norm(appDir) != norm(defaultAppPath);
       } catch (_) {
         return true;
       }
@@ -406,10 +414,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(platformError);
       return ExitCode.usage.code;
     }
-    final releaseBuildOnlyWarning = buildOnlyFlagsWarning();
-    if (releaseBuildOnlyWarning != null) {
-      _logger.warn(releaseBuildOnlyWarning);
-    }
 
     // Resolve app ID. Trimmed at the boundary: padding would be
     // invisible in the progress prose, encode as '+' on the wire,
@@ -451,6 +455,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (versionError != null) {
       _logger.err(versionError);
       return ExitCode.usage.code;
+    }
+    // Advisories print behind every rejection (the patch command's
+    // rule): a warning about ignored flags must not precede an exit.
+    final releaseBuildOnlyWarning = buildOnlyFlagsWarning();
+    if (releaseBuildOnlyWarning != null) {
+      _logger.warn(releaseBuildOnlyWarning);
     }
 
     // If --build is set, build the app first.
@@ -746,8 +756,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (usedExplicitSnapshot) {
-          // Third state (a foreign --snapshot, not a broken plist):
+        if (shouldBuild && usedExplicitSnapshot) {
+          // Third state (a foreign --snapshot on a run that BUILT —
+          // without --build the sibling branch below is correct and
+          // --allow-missing-baseline is the legitimate escape):
           // this run DID stamp, but the stamp belongs to an app that
           // never shipped, and the snapshot carries no readable id.
           // --allow-missing-baseline is deliberately not suggested —
@@ -1251,7 +1263,7 @@ class CodePushReleaseSubCommand extends Command<int> {
   }
 
   void _saveIosBaselineApp({required String baselineId}) {
-    const source = 'build/ios/iphoneos/Runner.app';
+    const source = kDefaultBuiltIosAppPath;
     const dest = 'build/codepush/baseline/Runner.app';
 
     final sourceDir = Directory(source);

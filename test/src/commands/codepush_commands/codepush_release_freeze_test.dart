@@ -6,6 +6,8 @@ import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
+import 'package:flutter_compile/src/shared/ios_baseline_plist.dart'
+    show kDefaultBuiltIosAppPath;
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -1078,6 +1080,41 @@ void main() {
       expect(cmd.buildOnlyFlagsWarning(), isNull);
       cmd.parsedArgs = cmd.argParser.parse([]);
       expect(cmd.buildOnlyFlagsWarning(), isNull);
+    });
+
+    test(
+        'usedExplicitSnapshot: the PHYSICAL tier decides through '
+        'symlinked prefixes', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // systemTemp itself is the symlinked prefix on macOS
+      // (/var -> /private/var): the logical and physical spellings
+      // of the same app dir differ there, and only the physical
+      // tier equates them — deleting it (keeping the lexical
+      // fallback) turns this row red on macOS. On Linux the two
+      // spellings coincide and the row still passes.
+      final root = Directory.systemTemp.createTempSync('fcp_phys');
+      addTearDown(() => root.deleteSync(recursive: true));
+      Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .createSync(recursive: true);
+      final physicalAppDir = Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .resolveSymbolicLinksSync();
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '$physicalAppDir/Frameworks/App.framework/App'],
+      );
+      expect(
+        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+        isFalse,
+      );
+      // A genuinely different app dir under the same root stays
+      // foreign through the same tier.
+      Directory('${root.path}/Other.app').createSync(recursive: true);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '${root.path}/Other.app/Frameworks/App.framework/App'],
+      );
+      expect(
+        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+        isTrue,
+      );
     });
 
     test('platformArgOrError twin: forBuild wired, call pinned', () {
