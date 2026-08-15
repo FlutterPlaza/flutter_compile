@@ -171,16 +171,63 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// since the cost is a skipped record, not a rejection. Public
   /// for tests; reads its own args.
   bool get usedExplicitSnapshot {
-    final raw = (argResults?['snapshot'] as String?)?.trim();
-    if (raw == null || raw.isEmpty) return false;
+    final raw = argResults?['snapshot'] as String?;
+    // Blankness classified on the trimmed value; the PATH itself is
+    // deliberately untrimmed so this classifies the same string
+    // run() stats and uploads (the path-flag rule).
+    if (raw == null || raw.trim().isEmpty) return false;
     final appDir = builtIosAppDirFromBinaryPath(raw);
     if (appDir == null) return true;
-    String norm(String p) => File(p).absolute.uri.normalizePath().toFilePath();
+    // PHYSICAL resolution on both sides: lexical normalization
+    // cannot see through symlinked prefixes ($PWD is logical, getcwd
+    // physical — macOS /var -> /private/var), and here a wrong
+    // 'foreign' answer costs four records, three permanently. Both
+    // paths exist when this matters (the snapshot was stat'ed, the
+    // default exists whenever --build ran on iOS); anything
+    // undecidable still resolves foreign via the catch.
     try {
-      return norm(appDir) != norm(kDefaultBuiltIosAppPath);
+      return Directory(appDir).resolveSymbolicLinksSync() !=
+          Directory(kDefaultBuiltIosAppPath).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // A side does not exist (e.g. --snapshot without --build, where
+      // no default output was produced): physical resolution is
+      // impossible, so fall back to lexical normalization — it still
+      // equates the plain spellings, and the records this getter
+      // gates are inert without a build anyway.
+      try {
+        String norm(String p) =>
+            File(p).absolute.uri.normalizePath().toFilePath();
+        return norm(appDir) != norm(kDefaultBuiltIosAppPath);
+      } catch (_) {
+        return true;
+      }
     } catch (_) {
       return true;
     }
+  }
+
+  /// Build-only flags passed without --build are read by nothing —
+  /// the patch command's rule, ported: an operator passing
+  /// --no-extendable-widgets on a --snapshot release has good
+  /// reason to believe they published an un-guarded attestation,
+  /// when the record is (correctly) unknown. Returns the warning
+  /// or null. Public for tests; reads its own args.
+  String? buildOnlyFlagsWarning() {
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (shouldBuild) return null;
+    final ignored = <String>[
+      if (argResults?.wasParsed('extendable-widgets') ?? false)
+        '--[no-]extendable-widgets',
+      if (argResults?.wasParsed('interface-freeze') ?? false)
+        '--[no-]interface-freeze',
+      if ((argResults?['dart-define'] as List<String>? ?? const [])
+          .any((u) => u.trim().isNotEmpty))
+        '--dart-define',
+    ];
+    if (ignored.isEmpty) return null;
+    return '${ignored.join(', ')} '
+        '${ignored.length == 1 ? 'is' : 'are'} only used together with '
+        '--build; ignoring.';
   }
 
   /// Twin of the patch command's platformArgOrError — the tested
@@ -358,6 +405,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (platformError != null) {
       _logger.err(platformError);
       return ExitCode.usage.code;
+    }
+    final releaseBuildOnlyWarning = buildOnlyFlagsWarning();
+    if (releaseBuildOnlyWarning != null) {
+      _logger.warn(releaseBuildOnlyWarning);
     }
 
     // Resolve app ID. Trimmed at the boundary: padding would be
@@ -695,7 +746,21 @@ class CodePushReleaseSubCommand extends Command<int> {
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (shouldBuild) {
+        if (usedExplicitSnapshot) {
+          // Third state (a foreign --snapshot, not a broken plist):
+          // this run DID stamp, but the stamp belongs to an app that
+          // never shipped, and the snapshot carries no readable id.
+          // --allow-missing-baseline is deliberately not suggested —
+          // it produces the never-updated release warned about above.
+          _logger.err(
+            'No baseline identity: --snapshot names bytes other than '
+            "this run's build output, so the build's stamped id does "
+            'not apply, and the snapshot carries no readable '
+            'FCPBaselineId. Pass --baseline-id <the id embedded in the '
+            "app those bytes come from>, point --snapshot at this "
+            "build's own binary, or drop --snapshot.",
+          );
+        } else if (shouldBuild) {
           // The build ran but could not stamp: the source plist was
           // missing (warned above). Telling the user to "re-run with
           // --build" would send them in a circle.
@@ -833,7 +898,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       // from it would silently fail the baseline check on every
       // patch.
       final snapshotIsForeign = usedExplicitSnapshot;
-      if (builtPlatform == 'ios' && baselineId != null && snapshotIsForeign) {
+      // Not gated on baselineId: the --allow-missing-baseline corner
+      // has a null id and skips all three records too — silence
+      // there was the worst combination.
+      if (builtPlatform == 'ios' && snapshotIsForeign) {
         // The skip must not be silent: pre-gate this invocation
         // printed the loud saved-app block, and nothing else says
         // why it stopped.

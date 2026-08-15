@@ -374,6 +374,9 @@ class CodePushPatchSubCommand extends Command<int> {
       if ((argResults?['include-uri'] as List<String>? ?? const [])
           .any((u) => u.trim().isNotEmpty))
         '--include-uri',
+      if ((argResults?['dart-define'] as List<String>? ?? const [])
+          .any((u) => u.trim().isNotEmpty))
+        '--dart-define',
     ];
     if (ignored.isEmpty) return null;
     return '${ignored.join(', ')} '

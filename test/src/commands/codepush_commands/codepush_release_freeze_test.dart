@@ -1061,6 +1061,25 @@ void main() {
       expect(cmd.usedExplicitSnapshot, isFalse);
     });
 
+    test('buildOnlyFlagsWarning (release): ignored flags warn', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--no-extendable-widgets', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]extendable-widgets'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(['--dart-define', 'A=1']);
+      expect(cmd.buildOnlyFlagsWarning(), contains('--dart-define'));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--no-extendable-widgets'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+    });
+
     test('platformArgOrError twin: forBuild wired, call pinned', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // Flipping forBuild to false re-opens `release --build
