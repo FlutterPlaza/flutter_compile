@@ -529,6 +529,9 @@ class CodePushPatchSubCommand extends Command<int> {
   /// tests; reads its own args.
   (String?, String?) resolvedChannelOrError() {
     final raw = argResults?['channel'] as String?;
+    // Null only when argResults itself is absent (direct helper
+    // calls in tests): on every real invocation the PARSER supplies
+    // the 'production' default, not this branch.
     if (raw == null) return ('production', null);
     final trimmed = raw.trim();
     if (trimmed.isEmpty) {
@@ -802,6 +805,7 @@ class CodePushPatchSubCommand extends Command<int> {
 
         final dartDefines =
             (argResults?['dart-define'] as List<String>? ?? const <String>[])
+                .map((value) => value.trim())
                 .where((value) => value.isNotEmpty)
                 .toList();
         final extraBuildArgs = [

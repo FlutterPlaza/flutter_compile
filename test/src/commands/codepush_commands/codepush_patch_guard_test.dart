@@ -417,6 +417,10 @@ void main() {
       );
       cmd.parsedArgs = cmd.argParser.parse(['--dart-define', 'A=1']);
       expect(cmd.buildOnlyFlagsWarning(), contains('--dart-define'));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--package-prefix', 'package:x/'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), contains('--package-prefix'));
       // With --build they are read; nothing warns.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-entry-file', 'lib/x.dart'],

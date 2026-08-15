@@ -1074,6 +1074,22 @@ void main() {
       );
       cmd.parsedArgs = cmd.argParser.parse(['--dart-define', 'A=1']);
       expect(cmd.buildOnlyFlagsWarning(), contains('--dart-define'));
+      // The interface-freeze clause needs its own row, and wasParsed
+      // (not the value) is the predicate: explicitly passing the
+      // DEFAULT ('--extendable-widgets', value true) must still warn
+      // — a value-based read would silently drop it.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--interface-freeze', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]interface-freeze'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(['--extendable-widgets']);
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]extendable-widgets'),
+      );
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--no-extendable-widgets'],
       );
@@ -1106,18 +1122,23 @@ void main() {
         isFalse,
       );
       // A SYMLINK spelling makes the two paths differ on EVERY
-      // platform (the systemTemp prefix only differs on macOS), so
-      // deleting the physical tier goes red on Linux CI too.
-      Link('${root.path}/via_link').createSync(root.path);
-      cmd.parsedArgs = cmd.argParser.parse([
-        '--snapshot',
-        '${root.path}/via_link/$kDefaultBuiltIosAppPath'
-            '/Frameworks/App.framework/App',
-      ]);
-      expect(
-        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
-        isFalse,
-      );
+      // POSIX platform (the systemTemp prefix only differs on
+      // macOS), so deleting the physical tier goes red on Linux CI
+      // too. Gated off on Windows: symlink creation there needs
+      // Developer Mode or an elevated token — an undeclared runner-
+      // image dependency for a row whose subject is POSIX-only.
+      if (!Platform.isWindows) {
+        Link('${root.path}/via_link').createSync(root.path);
+        cmd.parsedArgs = cmd.argParser.parse([
+          '--snapshot',
+          '${root.path}/via_link/$kDefaultBuiltIosAppPath'
+              '/Frameworks/App.framework/App',
+        ]);
+        expect(
+          cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+          isFalse,
+        );
+      }
       // A genuinely different app dir under the same root stays
       // foreign through the same tier.
       Directory('${root.path}/Other.app').createSync(recursive: true);

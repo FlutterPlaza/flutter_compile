@@ -939,9 +939,9 @@ class CodePushReleaseSubCommand extends Command<int> {
       // there was the worst combination.
       if (builtPlatform == 'ios' && snapshotIsForeign) {
         // The skip must not be silent: pre-gate this invocation
-        // printed the loud saved-app block, and nothing else says
-        // why it stopped.
-        _logger.detail(
+        // printed the loud saved-app SUCCESS block, so its visible
+        // replacement must also be visible at default verbosity.
+        _logger.info(
           'Skipping the saved baseline app and per-release archive, and '
           'recording the interface attestation as unknown (the patch-time '
           'guard will not fire for this release): --snapshot named bytes '
