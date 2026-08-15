@@ -158,6 +158,31 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Present-but-blank rejection for this command's own boundary
+  /// reads — the same contract the patch command's six flags follow
+  /// (an unset CI variable must cost a re-run, never be silently
+  /// re-interpreted). `--snapshot` blank is the worst of the three:
+  /// run() re-reads it and blank fell through to auto-discovery,
+  /// recording whatever the local build tree held as THIS version's
+  /// baseline identity — id and bytes agree, so nothing ever flags
+  /// it, and the app the operator actually shipped is simply never
+  /// offered an update. `--version` blank silently released under
+  /// the pubspec version; `--app-id` blank landed on the
+  /// pass-the-flag-you-passed message. Returns the error to print,
+  /// or null. A genuinely absent flag keeps its fallback (build /
+  /// pubspec / stored config). Public for tests; reads its own
+  /// args.
+  String? blankArgError() {
+    for (final flag in ['snapshot', 'version', 'app-id']) {
+      final raw = argResults?[flag] as String?;
+      if (raw != null && raw.trim().isEmpty) {
+        return 'Empty --$flag value (an unset CI variable?). Pass a value, '
+            'or drop the flag to use its normal fallback.';
+      }
+    }
+    return null;
+  }
+
   @override
   final String name = 'release';
   @override
@@ -169,6 +194,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (token == null || token.isEmpty) {
       _logger.err('Not logged in. Run "fcp codepush login" first.');
       return ExitCode.software.code;
+    }
+
+    // Blank boundary reads reject before anything is resolved.
+    final blankError = blankArgError();
+    if (blankError != null) {
+      _logger.err(blankError);
+      return ExitCode.usage.code;
     }
 
     // Resolve app ID.

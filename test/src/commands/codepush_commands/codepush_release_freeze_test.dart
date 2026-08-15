@@ -937,4 +937,33 @@ void main() {
       );
     });
   });
+
+  group('blankArgError', () {
+    test(
+        'present-but-blank --snapshot/--version/--app-id reject; '
+        'absent keeps the fallback', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+
+      // --snapshot blank is the worst: it fell through to
+      // auto-discovery and recorded whatever the local build tree
+      // held as THIS version's baseline identity.
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '']);
+      expect(cmd.blankArgError(), contains('Empty --snapshot'));
+
+      cmd.parsedArgs = cmd.argParser.parse(['--version', '  ']);
+      expect(cmd.blankArgError(), contains('Empty --version'));
+
+      cmd.parsedArgs = cmd.argParser.parse(['--app-id', '']);
+      expect(cmd.blankArgError(), contains('Empty --app-id'));
+
+      // Absent flags keep their fallbacks (build / pubspec / stored
+      // config) — only present-but-blank rejects.
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.blankArgError(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', 'build/app.so', '--version', '1.0.0+1'],
+      );
+      expect(cmd.blankArgError(), isNull);
+    });
+  });
 }

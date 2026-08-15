@@ -204,7 +204,13 @@ class CodePushPatchSubCommand extends Command<int> {
   /// symlinked prefixes (macOS `/var` → `/private/var`,
   /// bind-mounted CI workspaces — getcwd is physical, the user's
   /// spelling is not); a right-basename-wrong-directory value falls
-  /// through to the late check (accepted cost). An EXISTING file
+  /// through to the late check (accepted cost). The fold is
+  /// case-insensitive DELIBERATELY and macOS-shaped: on a
+  /// case-insensitive filesystem Patch.fcppatch genuinely resolves
+  /// to the output; on Linux the fold costs a fast exit (falls to
+  /// the late check) and can skip the ignored-output warn for a
+  /// case-differing file — the open direction both times, accepted
+  /// over a platform-conditional. An EXISTING file
   /// whose basename is not the output's, under `--build`, warns:
   /// the build will run and its output will be silently discarded
   /// in favor of this pre-existing file — legitimate (re-sign and
@@ -527,9 +533,12 @@ class CodePushPatchSubCommand extends Command<int> {
       final (patchFileWarning, patchFileError) = patchFileArgCheck();
       if (patchFileError != null) {
         _logger.err(patchFileError);
-        // 70 (software), not 64: continuity with the late post-build
-        // check, which has always exited 70 for a missing patch file.
-        return ExitCode.software.code;
+        // A BLANK value is a usage error (64), matching its five
+        // siblings; a MISSING file keeps 70 — continuity with the
+        // late post-build check (tabled decision, unchanged).
+        return patchFileError.startsWith('Empty --patch-file')
+            ? ExitCode.usage.code
+            : ExitCode.software.code;
       }
       if (patchFileWarning != null) {
         _logger.warn(patchFileWarning);
