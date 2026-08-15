@@ -270,21 +270,31 @@ class CodePushPatchSubCommand extends Command<int> {
     final outputBasename = kPatchOutputPath.split('/').last;
     if (File(explicitPatchFile).existsSync()) {
       // Once the file EXISTS, the build cannot be what created it —
-      // so this branch judges by EXACT path, not basename: a stale
-      // build/patch.fcppatch (the legacy discovery candidate) with
-      // the matching basename would otherwise be silently uploaded
-      // over the fresh build output. A false warn on an alternate
-      // spelling of the output path costs one advisory line on the
-      // legitimate re-sign flow; the miss uploads the wrong bytes.
-      if (shouldBuild && explicitPatchFile != kPatchOutputPath) {
-        return (
-          warning: '--patch-file $explicitPatchFile already exists and is '
-              'not the build output: the build will run, but its output '
-              '($kPatchOutputPath) will be ignored — this pre-existing '
-              'file is what uploads.',
-          error: null,
-          isUsageError: false,
-        );
+      // so this branch judges by NORMALIZED path, not basename: a
+      // stale build/patch.fcppatch (the legacy discovery candidate)
+      // with the matching basename would otherwise be silently
+      // uploaded over the fresh build output. Normalization is safe
+      // ONLY here: an unequal answer costs an advisory line, never a
+      // rejection (the round-10 symlink lesson stays with the
+      // missing-file branch, where a wrong 'different' meant a hard
+      // exit on a correct invocation) — while './'-, '\$PWD'- and
+      // interior-dot spellings of the output stop drawing a false
+      // 'your build output will be ignored'. Two distinct lexical
+      // paths cannot normalize equal, so the stale candidate stays
+      // caught.
+      if (shouldBuild) {
+        String norm(String p) =>
+            File(p).absolute.uri.normalizePath().toFilePath();
+        if (norm(explicitPatchFile) != norm(kPatchOutputPath)) {
+          return (
+            warning: '--patch-file $explicitPatchFile already exists and '
+                'is not the build output: the build will run, but its '
+                'output ($kPatchOutputPath) will be ignored — this '
+                'pre-existing file is what uploads.',
+            error: null,
+            isUsageError: false,
+          );
+        }
       }
       return ok;
     }
@@ -355,7 +365,9 @@ class CodePushPatchSubCommand extends Command<int> {
   /// its own args. The stored-key rows read ~/.flutter_compilerc and
   /// are deliberately unpinned (no config seam, #49); the arg-driven
   /// rows are all pinned via real parses.
-  Future<String?> signingPreconditionError() async {
+  Future<({String? error, bool isUsageError})>
+      signingPreconditionError() async {
+    const okSigning = (error: null, isUsageError: false);
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
     final explicitKey = argResults?['signing-key'] as String?;
     // Blankness is classified on the TRIMMED value like every
@@ -371,9 +383,12 @@ class CodePushPatchSubCommand extends Command<int> {
     // explicit key would still end the run post-build.
     if (explicitKey != null && !explicitKeyIsBlank) {
       if (!File(explicitKey).existsSync()) {
-        return 'Signing key not found: $explicitKey';
+        return (
+          error: 'Signing key not found: $explicitKey',
+          isUsageError: false
+        );
       }
-      return null;
+      return okSigning;
     }
     if (explicitKeyIsBlank) {
       // Empty: under --unsigned it proceeds (matching the late
@@ -382,9 +397,15 @@ class CodePushPatchSubCommand extends Command<int> {
       // expanding to '' is the commonest way this flag goes wrong,
       // and silently falling back to the stored key would sign with
       // a key the user did not name.
-      if (allowUnsigned) return null;
-      return 'Empty --signing-key value (an unset CI variable?). Pass a '
-          'key path, drop the flag to use the stored key, or --unsigned.';
+      if (allowUnsigned) return okSigning;
+      // isUsageError: a blank value decided from argResults alone is
+      // a usage error (64) like its six siblings; the missing-KEY
+      // messages keep 70 (backstop continuity).
+      return (
+        error: 'Empty --signing-key value (an unset CI variable?). Pass a '
+            'key path, drop the flag to use the stored key, or --unsigned.',
+        isUsageError: true,
+      );
     }
     // No explicit key. The stored key is checked EVEN under
     // --unsigned, because the late block consults it unconditionally
@@ -399,17 +420,20 @@ class CodePushPatchSubCommand extends Command<int> {
     // stops being true for this shape.
     if (storedKey == null || storedKey.trim().isEmpty) {
       // Genuinely no key anywhere: fine under --unsigned.
-      if (allowUnsigned) return null;
-      return missingSigningKeyMessage;
+      if (allowUnsigned) return okSigning;
+      return (error: missingSigningKeyMessage, isUsageError: false);
     }
     if (!File(storedKey).existsSync()) {
-      return 'Stored signing key not found: $storedKey (from '
-          '~/.flutter_compilerc). Remove the stale entry, re-run '
-          '"fcp codepush keys generate", or pass --signing-key <path>. '
-          '(--unsigned cannot skip a configured stored key: the signing '
-          'step uses whatever the config names.)';
+      return (
+        error: 'Stored signing key not found: $storedKey (from '
+            '~/.flutter_compilerc). Remove the stale entry, re-run '
+            '"fcp codepush keys generate", or pass --signing-key <path>. '
+            '(--unsigned cannot skip a configured stored key: the signing '
+            'step uses whatever the config names.)',
+        isUsageError: false,
+      );
     }
-    return null;
+    return okSigning;
   }
 
   /// The upload channel: trimmed like every boundary read. Present-
@@ -627,10 +651,12 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err(blankError);
         return ExitCode.usage.code;
       }
-      final signingError = await signingPreconditionError();
-      if (signingError != null) {
-        _logger.err(signingError);
-        return ExitCode.software.code;
+      final signingCheck = await signingPreconditionError();
+      if (signingCheck.error != null) {
+        _logger.err(signingCheck.error!);
+        return signingCheck.isUsageError
+            ? ExitCode.usage.code
+            : ExitCode.software.code;
       }
       final (baselineWarning, baselineError) = baselineArgCheck();
       if (baselineError != null) {

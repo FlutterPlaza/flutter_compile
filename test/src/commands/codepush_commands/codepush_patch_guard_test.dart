@@ -367,7 +367,7 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--unsigned', '--signing-key', unsignedKey.path],
       );
-      expect(await cmd.signingPreconditionError(), isNull);
+      expect((await cmd.signingPreconditionError()).error, isNull);
 
       // An explicit key naming a missing file is a pure argument
       // mistake — the worst place to learn it is after the build.
@@ -375,7 +375,7 @@ void main() {
         ['--signing-key', '/definitely/not/a.pem'],
       );
       expect(
-        await cmd.signingPreconditionError(),
+        (await cmd.signingPreconditionError()).error,
         contains('/definitely/not/a.pem'),
       );
 
@@ -383,10 +383,11 @@ void main() {
       // variable must fail fast, not silently sign with a stored
       // key the user did not name.
       cmd.parsedArgs = cmd.argParser.parse(['--signing-key', '']);
-      expect(
-        await cmd.signingPreconditionError(),
-        contains('Empty --signing-key'),
-      );
+      final blankKey = await cmd.signingPreconditionError();
+      expect(blankKey.error, contains('Empty --signing-key'));
+      // Structural 64/70 split, like patchFileArgCheck: blank is
+      // usage, missing-key stays software.
+      expect(blankKey.isUsageError, isTrue);
 
       // A broken explicit key fails fast EVEN under --unsigned: the
       // late block signs whenever a key path is present, so this
@@ -395,25 +396,24 @@ void main() {
         ['--unsigned', '--signing-key', '/definitely/not/a.pem'],
       );
       expect(
-        await cmd.signingPreconditionError(),
+        (await cmd.signingPreconditionError()).error,
         contains('/definitely/not/a.pem'),
       );
 
       // --unsigned with an EMPTY key proceeds (unsigned) — matching
       // the late block, which ignores an empty key under --unsigned.
       cmd.parsedArgs = cmd.argParser.parse(['--unsigned', '--signing-key', '']);
-      expect(await cmd.signingPreconditionError(), isNull);
+      expect((await cmd.signingPreconditionError()).error, isNull);
 
       // Whitespace-only classifies as blank like every sibling —
       // the same unset variable as '', in both directions.
       cmd.parsedArgs = cmd.argParser.parse(['--signing-key', '  ']);
-      expect(
-        await cmd.signingPreconditionError(),
-        contains('Empty --signing-key'),
-      );
+      final wsKey = await cmd.signingPreconditionError();
+      expect(wsKey.error, contains('Empty --signing-key'));
+      expect(wsKey.isUsageError, isTrue);
       cmd.parsedArgs =
           cmd.argParser.parse(['--unsigned', '--signing-key', '  ']);
-      expect(await cmd.signingPreconditionError(), isNull);
+      expect((await cmd.signingPreconditionError()).error, isNull);
 
       // An explicit key that exists passes without a config lookup.
       final key = File(
@@ -421,7 +421,7 @@ void main() {
       )..writeAsBytesSync([1]);
       addTearDown(() => key.parent.deleteSync(recursive: true));
       cmd.parsedArgs = cmd.argParser.parse(['--signing-key', key.path]);
-      expect(await cmd.signingPreconditionError(), isNull);
+      expect((await cmd.signingPreconditionError()).error, isNull);
       // The no-flag row depends on ~/.flutter_compilerc and is
       // deliberately not pinned here (no config seam).
     });
@@ -493,6 +493,28 @@ void main() {
           contains(CodePushPatchSubCommand.kPatchOutputPath),
         ),
       );
+
+      // The SILENT direction: an existing file that IS the build
+      // output (any spelling — normalized comparison) must not draw
+      // the warning; dropping the comparison entirely would fire a
+      // false 'your build output will be ignored' on the ordinary
+      // repeat---build flow.
+      final outFile = File(CodePushPatchSubCommand.kPatchOutputPath);
+      final preExisting = outFile.existsSync();
+      if (!preExisting) {
+        outFile.createSync(recursive: true);
+        addTearDown(() => outFile.deleteSync());
+      }
+      for (final spelling in [
+        CodePushPatchSubCommand.kPatchOutputPath,
+        './${CodePushPatchSubCommand.kPatchOutputPath}',
+        'build/./codepush/patch.fcppatch',
+      ]) {
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--build', '--patch-file', spelling],
+        );
+        expect(cmd.patchFileArgCheck().warning, isNull, reason: spelling);
+      }
     });
 
     test('parseRollout: strict — a typo re-runs, never widens', () {

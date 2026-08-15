@@ -1078,7 +1078,11 @@ void main() {
 
       // GUARDED: an unreadable pubspec degrades to null with the
       // cause at detail visibility, never an unhandled exception.
-      if (!Platform.isWindows) {
+      // Mode bits are ignored for uid 0, so the row is also gated
+      // off under root (root Docker CI) — brittle red, not green.
+      final isRoot = !Platform.isWindows &&
+          Process.runSync('id', ['-u']).stdout.toString().trim() == '0';
+      if (!Platform.isWindows && !isRoot) {
         final locked = Directory.systemTemp.createTempSync('fcp_locked');
         addTearDown(() {
           Process.runSync('chmod', ['644', '${locked.path}/pubspec.yaml']);

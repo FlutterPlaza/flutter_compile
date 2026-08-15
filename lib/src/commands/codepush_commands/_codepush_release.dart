@@ -324,6 +324,17 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
+    // Shared --platform rule with the patch command: every platform
+    // gate below is an exact-string compare that fails OPEN — a
+    // wrong-cased value would skip the iOS baseline-identity
+    // requirement and the Android packaged-lib rule silently. A
+    // value the command does not understand must be a fast exit.
+    final (platformArg, platformError) = platformArgOrError();
+    if (platformError != null) {
+      _logger.err(platformError);
+      return ExitCode.usage.code;
+    }
+
     // Resolve app ID. Trimmed at the boundary: padding would be
     // invisible in the progress prose, encode as '+' on the wire,
     // and either fail AFTER the whole baseline upload or land the
@@ -374,17 +385,6 @@ class CodePushReleaseSubCommand extends Command<int> {
     String? originalIosInfoPlist;
     String? originalAndroidYaml;
     String? builtPlatform;
-
-    // Shared --platform rule with the patch command: every platform
-    // gate below is an exact-string compare that fails OPEN — a
-    // wrong-cased value would skip the iOS baseline-identity
-    // requirement and the Android packaged-lib rule silently. A
-    // value the command does not understand must be a fast exit.
-    final (platformArg, platformError) = platformArgOrError();
-    if (platformError != null) {
-      _logger.err(platformError);
-      return ExitCode.usage.code;
-    }
 
     if (shouldBuild) {
       var platform = platformArg;
