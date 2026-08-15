@@ -170,10 +170,22 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// the pubspec version; `--app-id` blank landed on the
   /// pass-the-flag-you-passed message. Returns the error to print,
   /// or null. A genuinely absent flag keeps its fallback (build /
-  /// pubspec / stored config). Public for tests; reads its own
-  /// args.
+  /// pubspec / stored config). `--flutter-version` blank was the
+  /// quiet one: it fell through to local detection and recorded the
+  /// UPLOADING machine's SDK, so every patch for the release
+  /// compiled against the wrong Flutter. `--baseline-id` blank is
+  /// benign in outcome (the fallback reads the id from the same
+  /// bytes being uploaded) but joins the rule so the next reader
+  /// can tell it was decided, not missed. Public for tests; reads
+  /// its own args.
   String? blankArgError() {
-    for (final flag in ['snapshot', 'version', 'app-id']) {
+    for (final flag in [
+      'snapshot',
+      'version',
+      'app-id',
+      'flutter-version',
+      'baseline-id',
+    ]) {
       final raw = argResults?[flag] as String?;
       if (raw != null && raw.trim().isEmpty) {
         return 'Empty --$flag value (an unset CI variable?). Pass a value, '
@@ -213,8 +225,12 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Resolve version.
-    var version = argResults?['version'] as String?;
+    // Resolve version. Trimmed at the boundary like --release-id and
+    // --rollout on the patch command: a padded CI value otherwise
+    // throws an uncaught ArgumentError in the Android yaml stamp and
+    // records a server version no device ever reports; the pubspec
+    // fallback below already trims, so the two halves now agree.
+    var version = (argResults?['version'] as String?)?.trim();
     if (version == null || version.isEmpty) {
       // Try to read from pubspec.yaml in current directory.
       final pubspec = File('pubspec.yaml');

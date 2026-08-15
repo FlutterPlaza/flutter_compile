@@ -210,7 +210,11 @@ class CodePushPatchSubCommand extends Command<int> {
   /// to the output; on Linux the fold costs a fast exit (falls to
   /// the late check) and can skip the ignored-output warn for a
   /// case-differing file — the open direction both times, accepted
-  /// over a platform-conditional. An EXISTING file
+  /// over a platform-conditional. The SEPARATOR fold ([/\\]) is the
+  /// same shape: a backslash is a legal filename character on
+  /// Linux, so 'odd\\patch.fcppatch' folds to a basename match and
+  /// the miss lands post-build — the open direction again, accepted
+  /// for the same reason. An EXISTING file
   /// whose basename is not the output's, under `--build`, warns:
   /// the build will run and its output will be silently discarded
   /// in favor of this pre-existing file — legitimate (re-sign and
@@ -219,14 +223,20 @@ class CodePushPatchSubCommand extends Command<int> {
   /// legitimate filename); the trim below only classifies
   /// blank-as-unset. Public for tests; reads its own args so a
   /// real-parse test covers the wire.
-  (String?, String?) patchFileArgCheck() {
+  ({String? warning, String? error, bool isUsageError}) patchFileArgCheck() {
+    const ok = (warning: null, error: null, isUsageError: false);
     final explicitPatchFile = argResults?['patch-file'] as String?;
-    if (explicitPatchFile == null) return (null, null);
+    if (explicitPatchFile == null) return ok;
     if (explicitPatchFile.trim().isEmpty) {
+      // isUsageError carries the 64/70 split STRUCTURALLY — a blank
+      // value is a usage error like its five siblings; the
+      // missing-file paths keep 70 (the tabled continuity). Matching
+      // on message prose would silently re-split on a rewording.
       return (
-        null,
-        'Empty --patch-file value (an unset CI variable?). Pass a patch '
-            'path, or drop the flag to use the build output.',
+        warning: null,
+        error: 'Empty --patch-file value (an unset CI variable?). Pass a '
+            'patch path, or drop the flag to use the build output.',
+        isUsageError: true,
       );
     }
     final shouldBuild = argResults?['build'] as bool? ?? false;
@@ -236,20 +246,37 @@ class CodePushPatchSubCommand extends Command<int> {
     if (File(explicitPatchFile).existsSync()) {
       if (shouldBuild && basename != outputBasename) {
         return (
-          '--patch-file $explicitPatchFile already exists and is not the '
-              'build output: the build will run, but its output '
+          warning: '--patch-file $explicitPatchFile already exists and is '
+              'not the build output: the build will run, but its output '
               '($kPatchOutputPath) will be ignored — this pre-existing '
               'file is what uploads.',
-          null,
+          error: null,
+          isUsageError: false,
         );
       }
-      return (null, null);
+      return ok;
     }
-    if (shouldBuild && basename == outputBasename) return (null, null);
+    if (shouldBuild && basename == outputBasename) return ok;
     return (
-      null,
-      missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild),
+      warning: null,
+      error: missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild),
+      isUsageError: false,
     );
+  }
+
+  /// Same contract as the release command's blankArgError, for the
+  /// one boundary read the per-flag helpers here do not own: a blank
+  /// --flutter-version silently fell through to local detection,
+  /// recording the machine's own SDK — and the patch then targets a
+  /// release compiled against a different Flutter. Public for
+  /// tests; reads its own args.
+  String? blankFlutterVersionError() {
+    final raw = argResults?['flutter-version'] as String?;
+    if (raw != null && raw.trim().isEmpty) {
+      return 'Empty --flutter-version value (an unset CI variable?). Pass '
+          'a version, or drop the flag to auto-detect.';
+    }
+    return null;
   }
 
   /// Normalizes and validates `--platform` via the shared
@@ -530,18 +557,20 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       final channel = resolvedChannel!;
-      final (patchFileWarning, patchFileError) = patchFileArgCheck();
-      if (patchFileError != null) {
-        _logger.err(patchFileError);
-        // A BLANK value is a usage error (64), matching its five
-        // siblings; a MISSING file keeps 70 — continuity with the
-        // late post-build check (tabled decision, unchanged).
-        return patchFileError.startsWith('Empty --patch-file')
+      final patchCheck = patchFileArgCheck();
+      if (patchCheck.error != null) {
+        _logger.err(patchCheck.error!);
+        return patchCheck.isUsageError
             ? ExitCode.usage.code
             : ExitCode.software.code;
       }
-      if (patchFileWarning != null) {
-        _logger.warn(patchFileWarning);
+      if (patchCheck.warning != null) {
+        _logger.warn(patchCheck.warning!);
+      }
+      final flutterVersionError = blankFlutterVersionError();
+      if (flutterVersionError != null) {
+        _logger.err(flutterVersionError);
+        return ExitCode.usage.code;
       }
       final signingError = await signingPreconditionError();
       if (signingError != null) {

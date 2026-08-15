@@ -246,7 +246,7 @@ void main() {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],
         );
-        expect(cmd.patchFileArgCheck().$2, isNull, reason: spelling);
+        expect(cmd.patchFileArgCheck().error, isNull, reason: spelling);
       }
     });
 
@@ -258,7 +258,7 @@ void main() {
         ['--build', '--patch-file', 'build/codepush/patch.fcpatch'],
       );
       expect(
-        cmd.patchFileArgCheck().$2,
+        cmd.patchFileArgCheck().error,
         allOf(
           contains('build/codepush/patch.fcpatch'),
           // The --build message names the path the build writes —
@@ -273,7 +273,7 @@ void main() {
         ['--patch-file', '/definitely/not/there.fcppatch'],
       );
       expect(
-        cmd.patchFileArgCheck().$2,
+        cmd.patchFileArgCheck().error,
         allOf(
           contains('/definitely/not/there.fcppatch'),
           // The --build guidance must be ABSENT here: without --build
@@ -291,7 +291,11 @@ void main() {
       // blank-means-absent reading fell through to auto-discovery
       // and shipped whatever stale patch the workspace held.
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', '']);
-      expect(cmd.patchFileArgCheck().$2, contains('Empty --patch-file'));
+      final blank = cmd.patchFileArgCheck();
+      expect(blank.error, contains('Empty --patch-file'));
+      // The 64/70 split is structural, not prose-matched: blank is a
+      // usage error like its five siblings.
+      expect(blank.isUsageError, isTrue);
 
       // Third state: the argument names a file that already EXISTS
       // elsewhere — under --build the build runs and its output is
@@ -304,10 +308,10 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-file', saved.path],
       );
-      final (warning, error) = cmd.patchFileArgCheck();
-      expect(error, isNull);
+      final existing = cmd.patchFileArgCheck();
+      expect(existing.error, isNull);
       expect(
-        warning,
+        existing.warning,
         allOf(
           contains(saved.path),
           contains(CodePushPatchSubCommand.kPatchOutputPath),
@@ -315,7 +319,27 @@ void main() {
       );
       // Without --build the same file is the normal flow: silent.
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', saved.path]);
-      expect(cmd.patchFileArgCheck(), (null, null));
+      expect(
+        cmd.patchFileArgCheck(),
+        (warning: null, error: null, isUsageError: false),
+      );
+      // A MISSING file keeps the software (70) classification.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-file', '/definitely/not/there.fcppatch'],
+      );
+      expect(cmd.patchFileArgCheck().isUsageError, isFalse);
+    });
+
+    test('blankFlutterVersionError: blank rejects, absent auto-detects', () {
+      cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', ' ']);
+      expect(
+        cmd.blankFlutterVersionError(),
+        contains('Empty --flutter-version'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.blankFlutterVersionError(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', '3.41.2']);
+      expect(cmd.blankFlutterVersionError(), isNull);
     });
 
     test(
@@ -395,10 +419,10 @@ void main() {
       addTearDown(() => tmp.parent.deleteSync(recursive: true));
 
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', tmp.path]);
-      expect(cmd.patchFileArgCheck().$2, isNull);
+      expect(cmd.patchFileArgCheck().error, isNull);
 
       cmd.parsedArgs = cmd.argParser.parse([]);
-      expect(cmd.patchFileArgCheck().$2, isNull);
+      expect(cmd.patchFileArgCheck().error, isNull);
     });
 
     test('parseRollout: strict — a typo re-runs, never widens', () {
