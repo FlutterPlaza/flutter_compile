@@ -227,7 +227,10 @@ class CodePushPatchSubCommand extends Command<int> {
   /// value is deliberately NOT trimmed (a leading space can be a
   /// legitimate filename); the trim below only classifies
   /// blank-as-unset. Public for tests; reads its own args so a
-  /// real-parse test covers the wire.
+  /// real-parse test covers the wire. [projectRootOverride] anchors
+  /// every relative path this check stats or compares (discovery
+  /// candidates, the output, a relative --patch-file) so tests hold
+  /// rows under a temp root; production passes none.
   ({String? warning, String? error, bool isUsageError}) patchFileArgCheck({
     String? projectRootOverride,
   }) {
@@ -268,7 +271,12 @@ class CodePushPatchSubCommand extends Command<int> {
     final basename =
         explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
     final outputBasename = kPatchOutputPath.split('/').last;
-    if (File(explicitPatchFile).existsSync()) {
+    // The override anchors BOTH sides: a relative --patch-file would
+    // otherwise stat the process cwd while the output resolves under
+    // the override root — two roots, green tests. Absolute args are
+    // untouched; production passes no override (root == '').
+    String anchored(String p) => File(p).isAbsolute ? p : '$root$p';
+    if (File(anchored(explicitPatchFile)).existsSync()) {
       // Once the file EXISTS, the build cannot be what created it —
       // so this branch judges by NORMALIZED path, not basename: a
       // stale build/patch.fcppatch (the legacy discovery candidate)
@@ -287,8 +295,8 @@ class CodePushPatchSubCommand extends Command<int> {
             File(p).absolute.uri.normalizePath().toFilePath();
         bool sameAsOutput;
         try {
-          sameAsOutput =
-              norm(explicitPatchFile) == norm('$root$kPatchOutputPath');
+          sameAsOutput = norm(anchored(explicitPatchFile)) ==
+              norm('$root$kPatchOutputPath');
         } catch (_) {
           // Undecidable must not decide (the _plausiblySameFile
           // lesson): a vanished cwd makes .absolute throw, and the
@@ -606,7 +614,12 @@ class CodePushPatchSubCommand extends Command<int> {
     // and the upload all agree on the same spelling.
     final releaseId = (argResults?['release-id'] as String?)?.trim();
     if (releaseId == null || releaseId.isEmpty) {
-      _logger.err('--release-id is required.');
+      _logger.err(
+        releaseId == null
+            ? '--release-id is required.'
+            : 'Empty --release-id value (an unset CI variable?). Pass the '
+                'release id to patch against.',
+      );
       return ExitCode.usage.code;
     }
 
@@ -997,8 +1010,10 @@ class CodePushPatchSubCommand extends Command<int> {
         packageProgress.complete('Patch ready → $kPatchOutputPath');
       }
 
+      // Blank was rejected by patchFileArgCheck; only null means no
+      // flag here.
       var patchPath = argResults?['patch-file'] as String?;
-      if (patchPath == null || patchPath.isEmpty) {
+      if (patchPath == null) {
         final candidates = [
           kPatchOutputPath,
           kLegacyPatchOutputPath,
@@ -1092,6 +1107,14 @@ class CodePushPatchSubCommand extends Command<int> {
           '${baselineHash.substring(0, 16)}…',
         );
       } else {
+        // A PRESENT but unusable hash is otherwise indistinguishable
+        // from an absent key: name it at --verbose.
+        if (releaseInfo != null && releaseInfo.containsKey('snapshot_hash')) {
+          _logger.detail(
+            'Release carries an unusable snapshot_hash; falling back '
+            'to local build output.',
+          );
+        }
         // Fallback: compute from local build output. This path runs
         // when the release has no stored hash or the server lookup
         // fails. Candidates are gated by the patch's platform — a dev
@@ -1132,6 +1155,16 @@ class CodePushPatchSubCommand extends Command<int> {
             );
             break;
           }
+        }
+        if (baselineHash == null) {
+          // The one outcome that drops the gate must say so — this
+          // is the fetch-failure warn's sentence, stated where it is
+          // a fact rather than a prediction.
+          _logger.warn(
+            'No baseline hash available: this patch will upload '
+            'without the device-side baseline check (devices fall '
+            'back to the coarser engine compatibility check).',
+          );
         }
       }
       // Re-surface the guard warning at the decision point: with
