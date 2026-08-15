@@ -222,17 +222,25 @@ void main() {
       // runs; the post-build in-place check owns that flow. Rejecting
       // here broke `--build --patch-file build/codepush/patch.fcppatch`
       // on every fresh clone and CI runner.
-      // Every row has provenance INDEPENDENT of Directory.current —
-      // a row derived from the cwd would pass for any comparator.
-      // The last row is the symlinked/bind-mounted-prefix shape
-      // (macOS /var → /private/var, a CI workspace mount) that
-      // full-path comparison got wrong and that motivated judging
-      // by basename alone.
+      // Every row is nonexistent BY CONSTRUCTION (anchored under a
+      // fresh temp dir where nothing is ever created), so each one
+      // must be carried by the basename clause — a relative row
+      // would resolve against the process cwd and, on a checkout
+      // where a local --build smoke has run, return early from the
+      // existsSync check without exercising the clause at all.
+      // (Anchoring beats changing Directory.current, which is
+      // process-global and races concurrently-running suites.) The
+      // last row is the symlinked/bind-mounted-prefix shape (macOS
+      // /var → /private/var, a CI workspace mount) that full-path
+      // comparison got wrong and that motivated judging by basename
+      // alone.
+      final anchor = Directory.systemTemp.createTempSync('fcp_spell').path;
+      addTearDown(() => Directory(anchor).deleteSync(recursive: true));
       for (final spelling in [
-        CodePushPatchSubCommand.kPatchOutputPath,
-        './${CodePushPatchSubCommand.kPatchOutputPath}',
-        'build/./codepush/patch.fcppatch',
-        'build/codepush/../codepush/patch.fcppatch',
+        '$anchor/${CodePushPatchSubCommand.kPatchOutputPath}',
+        '$anchor/./${CodePushPatchSubCommand.kPatchOutputPath}',
+        '$anchor/build/./codepush/patch.fcppatch',
+        '$anchor/build/codepush/../codepush/patch.fcppatch',
         '/var/ci/workspace/proj/build/codepush/patch.fcppatch',
       ]) {
         cmd.parsedArgs = cmd.argParser.parse(
@@ -428,18 +436,25 @@ void main() {
       expect(wsError, contains('Empty --platform'));
     });
 
-    test('resolvedChannel: trimmed, empty falls back to production', () {
-      String channel(List<String> args) {
+    test(
+        'resolvedChannelOrError: trimmed, empty REJECTS like its '
+        'siblings', () {
+      (String?, String?) channel(List<String> args) {
         cmd.parsedArgs = cmd.argParser.parse(args);
-        return cmd.resolvedChannel();
+        return cmd.resolvedChannelOrError();
       }
 
-      expect(channel([]), 'production');
-      expect(channel(['--channel', 'beta']), 'beta');
+      expect(channel([]), ('production', null));
+      expect(channel(['--channel', 'beta']), ('beta', null));
       // ' production ' with spaces would be a channel no device
       // polls — the upload succeeds and nothing is ever offered.
-      expect(channel(['--channel', ' production ']), 'production');
-      expect(channel(['--channel', '']), 'production');
+      expect(channel(['--channel', ' production ']), ('production', null));
+      // Empty is an unset CI variable: a re-run, never a silent
+      // publish to the widest channel at the default rollout (and
+      // pre-fix the server stored '' verbatim — an inert patch).
+      final (value, error) = channel(['--channel', '']);
+      expect(value, isNull);
+      expect(error, contains('Empty --channel'));
     });
   });
 

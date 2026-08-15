@@ -289,21 +289,37 @@ class CodePushPatchSubCommand extends Command<int> {
     }
     if (!File(storedKey).existsSync()) {
       return 'Stored signing key not found: $storedKey (from '
-          '~/.flutter_compilerc). Re-run "fcp codepush keys generate", '
-          'pass --signing-key <path>, or remove the stale entry.';
+          '~/.flutter_compilerc). Remove the stale entry, re-run '
+          '"fcp codepush keys generate", or pass --signing-key <path>. '
+          '(--unsigned cannot skip a configured stored key: the signing '
+          'step uses whatever the config names.)';
     }
     return null;
   }
 
-  /// The upload channel: trimmed like every boundary read, and an
-  /// empty value (an unset CI variable) falls back to 'production'
-  /// rather than creating a patch on a channel no device polls —
-  /// the least diagnosable failure this command can produce (the
-  /// upload succeeds; devices are simply never offered it). Public
-  /// for tests; reads its own args.
-  String resolvedChannel() {
-    final raw = (argResults?['channel'] as String? ?? 'production').trim();
-    return raw.isEmpty ? 'production' : raw;
+  /// The upload channel: trimmed like every boundary read. Present-
+  /// but-blank is REJECTED like the three flags beside it
+  /// (--signing-key, --platform, --rollout): an unset CI variable
+  /// must cost a re-run — pre-fix it created a patch on channel ''
+  /// that no device polls (verified: the server stores the empty
+  /// string verbatim), and defaulting instead would publish to the
+  /// widest channel there is at the default rollout, the direction
+  /// parseRollout refuses for the sibling option. A genuinely
+  /// absent flag defaults to 'production'. Returns
+  /// (channel, error); a non-null error means exit 64. Public for
+  /// tests; reads its own args.
+  (String?, String?) resolvedChannelOrError() {
+    final raw = argResults?['channel'] as String?;
+    if (raw == null) return ('production', null);
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return (
+        null,
+        'Empty --channel value (an unset CI variable?). Pass a channel '
+            'name or drop the flag (default: production).',
+      );
+    }
+    return (trimmed, null);
   }
 
   /// The pre-build `--baseline` advisory, or null. Both directions
@@ -442,7 +458,12 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err('Rollout percentage must be an integer between 1 and 100.');
         return ExitCode.usage.code;
       }
-      final channel = resolvedChannel();
+      final (resolvedChannel, channelError) = resolvedChannelOrError();
+      if (channelError != null) {
+        _logger.err(channelError);
+        return ExitCode.usage.code;
+      }
+      final channel = resolvedChannel!;
       final patchFileError = earlyPatchFileError();
       if (patchFileError != null) {
         _logger.err(patchFileError);
