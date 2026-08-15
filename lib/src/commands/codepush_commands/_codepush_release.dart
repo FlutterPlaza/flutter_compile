@@ -158,6 +158,16 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Twin of the patch command's platformArgOrError — the tested
+  /// wire from this command to the shared rule, so `forBuild` cannot
+  /// silently flip (re-opening `release --build --platform android`)
+  /// and the call cannot vanish (re-opening the silent fail-open the
+  /// helper exists to close). Public for tests; reads its own args.
+  (String?, String?) platformArgOrError() => normalizeCodePushPlatformArg(
+        argResults?['platform'] as String?,
+        forBuild: argResults?['build'] as bool? ?? false,
+      );
+
   /// Present-but-blank rejection for this command's own boundary
   /// reads — the same contract the patch command's six flags follow
   /// (an unset CI variable must cost a re-run, never be silently
@@ -370,10 +380,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     // wrong-cased value would skip the iOS baseline-identity
     // requirement and the Android packaged-lib rule silently. A
     // value the command does not understand must be a fast exit.
-    final (platformArg, platformError) = normalizeCodePushPlatformArg(
-      argResults?['platform'] as String?,
-      forBuild: shouldBuild,
-    );
+    final (platformArg, platformError) = platformArgOrError();
     if (platformError != null) {
       _logger.err(platformError);
       return ExitCode.usage.code;

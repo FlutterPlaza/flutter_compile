@@ -182,6 +182,11 @@ class CodePushPatchSubCommand extends Command<int> {
     return value;
   }
 
+  /// The legacy auto-discovery candidate an older fcp left in a
+  /// workspace — shared with the candidate list so the early
+  /// no-patch-file check and run()'s discovery cannot diverge.
+  static const kLegacyPatchOutputPath = 'build/patch.fcppatch';
+
   /// Path the `--build` flow writes its packaged patch to. A class
   /// const shared with the packaging and candidate-search sites, so
   /// [patchFileArgCheck]'s one-output-path premise is enforced by
@@ -223,10 +228,30 @@ class CodePushPatchSubCommand extends Command<int> {
   /// legitimate filename); the trim below only classifies
   /// blank-as-unset. Public for tests; reads its own args so a
   /// real-parse test covers the wire.
-  ({String? warning, String? error, bool isUsageError}) patchFileArgCheck() {
+  ({String? warning, String? error, bool isUsageError}) patchFileArgCheck({
+    String? projectRootOverride,
+  }) {
     const ok = (warning: null, error: null, isUsageError: false);
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
     final explicitPatchFile = argResults?['patch-file'] as String?;
-    if (explicitPatchFile == null) return ok;
+    if (explicitPatchFile == null) {
+      // No flag, no --build: auto-discovery is two stats away —
+      // check them NOW so the run cannot print the unguarded-release
+      // warning and then exit having risked nothing (the spirit of
+      // the pre-fetch invariant; the late check stays as backstop).
+      final shouldBuild = argResults?['build'] as bool? ?? false;
+      if (!shouldBuild &&
+          !File('$root$kPatchOutputPath').existsSync() &&
+          !File('$root$kLegacyPatchOutputPath').existsSync()) {
+        return (
+          warning: null,
+          error: 'No patch file found. Use --build to compile, or '
+              '--patch-file to specify.',
+          isUsageError: true,
+        );
+      }
+      return ok;
+    }
     if (explicitPatchFile.trim().isEmpty) {
       // isUsageError carries the 64/70 split STRUCTURALLY — a blank
       // value is a usage error like its five siblings; the
@@ -244,7 +269,14 @@ class CodePushPatchSubCommand extends Command<int> {
         explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
     final outputBasename = kPatchOutputPath.split('/').last;
     if (File(explicitPatchFile).existsSync()) {
-      if (shouldBuild && basename != outputBasename) {
+      // Once the file EXISTS, the build cannot be what created it —
+      // so this branch judges by EXACT path, not basename: a stale
+      // build/patch.fcppatch (the legacy discovery candidate) with
+      // the matching basename would otherwise be silently uploaded
+      // over the fresh build output. A false warn on an alternate
+      // spelling of the output path costs one advisory line on the
+      // legitimate re-sign flow; the miss uploads the wrong bytes.
+      if (shouldBuild && explicitPatchFile != kPatchOutputPath) {
         return (
           warning: '--patch-file $explicitPatchFile already exists and is '
               'not the build output: the build will run, but its output '
@@ -899,7 +931,9 @@ class CodePushPatchSubCommand extends Command<int> {
           );
         } else {
           payloadData = Uint8List.fromList(snapshotData);
-          if (baselinePath != null && baselinePath.isNotEmpty) {
+          // Blank was rejected by baselineArgCheck; only null means
+          // no flag here.
+          if (baselinePath != null) {
             _logger.warn(
               'Baseline not found at $baselinePath, using full snapshot.',
             );
@@ -923,7 +957,7 @@ class CodePushPatchSubCommand extends Command<int> {
       if (patchPath == null || patchPath.isEmpty) {
         final candidates = [
           kPatchOutputPath,
-          'build/patch.fcppatch',
+          kLegacyPatchOutputPath,
         ];
         for (final candidate in candidates) {
           if (File(candidate).existsSync()) {

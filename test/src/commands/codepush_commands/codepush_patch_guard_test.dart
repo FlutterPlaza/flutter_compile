@@ -426,7 +426,9 @@ void main() {
       // deliberately not pinned here (no config seam).
     });
 
-    test('an existing explicit patch file passes; absent flag passes', () {
+    test(
+        'an existing explicit patch file passes; absent flag checks '
+        'auto-discovery up front', () {
       final tmp = File(
         '${Directory.systemTemp.createTempSync('fcp_guard').path}/p.fcppatch',
       )..writeAsBytesSync([1]);
@@ -435,8 +437,62 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', tmp.path]);
       expect(cmd.patchFileArgCheck().error, isNull);
 
+      // No flag, no --build, nothing discoverable: fail BEFORE the
+      // fetch — the unguarded-release warning must not fire on a run
+      // that then exits having risked nothing. (Root override keeps
+      // the rows independent of the checkout's own build/ tree.)
+      final bare = Directory.systemTemp.createTempSync('fcp_bare');
+      addTearDown(() => bare.deleteSync(recursive: true));
       cmd.parsedArgs = cmd.argParser.parse([]);
-      expect(cmd.patchFileArgCheck().error, isNull);
+      final none = cmd.patchFileArgCheck(projectRootOverride: bare.path);
+      expect(none.error, contains('No patch file found'));
+      expect(none.isUsageError, isTrue);
+
+      // With a discoverable candidate (the legacy path included),
+      // the absent flag proceeds.
+      final discoverable = Directory.systemTemp.createTempSync('fcp_disc');
+      addTearDown(() => discoverable.deleteSync(recursive: true));
+      File('${discoverable.path}/'
+          '${CodePushPatchSubCommand.kLegacyPatchOutputPath}')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      expect(
+        cmd.patchFileArgCheck(projectRootOverride: discoverable.path).error,
+        isNull,
+      );
+      // --build with no flag also proceeds (the build creates it).
+      cmd.parsedArgs = cmd.argParser.parse(['--build']);
+      expect(
+        cmd.patchFileArgCheck(projectRootOverride: bare.path).error,
+        isNull,
+      );
+    });
+
+    test(
+        'an EXISTING file under --build is judged by exact path: the '
+        'legacy candidate with the matching basename warns', () {
+      // A stale build/patch.fcppatch (same basename as the output)
+      // used to slip the warning and be silently uploaded over the
+      // fresh build output.
+      final root = Directory.systemTemp.createTempSync('fcp_stale');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final stale = File(
+        '${root.path}/${CodePushPatchSubCommand.kLegacyPatchOutputPath}',
+      )
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--patch-file', stale.path],
+      );
+      final check = cmd.patchFileArgCheck();
+      expect(check.error, isNull);
+      expect(
+        check.warning,
+        allOf(
+          contains(stale.path),
+          contains(CodePushPatchSubCommand.kPatchOutputPath),
+        ),
+      );
     });
 
     test('parseRollout: strict — a typo re-runs, never widens', () {

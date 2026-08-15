@@ -1033,6 +1033,20 @@ void main() {
       );
     });
 
+    test('platformArgOrError twin: forBuild wired, call pinned', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Flipping forBuild to false re-opens `release --build
+      // --platform android` (a full engine preparation ending in
+      // flutter's own usage error); the shared helper is tested via
+      // the patch command, so THIS wire needs its own rows.
+      cmd.parsedArgs = cmd.argParser.parse(['--build', '-p', 'android']);
+      final (androidValue, androidError) = cmd.platformArgOrError();
+      expect(androidValue, isNull);
+      expect(androidError, contains('not a buildable target'));
+      cmd.parsedArgs = cmd.argParser.parse(['-p', 'iOS']);
+      expect(cmd.platformArgOrError(), ('ios', null));
+    });
+
     test('pubspecContentForVersion: lazy and guarded', () {
       final logger = MockLogger();
       when(() => logger.detail(any())).thenReturn(null);
