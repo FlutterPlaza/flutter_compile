@@ -321,6 +321,19 @@ class CodePushPatchSubCommand extends Command<int> {
           );
         }
       }
+      if (!shouldBuild && !(argResults?['unsigned'] as bool? ?? false)) {
+        // The rewrite is NOT gated on --build: every signed upload
+        // re-signs the named file IN PLACE — and the saved-artifact
+        // flow (re-sign and upload a kept patch) is exactly where an
+        // untouched copy is expected.
+        return (
+          warning: 'Signing will rewrite $explicitPatchFile in place to '
+              'embed the signature — keep a copy elsewhere if you need '
+              'the original bytes.',
+          error: null,
+          isUsageError: false,
+        );
+      }
       return ok;
     }
     if (shouldBuild && basename == outputBasename) return ok;
@@ -419,6 +432,17 @@ class CodePushPatchSubCommand extends Command<int> {
   /// command. Public for tests.
   List<String> dartDefineValues() =>
       nonBlankEntries(argResults?['dart-define'] as List<String>?);
+
+  /// The --include-uri entries: trimmed AND filtered — the
+  /// deliberate divergence from [nonBlankEntries], stated where the
+  /// two rules sit apart: these are package URIs, only ever
+  /// string-compared, where whitespace can match nothing (a
+  /// --dart-define value, by contrast, is compiled in and stays
+  /// untrimmed). Public for tests.
+  List<String> includeUriValues() => [
+        for (final u in argResults?['include-uri'] as List<String>? ?? const [])
+          if (u.trim().isNotEmpty) u.trim(),
+      ];
 
   /// Same contract as the release command's blankArgError, for the
   /// boundary reads the per-flag helpers here do not own. A blank
@@ -1014,15 +1038,11 @@ class CodePushPatchSubCommand extends Command<int> {
           //
           // In both modes, include any helper libraries discovered from
           // the patch source's direct relative imports.
-          final explicitIncludes =
-              argResults?['include-uri'] as List<String>? ?? const [];
           final includeUris = <String>{
             if (iosSwapMode && iosPatchSourceImport != null)
               '$packagePrefix$iosPatchSourceImport',
             for (final helper in iosHelperImports) '$packagePrefix$helper',
-            // Trimmed like --package-prefix: package URIs are only
-            // ever string-compared, where whitespace matches nothing.
-            ...explicitIncludes.map((u) => u.trim()).where((u) => u.isNotEmpty),
+            ...includeUriValues(),
           }.toList();
 
           final bcResult = await buildService.bytecodeFromKernel(

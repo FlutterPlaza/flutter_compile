@@ -318,8 +318,18 @@ void main() {
           contains(CodePushPatchSubCommand.kPatchOutputPath),
         ),
       );
-      // Without --build the same file is the normal flow: silent.
+      // Without --build, a SIGNED upload rewrites the named file in
+      // place — the saved-artifact flow is exactly where an
+      // untouched copy is expected, so the advisory fires here...
       cmd.parsedArgs = cmd.argParser.parse(['--patch-file', saved.path]);
+      expect(
+        cmd.patchFileArgCheck().warning,
+        contains('rewrite'),
+      );
+      // ...and --unsigned uploads (no rewrite) stay silent.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--unsigned', '--patch-file', saved.path],
+      );
       expect(
         cmd.patchFileArgCheck(),
         (warning: null, error: null, isUsageError: false),
@@ -783,6 +793,19 @@ void main() {
       // variant goes red HERE — the round-40 defect was an
       // unobserved call site, not a diverged body.
       expect(cmd.dartDefineValues(), ['BANNER=beta ']);
+    });
+  });
+
+  group('includeUriValues', () {
+    test('trims AND filters — the documented divergence', () {
+      final cmd = ParsedArgsPatchCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse([
+        '--include-uri',
+        ' package:a/b.dart ',
+        '--include-uri',
+        '  ',
+      ]);
+      expect(cmd.includeUriValues(), ['package:a/b.dart']);
     });
   });
 

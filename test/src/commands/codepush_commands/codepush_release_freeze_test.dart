@@ -1151,6 +1151,45 @@ void main() {
       );
     });
 
+    test('buildOnlyFlagsWarning (release): the platform axis', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--no-extendable-widgets'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('--[no-]extendable-widgets'),
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
+        isNull,
+      );
+    });
+
+    test('saveIosBaselineApp is best-effort by construction', () {
+      final logger = MockLogger();
+      when(() => logger.warn(any())).thenReturn(null);
+      when(() => logger.detail(any())).thenReturn(null);
+      final cmd = ParsedArgsReleaseCommand(logger);
+      final root = Directory.systemTemp.createTempSync('fcp_save');
+      addTearDown(() => root.deleteSync(recursive: true));
+      // A built app exists, but the dest PARENT path is blocked by a
+      // plain file — the mkdir throws, and the method must warn, not
+      // throw (a post-success step must never fail the release).
+      Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .createSync(recursive: true);
+      File('${root.path}/build/codepush')
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      cmd.saveIosBaselineApp(
+        baselineId: 'b-1',
+        projectRootOverride: root.path,
+      );
+      verify(
+        () => logger.warn(any(that: contains('Saved-baseline step skipped'))),
+      ).called(1);
+    });
+
     test('dartDefineValues (release): filter applied at this command', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       cmd.parsedArgs = cmd.argParser.parse(

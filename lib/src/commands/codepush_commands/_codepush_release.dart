@@ -220,9 +220,28 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// reason to believe they published an un-guarded attestation,
   /// when the record is (correctly) unknown. Returns the warning
   /// or null. Public for tests; reads its own args.
-  String? buildOnlyFlagsWarning() {
+  String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild) return null;
+    if (shouldBuild) {
+      // Second axis (the patch command's rule, both halves ported):
+      // the iOS-shaped flags on a build for another platform are
+      // read by nothing and must say so.
+      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      final iosOnly = <String>[
+        if (argResults?.wasParsed('extendable-widgets') ?? false)
+          '--[no-]extendable-widgets',
+        if (argResults?.wasParsed('interface-freeze') ?? false)
+          '--[no-]interface-freeze',
+        if (((argResults?['baseline-id'] as String?) ?? '').trim().isNotEmpty)
+          '--baseline-id',
+        if (argResults?['allow-missing-baseline'] as bool? ?? false)
+          '--allow-missing-baseline',
+      ];
+      if (iosOnly.isEmpty) return null;
+      return '${iosOnly.join(', ')} '
+          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
+          'a $resolvedPlatform build.';
+    }
     final ignored = <String>[
       if (argResults?.wasParsed('extendable-widgets') ?? false)
         '--[no-]extendable-widgets',
@@ -490,6 +509,13 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       builtPlatform = platform;
+      // Second emission point: the platform is only known here, and
+      // the iOS-only axis needs it.
+      final iosOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: builtPlatform);
+      if (iosOnlyWarning != null) {
+        _logger.warn(iosOnlyWarning);
+      }
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
@@ -964,15 +990,7 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
-        try {
-          _saveIosBaselineApp(baselineId: baselineId);
-        } catch (e) {
-          // Best-effort like the archive below: a post-success step
-          // must never fail a created release — the upload succeeded,
-          // and a CI retry keyed on the exit code would create a
-          // SECOND server release for the same version.
-          _logger.warn('Saved-baseline step skipped: $e');
-        }
+        saveIosBaselineApp(baselineId: baselineId);
 
         // Archive the saved baseline app + dSYM into a per-release
         // directory so a future device replay can reinstall the exact
@@ -1308,10 +1326,34 @@ class CodePushReleaseSubCommand extends Command<int> {
     );
   }
 
-  void _saveIosBaselineApp({required String baselineId}) {
-    const source = kDefaultBuiltIosAppPath;
-    const dest = 'build/codepush/baseline/Runner.app';
+  /// Best-effort BY CONSTRUCTION (the archive sibling's shape): a
+  /// post-success step must never fail a created release, so the
+  /// whole body is inside the try — deleting a caller-side wrapper
+  /// can no longer restore the exit-70 path. Public for tests;
+  /// [projectRootOverride] anchors the const paths.
+  void saveIosBaselineApp({
+    required String baselineId,
+    String? projectRootOverride,
+  }) {
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
+    final source = '$root$kDefaultBuiltIosAppPath';
+    final dest = '${root}build/codepush/baseline/Runner.app';
+    try {
+      _saveIosBaselineAppUnguarded(
+        baselineId: baselineId,
+        source: source,
+        dest: dest,
+      );
+    } catch (e) {
+      _logger.warn('Saved-baseline step skipped: $e');
+    }
+  }
 
+  void _saveIosBaselineAppUnguarded({
+    required String baselineId,
+    required String source,
+    required String dest,
+  }) {
     final sourceDir = Directory(source);
     if (!sourceDir.existsSync()) {
       _logger.detail('No built Runner.app to save.');
