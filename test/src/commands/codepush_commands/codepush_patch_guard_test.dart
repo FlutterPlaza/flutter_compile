@@ -392,6 +392,36 @@ void main() {
       );
       cmd.parsedArgs = cmd.argParser.parse([]);
       expect(cmd.patchEntryFileArgError(), isNull);
+      // ABSOLUTE path under the override: exercises the isAbsolute
+      // ternary's other branch (the round-31 lesson, applied here).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-entry-file', '${root.path}/lib/patch.dart'],
+      );
+      expect(
+        cmd.patchEntryFileArgError(projectRootOverride: root.path),
+        isNull,
+      );
+    });
+
+    test('buildOnlyFlagsWarning: iOS build-only flags warn when ignored', () {
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--patch-entry-file', 'lib/x.dart'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), contains('--patch-entry-file'));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--swap-mode', '--include-uri', 'package:a/b.dart'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        allOf(contains('--swap-mode'), contains('--include-uri')),
+      );
+      // With --build they are read; nothing warns.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--patch-entry-file', 'lib/x.dart'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
     });
 
     test('signing preconditions are checked before any build work', () async {

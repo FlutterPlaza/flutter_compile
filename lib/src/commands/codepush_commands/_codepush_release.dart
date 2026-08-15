@@ -678,7 +678,15 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (resolvedPlatform == 'ios') {
       final appDirForIdentity = builtIosAppDirFromBinaryPath(snapshotPath);
       baselineId = resolveIosBaselineId(
-        stampedByBuild: baselineId,
+        // The stamp is withheld when --snapshot names foreign bytes:
+        // the stamped UUID lives only in the locally-built app that
+        // was never shipped, and recording it would create the
+        // no-error-anywhere never-updates release this block's own
+        // comment warns about — the foreign bundle's own id (or the
+        // explicit flag) is the identity of what actually serves.
+        // Fourth record on the usedExplicitSnapshot rule, beside the
+        // attestation, the saved app, and the archive.
+        stampedByBuild: usedExplicitSnapshot ? null : baselineId,
         explicitFlag: argResults?['baseline-id'] as String?,
         fromBuiltApp: appDirForIdentity != null
             ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
@@ -830,9 +838,11 @@ class CodePushReleaseSubCommand extends Command<int> {
         // printed the loud saved-app block, and nothing else says
         // why it stopped.
         _logger.detail(
-          'Skipping the saved baseline app and per-release archive: '
-          '--snapshot named bytes other than this build\'s output, so '
-          'the built bundle is not what this release serves.',
+          'Skipping the saved baseline app and per-release archive, and '
+          'recording the interface attestation as unknown (the patch-time '
+          'guard will not fire for this release): --snapshot named bytes '
+          'other than this build\'s output, so the built bundle is not '
+          'what this release serves.',
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {

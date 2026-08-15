@@ -336,7 +336,8 @@ class CodePushPatchSubCommand extends Command<int> {
   /// the fetch and the guard warning. Message text matches the late
   /// resolver exactly so the two sites cannot drift; auto-discovery
   /// (no flag) stays late — it scans lib/. Blank is blankArgError's.
-  /// Public for tests; [projectRootOverride] anchors a relative stat.
+  /// Public for tests; [projectRootOverride] anchors a relative
+  /// stat AND the lib root the import check resolves against.
   String? patchEntryFileArgError({String? projectRootOverride}) {
     final raw = argResults?['patch-entry-file'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
@@ -350,6 +351,34 @@ class CodePushPatchSubCommand extends Command<int> {
       return '--patch-entry-file must point to a Dart file under `lib/`.';
     }
     return null;
+  }
+
+  /// iOS build-only flags passed without --build are read by
+  /// nothing — the quiet misreading baselineArgCheck already warns
+  /// for; the same rule for its four siblings, in one line (the new
+  /// early entry-file validation is gated on the build path, so
+  /// without this the identical typo is loud under --build and
+  /// silent without it). Returns the warning or null. Public for
+  /// tests; reads its own args.
+  String? buildOnlyFlagsWarning() {
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (shouldBuild) return null;
+    final ignored = <String>[
+      if (((argResults?['patch-entry-file'] as String?) ?? '')
+          .trim()
+          .isNotEmpty)
+        '--patch-entry-file',
+      if (((argResults?['package-prefix'] as String?) ?? '').trim().isNotEmpty)
+        '--package-prefix',
+      if (argResults?['swap-mode'] as bool? ?? false) '--swap-mode',
+      if ((argResults?['include-uri'] as List<String>? ?? const [])
+          .any((u) => u.trim().isNotEmpty))
+        '--include-uri',
+    ];
+    if (ignored.isEmpty) return null;
+    return '${ignored.join(', ')} '
+        '${ignored.length == 1 ? 'is' : 'are'} only used together with '
+        '--build; ignoring.';
   }
 
   /// Same contract as the release command's blankArgError, for the
@@ -728,6 +757,10 @@ class CodePushPatchSubCommand extends Command<int> {
       }
       if (baselineWarning != null) {
         _logger.warn(baselineWarning);
+      }
+      final buildOnlyWarning = buildOnlyFlagsWarning();
+      if (buildOnlyWarning != null) {
+        _logger.warn(buildOnlyWarning);
       }
 
       // Fetch the target release's metadata next — still ahead of any
