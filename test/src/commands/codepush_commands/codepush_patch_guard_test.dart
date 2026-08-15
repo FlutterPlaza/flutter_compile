@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
@@ -421,6 +422,10 @@ void main() {
         ['--package-prefix', 'package:x/'],
       );
       expect(cmd.buildOnlyFlagsWarning(), contains('--package-prefix'));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--flutter-version', '3.41.2'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), contains('--flutter-version'));
       // With --build they are read; nothing warns.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-entry-file', 'lib/x.dart'],
@@ -753,6 +758,20 @@ void main() {
       final (value, error) = channel(['--channel', '']);
       expect(value, isNull);
       expect(error, contains('Empty --channel'));
+    });
+  });
+
+  group('nonBlankEntries', () {
+    test('drops whitespace-only entries, keeps values UNTRIMMED', () {
+      // A trimmed value would bake a different compile-time constant
+      // into the patch than the release baked — the two commands
+      // must produce identical constants for identical input.
+      expect(
+        nonBlankEntries(['A=1', '  ', 'BANNER=beta ', '']),
+        ['A=1', 'BANNER=beta '],
+      );
+      expect(nonBlankEntries(null), isEmpty);
+      expect(nonBlankEntries([]), isEmpty);
     });
   });
 

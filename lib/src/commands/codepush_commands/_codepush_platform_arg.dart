@@ -65,3 +65,15 @@ const knownCodePushPlatforms = {
   }
   return (normalized, null);
 }
+
+/// Filters a repeatable option's entries: whitespace-only entries
+/// (an unset CI variable) are dropped; kept values are UNTRIMMED —
+/// a `--dart-define` value is compiled into both the release
+/// baseline and its patches, and the two commands must bake
+/// IDENTICAL constants (trimming on one side silently diverged a
+/// release from its own patch). One shared body so the two commands
+/// cannot drift, pinned directly.
+List<String> nonBlankEntries(List<String>? entries) => [
+      for (final value in entries ?? const <String>[])
+        if (value.trim().isNotEmpty) value,
+    ];

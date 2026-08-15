@@ -377,6 +377,12 @@ class CodePushPatchSubCommand extends Command<int> {
       if ((argResults?['dart-define'] as List<String>? ?? const [])
           .any((u) => u.trim().isNotEmpty))
         '--dart-define',
+      // Read at exactly one site, inside the build path — and the
+      // flag this command's own blankArgError calls dangerous when
+      // mis-set. (On release it IS read without --build: it becomes
+      // the release record — correctly absent from that list.)
+      if (((argResults?['flutter-version'] as String?) ?? '').trim().isNotEmpty)
+        '--flutter-version',
     ];
     if (ignored.isEmpty) return null;
     return '${ignored.join(', ')} '
@@ -804,10 +810,7 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.detail('Using Flutter version: $flutterVersion');
 
         final dartDefines =
-            (argResults?['dart-define'] as List<String>? ?? const <String>[])
-                .map((value) => value.trim())
-                .where((value) => value.isNotEmpty)
-                .toList();
+            nonBlankEntries(argResults?['dart-define'] as List<String>?);
         final extraBuildArgs = [
           for (final value in dartDefines) '--dart-define=$value',
         ];

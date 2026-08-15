@@ -502,9 +502,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.detail('Using Flutter version: $flutterVersion');
 
       final dartDefines =
-          (argResults?['dart-define'] as List<String>? ?? const <String>[])
-              .where((value) => value.isNotEmpty)
-              .toList();
+          nonBlankEntries(argResults?['dart-define'] as List<String>?);
       final extraBuildArgs = [
         for (final value in dartDefines) '--dart-define=$value',
       ];
@@ -947,6 +945,16 @@ class CodePushReleaseSubCommand extends Command<int> {
           'guard will not fire for this release): --snapshot named bytes '
           'other than this build\'s output, so the built bundle is not '
           'what this release serves.',
+        );
+      }
+      if (builtPlatform == 'ios' && !snapshotIsForeign && baselineId == null) {
+        // Mirror corner (--allow-missing-baseline with a failed
+        // stamp): the records are skipped for a different cause, and
+        // that skip must be as visible as the foreign-snapshot one.
+        _logger.info(
+          'Skipping the saved baseline app and per-release archive: no '
+          'baseline identity was stamped (see the warning above), so a '
+          'saved bundle could not be replayed against this release.',
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
