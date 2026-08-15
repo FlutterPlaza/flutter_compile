@@ -960,7 +960,10 @@ class CodePushPatchSubCommand extends Command<int> {
       String? signatureBase64;
       var signingKeyPath = argResults?['signing-key'] as String?;
       signingKeyPath ??= await CodePushClient.getStoredSigningKey();
-      if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
+      // trim(): blankness is classified the same way the
+      // precondition classifies it — '' and '  ' are one shape, or
+      // the two sites diverge under --unsigned.
+      if (signingKeyPath != null && signingKeyPath.trim().isNotEmpty) {
         final signProgress = _logger.progress('Signing patch');
         signatureBase64 = await buildService.signPatchContainer(
           patchPath: patchPath,

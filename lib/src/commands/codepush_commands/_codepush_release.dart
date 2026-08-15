@@ -203,7 +203,11 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// [versionValidationError] catches what is genuinely invalid.
   /// Static and pure; public for tests.
   static String pubspecVersionValue(String rawCapture) {
-    var value = rawCapture.split('#').first.trim();
+    // YAML starts a comment only at a '#' preceded by whitespace (or
+    // line start): 'version: 1.0.0#1' is the scalar '1.0.0#1', which
+    // must reach the validator's rejection — not be silently
+    // truncated into a version the pubspec does not contain.
+    var value = rawCapture.split(RegExp(r'(?<=^|\s)#')).first.trim();
     for (final quote in ['"', "'"]) {
       if (value.length >= 2 &&
           value.startsWith(quote) &&
@@ -297,11 +301,28 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     // Resolve version — flag, then pubspec — via the tested helper,
     // so the producer named in any later error is pinned rather
-    // than assigned by hand in two branches.
-    final pubspecFile = File('pubspec.yaml');
-    final (resolvedVersion, versionSource) = resolvedVersionAndSource(
-      pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null,
-    );
+    // than assigned by hand in two branches. The pubspec read is
+    // LAZY (a run that passed --version must never touch the file —
+    // blankArgError already rejected blank, so non-null means the
+    // flag wins) and GUARDED (a present-but-unreadable or non-UTF-8
+    // pubspec lands on the actionable no-version error below, not
+    // an unhandled FileSystemException after `--version` worked
+    // yesterday — same rule as prepareIosInterfaceFreeze's read).
+    String? pubspecContent;
+    if (argResults?['version'] == null) {
+      final pubspecFile = File('pubspec.yaml');
+      if (pubspecFile.existsSync()) {
+        try {
+          pubspecContent = pubspecFile.readAsStringSync();
+        } on FileSystemException {
+          pubspecContent = null;
+        } on FormatException {
+          pubspecContent = null;
+        }
+      }
+    }
+    final (resolvedVersion, versionSource) =
+        resolvedVersionAndSource(pubspecContent);
     final version = resolvedVersion;
     if (version == null || version.isEmpty) {
       _logger.err(

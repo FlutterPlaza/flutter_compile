@@ -1003,6 +1003,13 @@ void main() {
         CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1'),
         '1.0.0+1',
       );
+      // A '#' NOT preceded by whitespace is part of the scalar in
+      // YAML — it must survive to the validator's rejection, never
+      // be truncated into a version the pubspec does not contain.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0#1'),
+        '1.0.0#1',
+      );
     });
 
     test('pubspecVersionFrom: one line only; valueless falls through', () {
