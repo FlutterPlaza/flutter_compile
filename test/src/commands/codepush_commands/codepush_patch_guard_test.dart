@@ -422,8 +422,33 @@ void main() {
       addTearDown(() => key.parent.deleteSync(recursive: true));
       cmd.parsedArgs = cmd.argParser.parse(['--signing-key', key.path]);
       expect((await cmd.signingPreconditionError()).error, isNull);
-      // The no-flag row depends on ~/.flutter_compilerc and is
-      // deliberately not pinned here (no config seam).
+      // Stored-key rows, pinned via the injectable read (the real
+      // default reads ~/.flutter_compilerc).
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      final gone = await cmd.signingPreconditionError(
+        readStoredKey: () async => '/definitely/gone/key.pem',
+      );
+      expect(gone.error, contains('Stored signing key not found'));
+      expect(gone.isUsageError, isFalse);
+      // '--unsigned cannot skip a configured stored key.'
+      cmd.parsedArgs = cmd.argParser.parse(['--unsigned']);
+      final goneUnsigned = await cmd.signingPreconditionError(
+        readStoredKey: () async => '/definitely/gone/key.pem',
+      );
+      expect(goneUnsigned.error, contains('Stored signing key not found'));
+      // A whitespace rc round-trip classifies as absent: unsigned
+      // proceeds, signed hits the no-key guidance.
+      expect(
+        (await cmd.signingPreconditionError(readStoredKey: () async => ' '))
+            .error,
+        isNull,
+      );
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(
+        (await cmd.signingPreconditionError(readStoredKey: () async => ' '))
+            .error,
+        contains('No signing key found'),
+      );
     });
 
     test(
@@ -497,23 +522,27 @@ void main() {
       // The SILENT direction: an existing file that IS the build
       // output (any spelling — normalized comparison) must not draw
       // the warning; dropping the comparison entirely would fire a
-      // false 'your build output will be ignored' on the ordinary
-      // repeat---build flow.
-      final outFile = File(CodePushPatchSubCommand.kPatchOutputPath);
-      final preExisting = outFile.existsSync();
-      if (!preExisting) {
-        outFile.createSync(recursive: true);
-        addTearDown(() => outFile.deleteSync());
-      }
+      // false warning on the ordinary repeat---build flow. Anchored
+      // under a temp root via projectRootOverride — no test writes
+      // into the checkout.
+      final sameRoot = Directory.systemTemp.createTempSync('fcp_same');
+      addTearDown(() => sameRoot.deleteSync(recursive: true));
+      File('${sameRoot.path}/${CodePushPatchSubCommand.kPatchOutputPath}')
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([1]);
       for (final spelling in [
-        CodePushPatchSubCommand.kPatchOutputPath,
-        './${CodePushPatchSubCommand.kPatchOutputPath}',
-        'build/./codepush/patch.fcppatch',
+        '${sameRoot.path}/${CodePushPatchSubCommand.kPatchOutputPath}',
+        '${sameRoot.path}/./${CodePushPatchSubCommand.kPatchOutputPath}',
+        '${sameRoot.path}/build/./codepush/patch.fcppatch',
       ]) {
         cmd.parsedArgs = cmd.argParser.parse(
           ['--build', '--patch-file', spelling],
         );
-        expect(cmd.patchFileArgCheck().warning, isNull, reason: spelling);
+        expect(
+          cmd.patchFileArgCheck(projectRootOverride: sameRoot.path).warning,
+          isNull,
+          reason: spelling,
+        );
       }
     });
 

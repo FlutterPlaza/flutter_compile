@@ -219,11 +219,11 @@ class CodePushPatchSubCommand extends Command<int> {
   /// same shape: a backslash is a legal filename character on
   /// Linux, so 'odd\\patch.fcppatch' folds to a basename match and
   /// the miss lands post-build — the open direction again, accepted
-  /// for the same reason. An EXISTING file
-  /// whose basename is not the output's, under `--build`, warns:
-  /// the build will run and its output will be silently discarded
-  /// in favor of this pre-existing file — legitimate (re-sign and
-  /// upload a saved patch) but worth naming both paths. The path
+  /// for the same reason. An EXISTING file is judged by normalized
+  /// PATH instead — once it exists, the build cannot be what created
+  /// it — and draws a CONDITIONAL warning when it does not resolve
+  /// to the output: legitimate (re-sign and upload a saved patch)
+  /// but worth naming both paths. The path
   /// value is deliberately NOT trimmed (a leading space can be a
   /// legitimate filename); the trim below only classifies
   /// blank-as-unset. Public for tests; reads its own args so a
@@ -285,12 +285,28 @@ class CodePushPatchSubCommand extends Command<int> {
       if (shouldBuild) {
         String norm(String p) =>
             File(p).absolute.uri.normalizePath().toFilePath();
-        if (norm(explicitPatchFile) != norm(kPatchOutputPath)) {
+        bool sameAsOutput;
+        try {
+          sameAsOutput =
+              norm(explicitPatchFile) == norm('$root$kPatchOutputPath');
+        } catch (_) {
+          // Undecidable must not decide (the _plausiblySameFile
+          // lesson): a vanished cwd makes .absolute throw, and the
+          // open direction here is silence.
+          sameAsOutput = true;
+        }
+        if (!sameAsOutput) {
+          // CONDITIONAL wording: normalization cannot see through
+          // symlinked prefixes ($PWD is logical, getcwd is physical
+          // — macOS /var -> /private/var) or case-insensitive
+          // filesystems, so for those spellings the comparison is
+          // wrong and an assertive warning would state the opposite
+          // of what happens. The conditional is true in every case.
           return (
-            warning: '--patch-file $explicitPatchFile already exists and '
-                'is not the build output: the build will run, but its '
-                'output ($kPatchOutputPath) will be ignored — this '
-                'pre-existing file is what uploads.',
+            warning: '--patch-file $explicitPatchFile already exists: if '
+                'this is not the build output, the build will run but '
+                'THIS pre-existing file is what uploads (the build '
+                'writes to $kPatchOutputPath).',
             error: null,
             isUsageError: false,
           );
@@ -362,11 +378,13 @@ class CodePushPatchSubCommand extends Command<int> {
   /// building. An explicit `--signing-key` naming a missing file is
   /// the same class. Returns the error to print, or null. The late
   /// signing block stays as the backstop. Public for tests; reads
-  /// its own args. The stored-key rows read ~/.flutter_compilerc and
-  /// are deliberately unpinned (no config seam, #49); the arg-driven
-  /// rows are all pinned via real parses.
-  Future<({String? error, bool isUsageError})>
-      signingPreconditionError() async {
+  /// its own args. [readStoredKey] defaults to the real config read
+  /// and is injectable so the stored-key rows are pinned without a
+  /// config seam.
+  Future<({String? error, bool isUsageError})> signingPreconditionError({
+    Future<String?> Function() readStoredKey =
+        CodePushClient.getStoredSigningKey,
+  }) async {
     const okSigning = (error: null, isUsageError: false);
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
     final explicitKey = argResults?['signing-key'] as String?;
@@ -413,7 +431,7 @@ class CodePushPatchSubCommand extends Command<int> {
     // stored path (rotated key, rebuilt CI image, moved HOME) would
     // otherwise still end the run post-build at 'Signing failed' on
     // an invocation whose whole point was that signing is optional.
-    final storedKey = await CodePushClient.getStoredSigningKey();
+    final storedKey = await readStoredKey();
     // trim(): a hand-edited rc line 'codepush_signing_key: ' round-
     // trips as whitespace; both sites must classify it as absent or
     // the '--unsigned cannot skip a configured stored key' sentence
