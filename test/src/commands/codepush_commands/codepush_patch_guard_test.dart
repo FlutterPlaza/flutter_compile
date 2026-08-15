@@ -291,6 +291,15 @@ void main() {
         contains('/definitely/not/a.pem'),
       );
 
+      // Empty is REJECTED, not treated as absent: an unset CI
+      // variable must fail fast, not silently sign with a stored
+      // key the user did not name.
+      cmd.parsedArgs = cmd.argParser.parse(['--signing-key', '']);
+      expect(
+        await cmd.signingPreconditionError(),
+        contains('Empty --signing-key'),
+      );
+
       // An explicit key that exists passes without a config lookup.
       final key = File(
         '${Directory.systemTemp.createTempSync('fcp_sign').path}/k.pem',
@@ -335,6 +344,29 @@ void main() {
       // Shapes bare int.tryParse would admit — digits only.
       expect(parsed(['--rollout', '0x64']), isNull);
       expect(parsed(['--rollout', '+50']), isNull);
+      // Passes the regex, overflows the parse: must be a clean null,
+      // not a FormatException with a stack trace.
+      expect(parsed(['--rollout', '9' * 20]), isNull);
+    });
+
+    test('platformArgOrError: normalize, validate, never silently drop', () {
+      (String?, String?) resolved(List<String> args) {
+        cmd.parsedArgs = cmd.argParser.parse(args);
+        return cmd.platformArgOrError();
+      }
+
+      expect(resolved([]), (null, null));
+      // Wrong case previously matched NO branch and silently dropped
+      // the device-side baseline check — normalize instead.
+      expect(resolved(['--platform', 'iOS']), ('ios', null));
+      expect(resolved(['--platform', ' apk ']), ('apk', null));
+      // 'android' is the fallback alias the help never listed — it
+      // has always worked and must keep working.
+      expect(resolved(['--platform', 'android']), ('android', null));
+      // Free text is a fast exit 64, never an ungated upload.
+      final (value, error) = resolved(['--platform', 'web']);
+      expect(value, isNull);
+      expect(error, contains('web'));
     });
   });
 

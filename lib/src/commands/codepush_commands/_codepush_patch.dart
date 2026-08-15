@@ -173,9 +173,11 @@ class CodePushPatchSubCommand extends Command<int> {
     final raw = (argResults?['rollout'] as String? ?? '100').trim();
     // Digits only: bare int.tryParse would also admit '0x64' and
     // '+50', which would make "null on ANY invalid value" a lie.
+    // tryParse after the regex: a digit run wider than 64 bits
+    // passes the regex but overflows int.parse into a throw.
     if (!RegExp(r'^\d+$').hasMatch(raw)) return null;
-    final value = int.parse(raw);
-    if (value < 1 || value > 100) return null;
+    final value = int.tryParse(raw);
+    if (value == null || value < 1 || value > 100) return null;
     return value;
   }
 
@@ -218,6 +220,40 @@ class CodePushPatchSubCommand extends Command<int> {
     return missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild);
   }
 
+  /// Every value the command understands: the six documented ones
+  /// plus 'android', the alias the local-hash fallback has always
+  /// accepted.
+  static const knownPlatforms = {
+    'apk',
+    'appbundle',
+    'android',
+    'ios',
+    'linux',
+    'macos',
+    'windows',
+  };
+
+  /// Normalizes and validates `--platform`. A free-text value that
+  /// matches no branch would flow to the local-hash fallback, match
+  /// neither platform set, and silently drop the device-side
+  /// baseline check (served, not gated) — the platform the user
+  /// EXPLICITLY named must never be silently not-understood.
+  /// Returns (normalized value, error); a non-null error means exit
+  /// 64. Public for tests; reads its own args.
+  (String?, String?) platformArgOrError() {
+    final raw = (argResults?['platform'] as String?)?.trim();
+    if (raw == null || raw.isEmpty) return (null, null);
+    final normalized = raw.toLowerCase();
+    if (!knownPlatforms.contains(normalized)) {
+      return (
+        null,
+        'Unknown --platform "$raw". Use one of: '
+            'apk, appbundle, android, ios, linux, macos, windows.',
+      );
+    }
+    return (normalized, null);
+  }
+
   /// The no-key message — one source for the early precondition and
   /// the late backstop, so the two sites cannot drift.
   static const missingSigningKeyMessage =
@@ -241,7 +277,17 @@ class CodePushPatchSubCommand extends Command<int> {
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
     if (allowUnsigned) return null;
     final explicitKey = argResults?['signing-key'] as String?;
-    if (explicitKey != null && explicitKey.isNotEmpty) {
+    if (explicitKey != null) {
+      // Empty is REJECTED, not treated as absent: an unset CI
+      // variable expanding to '' is the commonest way this flag goes
+      // wrong, and silently falling back to the stored key would
+      // sign with a key the user did not name. Deciding it here
+      // keeps the two sites' answers identical (the late backstop
+      // also treats '' as unusable).
+      if (explicitKey.isEmpty) {
+        return 'Empty --signing-key value (an unset CI variable?). Pass a '
+            'key path, drop the flag to use the stored key, or --unsigned.';
+      }
       if (!File(explicitKey).existsSync()) {
         return 'Signing key not found: $explicitKey';
       }
@@ -345,8 +391,13 @@ class CodePushPatchSubCommand extends Command<int> {
       // Resolve the build platform BEFORE the release fetch: the
       // unguarded-release warning must not fire for a run that then
       // exits on argument validation — nothing was ever at risk.
+      final (platformArg, platformError) = platformArgOrError();
+      if (platformError != null) {
+        _logger.err(platformError);
+        return ExitCode.usage.code;
+      }
       if (shouldBuild) {
-        var resolvedPlatform = argResults?['platform'] as String?;
+        var resolvedPlatform = platformArg;
         resolvedPlatform ??= buildService.detectPlatform();
         if (resolvedPlatform == null) {
           _logger.err(
@@ -381,17 +432,24 @@ class CodePushPatchSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
       final baselineArg = argResults?['baseline'] as String?;
-      if (baselineArg != null &&
-          baselineArg.isNotEmpty &&
-          !File(baselineArg).existsSync()) {
-        // Not an exit — the run legitimately continues as a full
-        // snapshot — but say so HERE, where the operator can still
-        // cheaply abort, not buried mid-build (the packaging step
-        // repeats it in context).
-        _logger.warn(
-          'Baseline not found at $baselineArg — the patch will upload '
-          'as a full snapshot, not a diff.',
-        );
+      if (baselineArg != null && baselineArg.isNotEmpty) {
+        if (!shouldBuild) {
+          // The diff is computed from the freshly built snapshot, so
+          // without --build this flag is read by nothing — the quiet
+          // misreading worth a warning.
+          _logger.warn(
+            '--baseline is only used together with --build; ignoring it.',
+          );
+        } else if (!File(baselineArg).existsSync()) {
+          // Not an exit — the run legitimately continues as a full
+          // snapshot — but say so HERE, where the operator can still
+          // cheaply abort, not buried mid-build (the packaging step
+          // repeats it in context).
+          _logger.warn(
+            'Baseline not found at $baselineArg — the patch will upload '
+            'as a full snapshot, not a diff.',
+          );
+        }
       }
 
       // Fetch the target release's metadata next — still ahead of any
@@ -679,7 +737,7 @@ class CodePushPatchSubCommand extends Command<int> {
           );
         } else {
           payloadData = Uint8List.fromList(snapshotData);
-          if (baselinePath != null) {
+          if (baselinePath != null && baselinePath.isNotEmpty) {
             _logger.warn(
               'Baseline not found at $baselinePath, using full snapshot.',
             );
@@ -807,8 +865,7 @@ class CodePushPatchSubCommand extends Command<int> {
         // may be hashed (what devices actually run); the
         // merged_native_libs copy this used to hash is pre-strip and
         // hashes differently.
-        final patchPlatform =
-            (argResults?['platform'] as String?) ?? builtPlatform;
+        final patchPlatform = platformArg ?? builtPlatform;
         final isAndroidFallback =
             const {'apk', 'appbundle', 'android'}.contains(patchPlatform);
         final androidBaselineLib = isAndroidFallback
