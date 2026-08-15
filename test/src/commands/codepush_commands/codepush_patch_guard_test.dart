@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:flutter_compile/src/commands/codepush_commands/_codepush_patch.dart';
-import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_shared_args.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
@@ -426,6 +426,18 @@ void main() {
         ['--flutter-version', '3.41.2'],
       );
       expect(cmd.buildOnlyFlagsWarning(), contains('--flutter-version'));
+      // PLATFORM axis: the documented iOS-only flags on a non-iOS
+      // build are read by nothing and must say so; on an iOS build
+      // they are read and stay silent.
+      cmd.parsedArgs = cmd.argParser.parse(['--build', '--swap-mode']);
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('--swap-mode'),
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
+        isNull,
+      );
       // With --build they are read; nothing warns.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-entry-file', 'lib/x.dart'],
@@ -758,6 +770,19 @@ void main() {
       final (value, error) = channel(['--channel', '']);
       expect(value, isNull);
       expect(error, contains('Empty --channel'));
+    });
+  });
+
+  group('dartDefineValues (patch)', () {
+    test('the filter is applied AT THIS COMMAND, values untrimmed', () {
+      final cmd = ParsedArgsPatchCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--dart-define', 'BANNER=beta ', '--dart-define', '  '],
+      );
+      // Reverting this command's read to an unfiltered/trimming
+      // variant goes red HERE — the round-40 defect was an
+      // unobserved call site, not a diverged body.
+      expect(cmd.dartDefineValues(), ['BANNER=beta ']);
     });
   });
 

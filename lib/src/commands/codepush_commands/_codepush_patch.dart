@@ -3,7 +3,7 @@ import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:crypto/crypto.dart' show sha256;
-import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_shared_args.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
@@ -314,7 +314,8 @@ class CodePushPatchSubCommand extends Command<int> {
             warning: '--patch-file $explicitPatchFile already exists: if '
                 'this is not the build output, the build will run but '
                 'THIS pre-existing file is what uploads (the build '
-                'writes to $kPatchOutputPath).',
+                'writes to $kPatchOutputPath) — and signing rewrites '
+                'the named file in place to embed the signature.',
             error: null,
             isUsageError: false,
           );
@@ -360,9 +361,32 @@ class CodePushPatchSubCommand extends Command<int> {
   /// without this the identical typo is loud under --build and
   /// silent without it). Returns the warning or null. Public for
   /// tests; reads its own args.
-  String? buildOnlyFlagsWarning() {
+  String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    if (shouldBuild) return null;
+    if (shouldBuild) {
+      // Second axis: the documented "iOS only." flags on a build for
+      // another platform — read by nothing there, the mirror of the
+      // no---build asymmetry this helper already closes.
+      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      final iosOnly = <String>[
+        if (((argResults?['patch-entry-file'] as String?) ?? '')
+            .trim()
+            .isNotEmpty)
+          '--patch-entry-file',
+        if (((argResults?['package-prefix'] as String?) ?? '')
+            .trim()
+            .isNotEmpty)
+          '--package-prefix',
+        if (argResults?['swap-mode'] as bool? ?? false) '--swap-mode',
+        if ((argResults?['include-uri'] as List<String>? ?? const [])
+            .any((u) => u.trim().isNotEmpty))
+          '--include-uri',
+      ];
+      if (iosOnly.isEmpty) return null;
+      return '${iosOnly.join(', ')} '
+          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
+          'a $resolvedPlatform build.';
+    }
     final ignored = <String>[
       if (((argResults?['patch-entry-file'] as String?) ?? '')
           .trim()
@@ -389,6 +413,12 @@ class CodePushPatchSubCommand extends Command<int> {
         '${ignored.length == 1 ? 'is' : 'are'} only used together with '
         '--build; ignoring.';
   }
+
+  /// The --dart-define values, through the shared filter — public
+  /// and arg-reading so the FILTER cannot silently revert at this
+  /// command. Public for tests.
+  List<String> dartDefineValues() =>
+      nonBlankEntries(argResults?['dart-define'] as List<String>?);
 
   /// Same contract as the release command's blankArgError, for the
   /// boundary reads the per-flag helpers here do not own. A blank
@@ -770,7 +800,8 @@ class CodePushPatchSubCommand extends Command<int> {
       if (baselineWarning != null) {
         _logger.warn(baselineWarning);
       }
-      final buildOnlyWarning = buildOnlyFlagsWarning();
+      final buildOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: builtPlatform);
       if (buildOnlyWarning != null) {
         _logger.warn(buildOnlyWarning);
       }
@@ -809,8 +840,7 @@ class CodePushPatchSubCommand extends Command<int> {
         }
         _logger.detail('Using Flutter version: $flutterVersion');
 
-        final dartDefines =
-            nonBlankEntries(argResults?['dart-define'] as List<String>?);
+        final dartDefines = dartDefineValues();
         final extraBuildArgs = [
           for (final value in dartDefines) '--dart-define=$value',
         ];

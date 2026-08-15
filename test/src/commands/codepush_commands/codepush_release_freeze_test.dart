@@ -1151,6 +1151,14 @@ void main() {
       );
     });
 
+    test('dartDefineValues (release): filter applied at this command', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--dart-define', 'BANNER=beta ', '--dart-define', '  '],
+      );
+      expect(cmd.dartDefineValues(), ['BANNER=beta ']);
+    });
+
     test('platformArgOrError twin: forBuild wired, call pinned', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // Flipping forBuild to false re-opens `release --build

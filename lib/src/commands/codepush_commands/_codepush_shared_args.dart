@@ -1,3 +1,6 @@
+// Shared boundary-argument rules for the code push commands (one
+// body per rule, so the two commands cannot drift).
+
 /// Every `--platform` value the code push commands understand: the
 /// six documented ones plus 'android', the alias the patch command's
 /// local-hash fallback has always accepted. 'android' is neither

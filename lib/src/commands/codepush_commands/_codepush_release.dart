@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
-import 'package:flutter_compile/src/commands/codepush_commands/_codepush_platform_arg.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_shared_args.dart';
 import 'package:flutter_compile/src/shared/android_baseline_yaml.dart';
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
@@ -237,6 +237,13 @@ class CodePushReleaseSubCommand extends Command<int> {
         '${ignored.length == 1 ? 'is' : 'are'} only used together with '
         '--build; ignoring.';
   }
+
+  /// The --dart-define values, through the shared filter — public
+  /// and arg-reading so the FILTER cannot silently revert at this
+  /// command (the round-40 defect was an unobserved call site, not
+  /// a diverged body). Public for tests.
+  List<String> dartDefineValues() =>
+      nonBlankEntries(argResults?['dart-define'] as List<String>?);
 
   /// Twin of the patch command's platformArgOrError — the tested
   /// wire from this command to the shared rule, so `forBuild` cannot
@@ -501,8 +508,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       _logger.detail('Using Flutter version: $flutterVersion');
 
-      final dartDefines =
-          nonBlankEntries(argResults?['dart-define'] as List<String>?);
+      final dartDefines = dartDefineValues();
       final extraBuildArgs = [
         for (final value in dartDefines) '--dart-define=$value',
       ];
@@ -958,7 +964,15 @@ class CodePushReleaseSubCommand extends Command<int> {
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
-        _saveIosBaselineApp(baselineId: baselineId);
+        try {
+          _saveIosBaselineApp(baselineId: baselineId);
+        } catch (e) {
+          // Best-effort like the archive below: a post-success step
+          // must never fail a created release — the upload succeeded,
+          // and a CI retry keyed on the exit code would create a
+          // SECOND server release for the same version.
+          _logger.warn('Saved-baseline step skipped: $e');
+        }
 
         // Archive the saved baseline app + dSYM into a per-release
         // directory so a future device replay can reinstall the exact
