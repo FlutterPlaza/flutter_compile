@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_shared_args.dart';
 import 'package:flutter_compile/src/shared/android_baseline_yaml.dart';
 import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
@@ -157,6 +158,275 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Whether an explicit `--snapshot` names bytes OTHER than this
+  /// run's build output — ONE read shared by the attestation, the
+  /// baseline-app save, and the archive gate, so the three records
+  /// cannot disagree by drift. The flag alone is not the question:
+  /// a CI script that passes the built binary's own path explicitly
+  /// (the exact spelling the command's guidance teaches) is still
+  /// uploading the frozen build and keeps its attestation, saved
+  /// app, and archive. Trimmed like every boundary read. An
+  /// undecidable comparison resolves to TRUE (foreign): never
+  /// attest or archive on a guess — the closed-but-safe direction,
+  /// since the cost is a skipped record, not a rejection. Public
+  /// for tests; reads its own args.
+  bool get usedExplicitSnapshot => snapshotIsForeignTo();
+
+  /// Implementation of [usedExplicitSnapshot] with a root seam so
+  /// the PHYSICAL tier is testable without touching the checkout
+  /// (the default side is cwd-anchored in production).
+  bool snapshotIsForeignTo({String? projectRootOverride}) {
+    final defaultAppPath = projectRootOverride == null
+        ? kDefaultBuiltIosAppPath
+        : '$projectRootOverride/$kDefaultBuiltIosAppPath';
+    final raw = argResults?['snapshot'] as String?;
+    // Blankness classified on the trimmed value; the PATH itself is
+    // deliberately untrimmed so this classifies the same string
+    // run() stats and uploads (the path-flag rule).
+    if (raw == null || raw.trim().isEmpty) return false;
+    final appDir = builtIosAppDirFromBinaryPath(raw);
+    if (appDir == null) return true;
+    // PHYSICAL resolution on both sides: lexical normalization
+    // cannot see through symlinked prefixes ($PWD is logical, getcwd
+    // physical — macOS /var -> /private/var), and here a wrong
+    // 'foreign' answer costs four records, three permanently. Both
+    // paths exist when this matters (the snapshot was stat'ed, the
+    // default exists whenever --build ran on iOS); anything
+    // undecidable still resolves foreign via the catch.
+    try {
+      return Directory(appDir).resolveSymbolicLinksSync() !=
+          Directory(defaultAppPath).resolveSymbolicLinksSync();
+    } on FileSystemException {
+      // A side does not exist (e.g. --snapshot without --build, where
+      // no default output was produced): physical resolution is
+      // impossible, so fall back to lexical normalization — it still
+      // equates the plain spellings, and the records this getter
+      // gates are inert without a build anyway.
+      try {
+        String norm(String p) =>
+            File(p).absolute.uri.normalizePath().toFilePath();
+        return norm(appDir) != norm(defaultAppPath);
+      } catch (_) {
+        return true;
+      }
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Build-only flags passed without --build are read by nothing —
+  /// the patch command's rule, ported: an operator passing
+  /// --no-extendable-widgets on a --snapshot release has good
+  /// reason to believe they published an un-guarded attestation,
+  /// when the record is (correctly) unknown. Returns the warning
+  /// or null. Public for tests; reads its own args.
+  String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    // TWO lists, because the release command's axes genuinely
+    // differ (the patch command's did not): the freeze flags are
+    // build-only AND iOS-only, but the identity flags are read on
+    // every iOS release — a no---build --snapshot release NEEDS
+    // --baseline-id, and telling that flow the flag is ignored is
+    // the inverse of the defect this family exists to close (read,
+    // and says it isn't).
+    final iosBuildOnly = <String>[
+      if (argResults?.wasParsed('extendable-widgets') ?? false)
+        '--[no-]extendable-widgets',
+      if (argResults?.wasParsed('interface-freeze') ?? false)
+        '--[no-]interface-freeze',
+    ];
+    final iosIdentity = <String>[
+      if (((argResults?['baseline-id'] as String?) ?? '').trim().isNotEmpty)
+        '--baseline-id',
+      if (argResults?['allow-missing-baseline'] as bool? ?? false)
+        '--allow-missing-baseline',
+    ];
+    if (shouldBuild) {
+      // Second axis (the patch command's rule, both halves ported):
+      // the iOS-shaped flags on a build for another platform are
+      // read by nothing and must say so.
+      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      final iosOnly = [...iosBuildOnly, ...iosIdentity];
+      if (iosOnly.isEmpty) return null;
+      return '${iosOnly.join(', ')} '
+          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
+          'a $resolvedPlatform build.';
+    }
+    final ignored = <String>[
+      ...iosBuildOnly,
+      if (dartDefineValues().isNotEmpty) '--dart-define',
+    ];
+    final identityIgnored =
+        (resolvedPlatform != null && resolvedPlatform != 'ios')
+            ? iosIdentity
+            : const <String>[];
+    final buildOnlyMsg = ignored.isEmpty
+        ? null
+        : '${ignored.join(', ')} '
+            '${ignored.length == 1 ? 'is' : 'are'} only used together '
+            'with --build; ignoring.';
+    final identityMsg = identityIgnored.isEmpty
+        ? null
+        : '${identityIgnored.join(', ')} '
+            '${identityIgnored.length == 1 ? 'is' : 'are'} only used for '
+            'iOS releases; ignoring on $resolvedPlatform.';
+    if (buildOnlyMsg == null && identityMsg == null) return null;
+    return [buildOnlyMsg, identityMsg].whereType<String>().join(' ');
+  }
+
+  /// The --dart-define values, through the shared filter — public
+  /// and arg-reading so the FILTER cannot silently revert at this
+  /// command (the round-40 defect was an unobserved call site, not
+  /// a diverged body). Public for tests.
+  List<String> dartDefineValues() =>
+      nonBlankEntries(argResults?['dart-define'] as List<String>?);
+
+  /// Twin of the patch command's platformArgOrError — the tested
+  /// wire from this command to the shared rule, so `forBuild` cannot
+  /// silently flip (re-opening `release --build --platform android`)
+  /// and the call cannot vanish (re-opening the silent fail-open the
+  /// helper exists to close). Public for tests; reads its own args.
+  (String?, String?) platformArgOrError() => normalizeCodePushPlatformArg(
+        argResults?['platform'] as String?,
+        forBuild: argResults?['build'] as bool? ?? false,
+      );
+
+  /// Present-but-blank rejection for this command's own boundary
+  /// reads — the same contract the patch command's six flags follow
+  /// (an unset CI variable must cost a re-run, never be silently
+  /// re-interpreted). `--snapshot` blank is the worst of the three:
+  /// run() re-reads it and blank fell through to auto-discovery,
+  /// recording whatever the local build tree held as THIS version's
+  /// baseline identity — id and bytes agree, so nothing ever flags
+  /// it, and the app the operator actually shipped is simply never
+  /// offered an update. `--version` blank silently released under
+  /// the pubspec version; `--app-id` blank landed on the
+  /// pass-the-flag-you-passed message. Returns the error to print,
+  /// or null. A genuinely absent flag keeps its fallback (build /
+  /// pubspec / stored config). `--flutter-version` blank was the
+  /// quiet one: it fell through to local detection and recorded the
+  /// UPLOADING machine's SDK, so every patch for the release
+  /// compiled against the wrong Flutter. `--baseline-id` blank is
+  /// benign in outcome (the fallback reads the id from the same
+  /// bytes being uploaded) but joins the rule so the next reader
+  /// can tell it was decided, not missed. Public for tests; reads
+  /// its own args.
+  String? blankArgError() {
+    for (final flag in [
+      'snapshot',
+      'version',
+      'app-id',
+      'flutter-version',
+      'baseline-id',
+    ]) {
+      final raw = argResults?[flag] as String?;
+      if (raw != null && raw.trim().isEmpty) {
+        return 'Empty --$flag value (an unset CI variable?). Pass a value, '
+            'or drop the flag to use its normal fallback.';
+      }
+    }
+    return null;
+  }
+
+  /// Parses the raw capture of a pubspec `version:` line. Strips a
+  /// trailing YAML comment AND a matching surrounding quote pair —
+  /// both are ordinary, legal pubspec (`version: "1.0.0+1"`,
+  /// `version: 1.0.0+1 # bumped by CI`) that the end-of-line capture
+  /// keeps. The YAML subtleties are this PARSER's problem;
+  /// [versionValidationError] catches what is genuinely invalid.
+  /// Static and pure; public for tests.
+  static String pubspecVersionValue(String rawCapture) {
+    // YAML starts a comment only at a '#' preceded by whitespace (or
+    // line start): 'version: 1.0.0#1' is the scalar '1.0.0#1', which
+    // must reach the validator's rejection — not be silently
+    // truncated into a version the pubspec does not contain.
+    var value = rawCapture.split(RegExp(r'(?<=^|\s)#')).first.trim();
+    for (final quote in ['"', "'"]) {
+      if (value.length >= 2 &&
+          value.startsWith(quote) &&
+          value.endsWith(quote)) {
+        value = value.substring(1, value.length - 1).trim();
+        break;
+      }
+    }
+    return value;
+  }
+
+  /// Resolves the version from raw pubspec content, or null when the
+  /// key is absent or valueless. The capture is confined to ONE line
+  /// (`[^\S\r\n]` instead of `\s`, which crosses newlines): a
+  /// valueless `version:` must fall to the no-version error, never
+  /// read the NEXT line as the version. Quoting/comment subtleties
+  /// are [pubspecVersionValue]'s. Static and pure; public for tests.
+  static String? pubspecVersionFrom(String fileContent) {
+    final match = RegExp(
+      r'^version:[^\S\r\n]*(.*)$',
+      multiLine: true,
+    ).firstMatch(fileContent);
+    if (match == null) return null;
+    final value = pubspecVersionValue(match.group(1)!);
+    return value.isEmpty ? null : value;
+  }
+
+  /// The pubspec content the version resolution may consult, or null
+  /// when it must not or cannot. LAZY: a run that passed --version
+  /// never touches the file — blankArgError already rejected blank,
+  /// so a non-null flag wins; that coupling is recorded HERE, beside
+  /// the gate that depends on it (deleting blankArgError's 'version'
+  /// entry would change what a blank flag resolves to). GUARDED: an
+  /// unreadable or non-UTF-8 pubspec degrades to null — landing on
+  /// the actionable no-version error, with the cause kept at detail
+  /// visibility — never an unhandled exception on a run that worked
+  /// yesterday. Same rule as prepareIosInterfaceFreeze's read of
+  /// this file, same seam for tests. Public for tests; reads its
+  /// own args.
+  String? pubspecContentForVersion({String? projectRootOverride}) {
+    if (argResults?['version'] != null) return null;
+    final root = projectRootOverride ?? Directory.current.path;
+    final pubspecFile = File('$root/pubspec.yaml');
+    if (!pubspecFile.existsSync()) return null;
+    try {
+      return pubspecFile.readAsStringSync();
+    } on FileSystemException catch (e) {
+      _logger.detail('Could not read pubspec.yaml: $e');
+      return null;
+    } on FormatException catch (e) {
+      _logger.detail('Could not read pubspec.yaml: $e');
+      return null;
+    }
+  }
+
+  /// The resolved (version, source) pair: the trimmed `--version`
+  /// flag wins when non-blank; otherwise the pubspec content (null
+  /// content = no pubspec). The SOURCE is part of the contract — it
+  /// names the file the operator must fix in any later validation
+  /// error, and hand-assigning it in two run() branches let the two
+  /// be swapped with every test green. Public for tests; reads its
+  /// own args.
+  (String?, String) resolvedVersionAndSource(String? pubspecContent) {
+    final flagVersion = (argResults?['version'] as String?)?.trim();
+    if (flagVersion != null && flagVersion.isNotEmpty) {
+      return (flagVersion, '--version');
+    }
+    return (
+      pubspecContent == null ? null : pubspecVersionFrom(pubspecContent),
+      'pubspec.yaml',
+    );
+  }
+
+  /// The rejection for a release version that can be neither stamped
+  /// (Android yaml) nor matched by any device, or null. Uses the
+  /// SAME predicate the Android stamp enforces with its uncaught
+  /// ArgumentError ([isStampableReleaseVersion]), so the pre-check
+  /// cannot silently diverge from the crash it exists to prevent.
+  /// [source] names the producer so the operator checks the right
+  /// place. Public for tests.
+  String? versionValidationError(String version, {required String source}) {
+    if (isStampableReleaseVersion(version)) return null;
+    return 'Invalid release version "$version" (from $source): only '
+        'letters, digits, ".", "_", "+", and "-" are allowed.';
+  }
+
   @override
   final String name = 'release';
   @override
@@ -170,8 +440,29 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.software.code;
     }
 
-    // Resolve app ID.
-    var appId = argResults?['app-id'] as String?;
+    // Blank boundary reads reject before anything is resolved.
+    final blankError = blankArgError();
+    if (blankError != null) {
+      _logger.err(blankError);
+      return ExitCode.usage.code;
+    }
+
+    // Shared --platform rule with the patch command: every platform
+    // gate below is an exact-string compare that fails OPEN — a
+    // wrong-cased value would skip the iOS baseline-identity
+    // requirement and the Android packaged-lib rule silently. A
+    // value the command does not understand must be a fast exit.
+    final (platformArg, platformError) = platformArgOrError();
+    if (platformError != null) {
+      _logger.err(platformError);
+      return ExitCode.usage.code;
+    }
+
+    // Resolve app ID. Trimmed at the boundary: padding would be
+    // invisible in the progress prose, encode as '+' on the wire,
+    // and either fail AFTER the whole baseline upload or land the
+    // release under an app id nothing polls.
+    var appId = (argResults?['app-id'] as String?)?.trim();
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
@@ -180,28 +471,33 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Resolve version.
-    var version = argResults?['version'] as String?;
+    // Resolve version — flag, then pubspec — via the tested helpers,
+    // so the producer named in any later error is pinned rather
+    // than assigned by hand in two branches.
+    final (resolvedVersion, versionSource) =
+        resolvedVersionAndSource(pubspecContentForVersion());
+    final version = resolvedVersion;
     if (version == null || version.isEmpty) {
-      // Try to read from pubspec.yaml in current directory.
-      final pubspec = File('pubspec.yaml');
-      if (pubspec.existsSync()) {
-        final content = pubspec.readAsStringSync();
-        final match = RegExp(
-          r'^version:\s*(.+)$',
-          multiLine: true,
-        ).firstMatch(content);
-        if (match != null) {
-          version = match.group(1)?.trim();
-        }
-      }
-      if (version == null || version.isEmpty) {
-        _logger.err(
-          'No version specified. Use --version or add one to pubspec.yaml.',
-        );
-        return ExitCode.usage.code;
-      }
+      // Worded for BOTH causes: no version anywhere, and a pubspec
+      // that exists but could not be read (cause at --verbose).
+      _logger.err(
+        'No version specified. Use --version, or check that '
+        'pubspec.yaml exists, is readable, and has a version: line.',
+      );
+      return ExitCode.usage.code;
+    }
+    if (versionSource == 'pubspec.yaml') {
       _logger.detail('Using version from pubspec.yaml: $version');
+    }
+    // One validation after both producers converge — exit 64 here,
+    // not a mid-build crash or a silently unmatched server version.
+    final versionError = versionValidationError(
+      version,
+      source: versionSource,
+    );
+    if (versionError != null) {
+      _logger.err(versionError);
+      return ExitCode.usage.code;
     }
 
     // If --build is set, build the app first.
@@ -214,7 +510,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     String? builtPlatform;
 
     if (shouldBuild) {
-      var platform = argResults?['platform'] as String?;
+      var platform = platformArg;
       platform ??= buildService.detectPlatform();
       if (platform == null) {
         _logger.err(
@@ -223,11 +519,18 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       builtPlatform = platform;
+      // Second emission point: the platform is only known here, and
+      // the iOS-only axis needs it.
+      final iosOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: builtPlatform);
+      if (iosOnlyWarning != null) {
+        _logger.warn(iosOnlyWarning);
+      }
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
       final flutterVersion = await buildService.resolveFlutterVersion(
-        explicit: argResults?['flutter-version'] as String?,
+        explicit: (argResults?['flutter-version'] as String?)?.trim(),
         buildPlatform: platform,
         artifactManager: artifactManager,
       );
@@ -241,10 +544,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       _logger.detail('Using Flutter version: $flutterVersion');
 
-      final dartDefines =
-          (argResults?['dart-define'] as List<String>? ?? const <String>[])
-              .where((value) => value.isNotEmpty)
-              .toList();
+      final dartDefines = dartDefineValues();
       final extraBuildArgs = [
         for (final value in dartDefines) '--dart-define=$value',
       ];
@@ -388,7 +688,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     // by a flagless release would route into the Android branch — and
     // could upload a stale Android library as this version's baseline.
     // Creating a server record deserves an explicit choice.
-    final explicitPlatform = argResults?['platform'] as String?;
+    final explicitPlatform = platformArg;
     if (CodePushBuildService.releaseNeedsExplicitPlatform(
       explicitPlatform: explicitPlatform,
       builtPlatform: builtPlatform,
@@ -406,6 +706,19 @@ class CodePushReleaseSubCommand extends Command<int> {
         builtPlatform ??
         buildService.detectPlatform() ??
         'apk';
+
+    // The no-build advisory emits HERE, where the platform is known:
+    // the identity flags are iOS-only reads, and the round-46 split
+    // made 'iOS' the load-bearing word — a no-build apk release with
+    // --baseline-id was read by nothing and said nothing. (The build
+    // path's emission point is inside the build block.)
+    if (!shouldBuild) {
+      final releaseBuildOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: resolvedPlatform);
+      if (releaseBuildOnlyWarning != null) {
+        _logger.warn(releaseBuildOnlyWarning);
+      }
+    }
 
     // Resolve snapshot path.
     var snapshotPath = argResults?['snapshot'] as String?;
@@ -477,19 +790,67 @@ class CodePushReleaseSubCommand extends Command<int> {
     // (staler or newer) build whose id would not match the binary. A
     // --snapshot pointing outside an app bundle provides no identity
     // and must use --baseline-id.
+    // ONE read for the whole run (the getter re-resolves symlinks on
+    // every access, and a workspace cleanup between the identity,
+    // the attestation, and the archive gate could move later calls
+    // to a different tier — the records must share one answer).
+    final snapshotIsForeign = usedExplicitSnapshot;
     if (resolvedPlatform == 'ios') {
       final appDirForIdentity = builtIosAppDirFromBinaryPath(snapshotPath);
+      // Captured BEFORE the reassignment: the third-state message
+      // below asserts a stamp happened, which only this knows.
+      final stampedByThisBuild = baselineId;
       baselineId = resolveIosBaselineId(
-        stampedByBuild: baselineId,
+        // The stamp is withheld when --snapshot names foreign bytes:
+        // the stamped UUID lives only in the locally-built app that
+        // was never shipped, and recording it would create the
+        // no-error-anywhere never-updates release this block's own
+        // comment warns about — the foreign bundle's own id (or the
+        // explicit flag) is the identity of what actually serves.
+        // Fourth record on the usedExplicitSnapshot rule, beside the
+        // attestation, the saved app, and the archive.
+        stampedByBuild: snapshotIsForeign ? null : baselineId,
         explicitFlag: argResults?['baseline-id'] as String?,
         fromBuiltApp: appDirForIdentity != null
             ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
             : null,
       );
+      final explicitBaselineIdFlag =
+          (argResults?['baseline-id'] as String?)?.trim();
+      if (shouldBuild &&
+          !snapshotIsForeign &&
+          stampedByThisBuild != null &&
+          explicitBaselineIdFlag != null &&
+          explicitBaselineIdFlag.isNotEmpty) {
+        // The last flag read by nothing: correct (the built bytes
+        // carry the stamp) but no longer silent.
+        _logger.detail(
+          '--baseline-id is superseded by the id this build stamped; '
+          'ignoring the flag.',
+        );
+      }
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (shouldBuild) {
+        if (shouldBuild && snapshotIsForeign && stampedByThisBuild != null) {
+          // Third state (a foreign --snapshot on a run that BUILT
+          // and STAMPED — without --build the sibling branch below
+          // is correct and --allow-missing-baseline is the
+          // legitimate escape; a build whose stamp failed falls to
+          // the plist branch, which names that cause):
+          // this run DID stamp, but the stamp belongs to an app that
+          // never shipped, and the snapshot carries no readable id.
+          // --allow-missing-baseline is deliberately not suggested —
+          // it produces the never-updated release warned about above.
+          _logger.err(
+            'No baseline identity: --snapshot names bytes other than '
+            "this run's build output, so the build's stamped id does "
+            'not apply, and the snapshot carries no readable '
+            'FCPBaselineId. Pass --baseline-id <the id embedded in the '
+            "app those bytes come from>, point --snapshot at this "
+            "build's own binary, or drop --snapshot.",
+          );
+        } else if (shouldBuild) {
           // The build ran but could not stamp: the source plist was
           // missing (warned above). Telling the user to "re-run with
           // --build" would send them in a circle.
@@ -517,7 +878,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     _logger.detail('Snapshot size: ${snapshotData.length} bytes');
 
     // Resolve Flutter version for server-side compilation.
-    var flutterVersion = argResults?['flutter-version'] as String?;
+    // Trimmed at the boundary: the server records this verbatim as
+    // the SDK every future patch compiles against, and the padded
+    // shape otherwise becomes an engine-cache path with a space.
+    var flutterVersion = (argResults?['flutter-version'] as String?)?.trim();
     if (flutterVersion == null || flutterVersion.isEmpty) {
       final flutter = buildService.findFlutterBin();
       if (flutter != null) {
@@ -561,6 +925,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       'Creating release v$version for $appId$versionSuffix',
     );
 
+    final attestation = interfaceAttestation(
+      shouldBuild: shouldBuild,
+      builtPlatform: builtPlatform,
+      usedExplicitSnapshot: snapshotIsForeign,
+    );
     try {
       final result = await client.createRelease(
         token: token,
@@ -569,6 +938,8 @@ class CodePushReleaseSubCommand extends Command<int> {
         snapshotData: snapshotData,
         flutterVersion: flutterVersion,
         baselineId: baselineId,
+        interfaceFreeze: attestation.interfaceFreeze,
+        extendableWidgets: attestation.extendableWidgets,
       );
 
       final statusCode = result['status_code'] as int;
@@ -595,7 +966,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.software.code;
       }
 
-      final release = result['release'] as Map<String, dynamic>?;
+      // The 201 already happened: from here on a shape surprise must
+      // degrade to the unarchived-but-released path, never throw into
+      // the outer catch (exit 70 reads as failure and invites the CI
+      // retry that duplicates the release).
+      final rawRelease = result['release'];
+      final release = rawRelease is Map<String, dynamic> ? rawRelease : null;
       progress.complete('Release $version uploaded');
 
       if (release != null) {
@@ -610,17 +986,70 @@ class CodePushReleaseSubCommand extends Command<int> {
         }
       }
 
-      // Save the iOS baseline app for later device install.
-      if (builtPlatform == 'ios' && baselineId != null) {
-        _saveIosBaselineApp(baselineId: baselineId);
+      // Save the iOS baseline app for later device install — gated
+      // like the archive below: with an explicit --snapshot the
+      // saved bundle is NOT what this release serves (the recorded
+      // snapshot_hash is the foreign bytes'), and a device installed
+      // from it would silently fail the baseline check on every
+      // patch.
+      // Not gated on baselineId: the --allow-missing-baseline corner
+      // has a null id and skips all three records too — silence
+      // there was the worst combination.
+      if (builtPlatform == 'ios' && snapshotIsForeign) {
+        // The skip must not be silent: pre-gate this invocation
+        // printed the loud saved-app SUCCESS block, so its visible
+        // replacement must also be visible at default verbosity.
+        _logger.info(
+          'Skipping the saved baseline app and per-release archive, and '
+          'recording the interface attestation as unknown (the patch-time '
+          'guard will not fire for this release): --snapshot named bytes '
+          'other than this build\'s output, so the built bundle is not '
+          'what this release serves.',
+        );
+      }
+      if (builtPlatform == 'ios' && !snapshotIsForeign && baselineId == null) {
+        // Mirror corner (--allow-missing-baseline with a failed
+        // stamp): the records are skipped for a different cause, and
+        // that skip must be as visible as the foreign-snapshot one.
+        _logger.info(
+          'Skipping the saved baseline app and per-release archive: no '
+          'baseline identity was stamped (see the warning above), so a '
+          'saved bundle could not be replayed against this release.',
+        );
+      }
+      if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
+        // The archive is gated on the SAVE having succeeded: a failed
+        // delete leaves the PREVIOUS release's bundle at the saved
+        // path, and archiving it under this release's id would break
+        // the two-records-one-story invariant the best-effort
+        // conversion must not trade away.
+        final saved = saveIosBaselineApp(baselineId: baselineId);
 
         // Archive the saved baseline app + dSYM into a per-release
         // directory so a future device replay can reinstall the exact
         // bundle that produced this release. Best-effort; never fails
-        // a successful release.
-        final releaseId = release?['id'] as String?;
-        if (releaseId != null) {
+        // a successful release. Mirrors interfaceAttestation's
+        // --snapshot un-attestation: when an explicit --snapshot
+        // overrode the built bytes, the archived bundle would NOT be
+        // what this release serves, and a manifest claiming its spec
+        // attestation would out-claim the server record — so no
+        // archive is written for that release at all (the two records
+        // must tell the same story).
+        // Tolerant read (the releaseFromListing rule): a non-String
+        // id must not throw a TypeError AFTER the release was
+        // created — CI would retry and duplicate the release.
+        final releaseId = release?['id']?.toString().trim();
+        if (saved && releaseId != null && releaseId.isNotEmpty) {
           archiveIosBaseline(releaseId: releaseId, baselineId: baselineId);
+        } else {
+          // The block's rule: no silent skips. Covers every inner
+          // save failure (the false) and the no-release-id corner.
+          _logger.info(
+            'Skipping the per-release archive: '
+            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (no built Runner.app, or the copy failed — see any warning above)'}'
+            ' — archiving would record a bundle that did not produce '
+            'this release.',
+          );
         }
       }
 
@@ -884,6 +1313,42 @@ class CodePushReleaseSubCommand extends Command<int> {
         'patchable).';
   }
 
+  /// The interface attestation for THIS run's upload. Nulls (unknown)
+  /// unless the uploaded bytes came from an iOS build this run
+  /// performed — and an explicit `--snapshot` OVERRIDES the built
+  /// artifact, so it un-attests: recording `true` for foreign bytes
+  /// would silence the patch-time warning on a release that most
+  /// needs it. Nulls again when the evidence contradicts the intent:
+  /// the freeze is proven by the compiler's report, or by a cache hit
+  /// on an IDENTICAL spec (unchanged — the content-addressed name
+  /// guarantees a reused compile saw these exact bytes). A missing
+  /// report on any OTHER spec state is unexplainable — `changed` is
+  /// the suspected-SDK-drift state, and `unknown` includes the
+  /// from-scratch clean-CI build, where no cache hit can excuse the
+  /// absence ([checkInterfaceReportAfterBuild] warns on exactly this
+  /// split) — so the server record must tell the same story as the
+  /// archive. With the freeze deliberately off, intent and fact
+  /// agree: false.
+  /// Public for tests ([run] cannot be cheaply exercised).
+  ({bool? interfaceFreeze, bool? extendableWidgets}) interfaceAttestation({
+    required bool shouldBuild,
+    required String? builtPlatform,
+    required bool usedExplicitSnapshot,
+  }) {
+    if (!shouldBuild || builtPlatform != 'ios' || usedExplicitSnapshot) {
+      return (interfaceFreeze: null, extendableWidgets: null);
+    }
+    final spec = writtenInterfaceSpec;
+    if (spec == null) {
+      return (interfaceFreeze: false, extendableWidgets: false);
+    }
+    if (!interfaceReportObservedAfterBuild &&
+        spec.specChange != freeze_files.InterfaceSpecChange.unchanged) {
+      return (interfaceFreeze: null, extendableWidgets: null);
+    }
+    return (interfaceFreeze: true, extendableWidgets: spec.extendable);
+  }
+
   /// Archive the saved baseline for [releaseId], attesting the spec
   /// THIS run wrote (see [writtenInterfaceSpec]). Public for tests: the
   /// wire from the field to the archive service is the one link
@@ -906,29 +1371,72 @@ class CodePushReleaseSubCommand extends Command<int> {
     );
   }
 
-  void _saveIosBaselineApp({required String baselineId}) {
-    const source = 'build/ios/iphoneos/Runner.app';
-    const dest = 'build/codepush/baseline/Runner.app';
+  /// Best-effort BY CONSTRUCTION (the archive sibling's shape): a
+  /// post-success step must never fail a created release, so the
+  /// whole body is inside the try — deleting a caller-side wrapper
+  /// can no longer restore the exit-70 path. Public for tests;
+  /// [projectRootOverride] anchors the const paths.
+  bool saveIosBaselineApp({
+    required String baselineId,
+    String? projectRootOverride,
+  }) {
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
+    final source = '$root$kDefaultBuiltIosAppPath';
+    final dest = '${root}build/codepush/baseline/Runner.app';
+    try {
+      return _saveIosBaselineAppUnguarded(
+        baselineId: baselineId,
+        source: source,
+        dest: dest,
+      );
+    } catch (e) {
+      _logger.warn('Saved-baseline step skipped: $e');
+      return false;
+    }
+  }
 
+  bool _saveIosBaselineAppUnguarded({
+    required String baselineId,
+    required String source,
+    required String dest,
+  }) {
     final sourceDir = Directory(source);
     if (!sourceDir.existsSync()) {
       _logger.detail('No built Runner.app to save.');
-      return;
+      return false;
     }
 
-    // Remove any previous saved baseline.
+    // Copy to a sibling temp destination FIRST, then swap: deleting
+    // the previous bundle before the copy is known to land would
+    // trade good replayable state for nothing on a full disk (the
+    // realistic failure — this runs right after the build filled
+    // build/). The 2x peak footprint while both copies coexist is
+    // the accepted price. A kill mid-copy can leave a full-size
+    // <dest>.tmp behind; it lives under build/ (ships nowhere) and
+    // the delete below clears it on the next run.
     final destDir = Directory(dest);
+    final tmpDest = Directory('$dest.tmp');
+    if (tmpDest.existsSync()) {
+      tmpDest.deleteSync(recursive: true);
+    }
+    destDir.parent.createSync(recursive: true);
+    final result = Process.runSync('cp', ['-R', source, tmpDest.path]);
+    if (result.exitCode != 0) {
+      final stderr = result.stderr.toString().trim();
+      _logger.warn(
+        'Could not copy the built app into $dest'
+        '${stderr.isEmpty ? '' : ': $stderr'}. '
+        'Any previously saved bundle was left in place.',
+      );
+      if (tmpDest.existsSync()) {
+        tmpDest.deleteSync(recursive: true);
+      }
+      return false;
+    }
     if (destDir.existsSync()) {
       destDir.deleteSync(recursive: true);
     }
-    destDir.parent.createSync(recursive: true);
-
-    // Copy recursively.
-    final result = Process.runSync('cp', ['-R', source, dest]);
-    if (result.exitCode != 0) {
-      _logger.warn('Could not save baseline app to $dest');
-      return;
-    }
+    tmpDest.renameSync(dest);
 
     _logger.info('');
     _logger.success('Saved baseline app: $dest');
@@ -937,5 +1445,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       '  If installing manually on device, re-sign the saved '
       'app bundle recursively after any framework repair.',
     );
+    return true;
   }
 }

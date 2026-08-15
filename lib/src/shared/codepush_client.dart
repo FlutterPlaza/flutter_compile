@@ -22,12 +22,19 @@ class CodePushClient {
 
   /// Creates an [HttpClient] with optional certificate pinning.
   static HttpClient _createHttpClient(String? pinnedCertificatePath) {
+    // One connect deadline for EVERY call site: without it a stalled
+    // connect can hang the 'Uploading patch' spinner forever AFTER
+    // the whole build/sign pipeline (readTargetRelease's explicit
+    // timeout becomes a backstop rather than the only deadline).
+    // Connect-only, so a slow-but-progressing large upload is never
+    // cut off.
+    const connectDeadline = Duration(seconds: 30);
     if (pinnedCertificatePath == null) {
-      return HttpClient();
+      return HttpClient()..connectionTimeout = connectDeadline;
     }
     final context = SecurityContext(withTrustedRoots: false);
     context.setTrustedCertificates(pinnedCertificatePath);
-    return HttpClient(context: context);
+    return HttpClient(context: context)..connectionTimeout = connectDeadline;
   }
 
   /// Read the stored pinned certificate path from ~/.flutter_compilerc.
@@ -165,7 +172,12 @@ class CodePushClient {
     required String token,
     required String appId,
   }) async {
-    return _get('/api/v1/releases?app_id=$appId', token: token);
+    // Same encoding rule as releaseQueryPath — user-supplied ids
+    // must never reshape the query.
+    return _get(
+      '/api/v1/releases?app_id=${Uri.encodeQueryComponent(appId)}',
+      token: token,
+    );
   }
 
   /// POST /api/v1/releases — upload a release baseline.
@@ -178,6 +190,10 @@ class CodePushClient {
   ///
   /// [flutterVersion] is the Flutter SDK version this release was built
   /// with — required for server-side patch compilation.
+  /// [interfaceFreeze] / [extendableWidgets] attest whether the iOS
+  /// baseline was built with the interface freeze / widget guarding.
+  /// Null means unknown and is NOT sent — an old server ignores the
+  /// params either way, and absent must never read as "off".
   Future<Map<String, dynamic>> createRelease({
     required String token,
     required String appId,
@@ -185,37 +201,110 @@ class CodePushClient {
     required List<int> snapshotData,
     String? flutterVersion,
     String? baselineId,
+    bool? interfaceFreeze,
+    bool? extendableWidgets,
   }) async {
     return _postBinary(
       '/api/v1/releases',
       token: token,
       bytes: snapshotData,
-      queryParams: {
-        'app_id': appId,
-        'version': version,
-        if (flutterVersion != null) 'flutter_version': flutterVersion,
-        if (baselineId != null) 'baseline_id': baselineId,
-      },
+      queryParams: releaseQueryParams(
+        appId: appId,
+        version: version,
+        flutterVersion: flutterVersion,
+        baselineId: baselineId,
+        interfaceFreeze: interfaceFreeze,
+        extendableWidgets: extendableWidgets,
+      ),
     );
   }
 
-  /// Get the stored hash for a release, if available.
-  Future<String?> getReleaseHash({
+  /// The query params [createRelease] sends. Extracted (and static)
+  /// so the null-is-ABSENT contract is testable without an HTTP seam:
+  /// a null must drop the key entirely — serializing it would send the
+  /// literal string "null", which the server's tri-state parse reads
+  /// as a definite value, the exact shape unknown-is-not-false exists
+  /// to prevent.
+  static Map<String, String> releaseQueryParams({
+    required String appId,
+    required String version,
+    String? flutterVersion,
+    String? baselineId,
+    bool? interfaceFreeze,
+    bool? extendableWidgets,
+  }) {
+    return {
+      'app_id': appId,
+      'version': version,
+      if (flutterVersion != null) 'flutter_version': flutterVersion,
+      if (baselineId != null) 'baseline_id': baselineId,
+      if (interfaceFreeze != null)
+        'interface_freeze': interfaceFreeze.toString(),
+      if (extendableWidgets != null)
+        'extendable_widgets': extendableWidgets.toString(),
+    };
+  }
+
+  /// Get a release's JSON by id, or null when it does not exist or
+  /// the server is unreachable — best-effort by design, so callers
+  /// (the patch flow) degrade to their local fallbacks instead of
+  /// failing the command on a metadata read.
+  Future<Map<String, dynamic>?> getRelease({
     required String token,
     required String releaseId,
   }) async {
     try {
       final info = await _get(
-        '/api/v1/releases?release_id=$releaseId',
+        releaseQueryPath(releaseId),
         token: token,
       );
-      final releases = info['releases'] as List?;
-      if (releases == null || releases.isEmpty) return null;
-      final release = releases.first as Map<String, dynamic>;
-      return release['snapshot_hash'] as String?;
+      return releaseFromListing(info, releaseId);
     } catch (_) {
       return null;
     }
+  }
+
+  /// The GET path for a single-release lookup. Encoded: a space/&/#
+  /// in a mistyped id must surface as release-not-found, not as a
+  /// malformed URI that the caller's warn misreads as a session or
+  /// connectivity problem. Extracted (and static) so the encoding
+  /// cannot silently vanish — the POST side's releaseQueryParams
+  /// precedent. Public for tests.
+  static String releaseQueryPath(String releaseId) =>
+      '/api/v1/releases?release_id=${Uri.encodeQueryComponent(releaseId)}';
+
+  /// Picks the requested release out of a listing response, or null.
+  /// SEARCHES the whole list rather than trusting index 0: every
+  /// hardened read the caller makes on this map (guarding verdicts,
+  /// the stored baseline hash) presumes the map IS the release the
+  /// user named, and a server that ignored the `release_id` filter —
+  /// an unparseable id treated as an absent optional, a filter
+  /// regression, a cached list — most plausibly answers with the
+  /// app's FULL release list, wanted record included. A positional
+  /// match is just the special case of an id match. Assumes the
+  /// record's id key is `id` (the server's Release JSON; also what
+  /// the status and release commands read). Shape-tolerant on every
+  /// step — this helper is public precisely so callers without an
+  /// HTTP seam can use it, so it must not inherit-a-throw from a
+  /// surprise shape. Static so the filtering is testable directly.
+  static Map<String, dynamic>? releaseFromListing(
+    Map<String, dynamic> info,
+    String releaseId,
+  ) {
+    // UUIDs are case-insensitive identifiers: an upcased or padded
+    // --release-id must not turn a correct answer into "no release"
+    // (which would silence the guard warning AND drop the stored
+    // baseline hash) when a server matches it anyway.
+    final wanted = releaseId.trim().toLowerCase();
+    final releases = info['releases'];
+    if (releases is! List) return null;
+    for (final release in releases) {
+      if (release is Map<String, dynamic> &&
+          release['id']?.toString().trim().toLowerCase() == wanted) {
+        return release;
+      }
+    }
+    return null;
   }
 
   /// GET /api/v1/patches?release_id=...
@@ -223,7 +312,12 @@ class CodePushClient {
     required String token,
     required String releaseId,
   }) async {
-    return _get('/api/v1/patches?release_id=$releaseId', token: token);
+    // Same encoding rule as releaseQueryPath — the same
+    // user-supplied id flows here from the status command.
+    return _get(
+      '/api/v1/patches?release_id=${Uri.encodeQueryComponent(releaseId)}',
+      token: token,
+    );
   }
 
   /// POST /api/v1/patches — upload a patch.
@@ -324,37 +418,6 @@ class CodePushClient {
       token: token,
       body: {'patch_id': patchId},
     );
-  }
-
-  /// GET /api/v1/releases/{id}/snapshot -- download the baseline snapshot.
-  Future<List<int>?> downloadBaseline({
-    required String token,
-    required String releaseId,
-  }) async {
-    // First get the release info to find the snapshot URL.
-    final info =
-        await _get('/api/v1/releases?release_id=$releaseId', token: token);
-    final releases = info['releases'] as List?;
-    if (releases == null || releases.isEmpty) return null;
-
-    final release = releases.first as Map<String, dynamic>;
-    final snapshotUrl = release['snapshot_url'] as String?;
-    if (snapshotUrl == null) return null;
-
-    // Download the snapshot bytes.
-    final uri = Uri.parse(snapshotUrl);
-    final request = await _http.getUrl(uri);
-    if (token.isNotEmpty) {
-      request.headers.set('Authorization', 'Bearer $token');
-    }
-    final response = await request.close();
-    if (response.statusCode != 200) return null;
-
-    final chunks = <List<int>>[];
-    await for (final chunk in response) {
-      chunks.add(chunk);
-    }
-    return chunks.expand((c) => c).toList();
   }
 
   /// Fetch the server's encryption public key (cached in .flutter_compilerc).
@@ -653,5 +716,5 @@ class CodePushClient {
     }
   }
 
-  void close() => _http.close();
+  void close({bool force = false}) => _http.close(force: force);
 }

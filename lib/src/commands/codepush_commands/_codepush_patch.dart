@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:args/command_runner.dart';
 import 'package:crypto/crypto.dart' show sha256;
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_shared_args.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
@@ -89,10 +90,651 @@ class CodePushPatchSubCommand extends Command<int> {
         help: 'iOS only. Additional library URI to include in the '
             'bytecode module (repeatable). For patch-side helper '
             'libraries not discovered automatically.',
+      )
+      ..addFlag(
+        'allow-unguarded-release',
+        help: 'Acknowledge patching an iOS release that was built '
+            'without widget guarding (or without the interface '
+            'freeze): silences the warning. Patches that add new '
+            'widget subclasses will still fail on such a release.',
+        negatable: false,
       );
   }
 
   final Logger _logger;
+
+  /// Warn when the target [release] (its server JSON, or null when it
+  /// could not be fetched) was recorded as built without the
+  /// interface freeze or without widget guarding. Reads the
+  /// `--allow-unguarded-release` acknowledgement itself so the flag
+  /// link is testable with real parsed args. No platform gate: only
+  /// iOS release builds ever attest these keys, so a definite value
+  /// is itself proof this is an iOS release — a gate on the patch's
+  /// own platform flag would make the warning unreachable for plain
+  /// `--patch-file` uploads. Absent/null fields stay silent — every
+  /// pre-metadata release, old server, or fetch failure is unknown,
+  /// not unguarded. Public for tests ([run] cannot be cheaply
+  /// exercised).
+  void warnIfUnguardedRelease(
+    Map<String, dynamic>? release, {
+    bool repeat = false,
+  }) {
+    if (release == null) return;
+    final lead = repeat ? 'As noted before the build: ' : '';
+    final acknowledged =
+        argResults?['allow-unguarded-release'] as bool? ?? false;
+    if (acknowledged) return;
+    // Tolerant "off" read: the deployed server stores and returns
+    // real JSON booleans (verified live), but a string or int echo
+    // from some future server must degrade to a FIRED warning, not a
+    // silently inert feature. Only a definite off-shape warns.
+    // ('0' is the string echo of the int echo — a tinyint column
+    // serialized as text. 0.0 needs no clause: num equality already
+    // makes it == 0. 'FALSE'/'off'/etc. stay deliberately unknown.)
+    bool isOff(Object? value) =>
+        value == false || value == 'false' || value == 0 || value == '0';
+    if (isOff(release['interface_freeze'])) {
+      // Freeze off implies guarding off too — warn once, naming the
+      // root cause, not a flag the user never passed.
+      _logger.warn(
+        '${lead}This release was built without the interface freeze '
+        '(--no-interface-freeze): it may not be reliably patchable, '
+        'and patches that declare new widget subclasses will crash on '
+        'it. Pass --allow-unguarded-release to acknowledge and '
+        'silence this warning.',
+      );
+    } else if (isOff(release['extendable_widgets'])) {
+      _logger.warn(
+        '${lead}This release was built without widget guarding '
+        '(--no-extendable-widgets): a patch that declares new widget '
+        'subclasses — for example, a new screen — will crash on it. '
+        'Pass --allow-unguarded-release to acknowledge and silence '
+        'this warning.',
+      );
+    }
+  }
+
+  /// The release's stored `snapshot_hash`, or null when the value is
+  /// unusable. Same rule as [warnIfUnguardedRelease]'s tolerant read:
+  /// a server-shape surprise (non-String, empty, truncated) must
+  /// degrade to the local fallback — never crash after the whole
+  /// build, and never upload as a baseline identity no device can
+  /// match. The 16-char floor rejects definite-looking garbage while
+  /// admitting any real digest. Public for tests.
+  String? baselineHashFrom(Map<String, dynamic>? release) {
+    final rawHash = release?['snapshot_hash'];
+    return (rawHash is String && rawHash.length >= 16) ? rawHash : null;
+  }
+
+  /// Strict rollout parse: null on ANY invalid value — absent parses
+  /// as 100, but '50%', '0.5', 'fifty', 0, and 101 are all null. A
+  /// typo must cost a re-run, never silently widen to a full
+  /// rollout: that is the one direction not reversible from the CLI.
+  /// Public for tests; reads its own args so a real-parse test
+  /// covers the wire.
+  int? parseRollout() {
+    // Trimmed like every boundary read: ' 50' from a CI variable was
+    // correct before the strict parse and must stay correct.
+    final raw = (argResults?['rollout'] as String? ?? '100').trim();
+    // Digits only: bare int.tryParse would also admit '0x64' and
+    // '+50', which would make "null on ANY invalid value" a lie.
+    // tryParse after the regex: a digit run wider than 64 bits
+    // passes the regex but overflows int.parse into a throw.
+    if (!RegExp(r'^\d+$').hasMatch(raw)) return null;
+    final value = int.tryParse(raw);
+    if (value == null || value < 1 || value > 100) return null;
+    return value;
+  }
+
+  /// The legacy auto-discovery candidate an older fcp left in a
+  /// workspace — shared with the candidate list so the early
+  /// no-patch-file check and run()'s discovery cannot diverge.
+  static const kLegacyPatchOutputPath = 'build/patch.fcppatch';
+
+  /// Path the `--build` flow writes its packaged patch to. A class
+  /// const shared with the packaging and candidate-search sites, so
+  /// [patchFileArgCheck]'s one-output-path premise is enforced by
+  /// the compiler rather than a duplicated literal.
+  static const kPatchOutputPath = 'build/codepush/patch.fcppatch';
+
+  /// The early `--patch-file` check: (warning, error). Present-but-
+  /// blank REJECTS like its five siblings — the blank-means-absent
+  /// reading was the worst of the six: run() re-reads the arg for
+  /// path resolution, so an unset CI variable fell through to
+  /// auto-discovery and shipped whatever stale patch an earlier job
+  /// step left in the workspace. A missing file fails fast — EXCEPT
+  /// when `--build` is set and the argument may name the one path
+  /// the build can bring into existence ([kPatchOutputPath]): that
+  /// file legitimately does not exist yet on a clean tree, and the
+  /// in-place post-build check owns it. "May name" is judged by
+  /// BASENAME alone, deliberately: the typo class this guard exists
+  /// to catch is a misspelled basename, and any full-path
+  /// comparison is strictly narrower while being wrong through
+  /// symlinked prefixes (macOS `/var` → `/private/var`,
+  /// bind-mounted CI workspaces — getcwd is physical, the user's
+  /// spelling is not); a right-basename-wrong-directory value falls
+  /// through to the late check (accepted cost). The fold is
+  /// case-insensitive DELIBERATELY and macOS-shaped: on a
+  /// case-insensitive filesystem Patch.fcppatch genuinely resolves
+  /// to the output; on Linux the fold costs a fast exit (falls to
+  /// the late check) and can skip the ignored-output warn for a
+  /// case-differing file — the open direction both times, accepted
+  /// over a platform-conditional. The SEPARATOR fold ([/\\]) is the
+  /// same shape: a backslash is a legal filename character on
+  /// Linux, so 'odd\\patch.fcppatch' folds to a basename match and
+  /// the miss lands post-build — the open direction again, accepted
+  /// for the same reason. An EXISTING file is judged by normalized
+  /// PATH instead — once it exists, the build cannot be what created
+  /// it — and draws a CONDITIONAL warning when it does not resolve
+  /// to the output: legitimate (re-sign and upload a saved patch)
+  /// but worth naming both paths. The path
+  /// value is deliberately NOT trimmed (a leading space can be a
+  /// legitimate filename); the trim below only classifies
+  /// blank-as-unset. Public for tests; reads its own args so a
+  /// real-parse test covers the wire. [projectRootOverride] anchors
+  /// every relative path this check stats or compares (discovery
+  /// candidates, the output, a relative --patch-file) so tests hold
+  /// rows under a temp root; production passes none.
+  Future<({String? warning, String? error, bool isUsageError})>
+      patchFileArgCheck({
+    String? projectRootOverride,
+    Future<String?> Function() readStoredKey =
+        CodePushClient.getStoredSigningKey,
+  }) async {
+    // Will a signing key be USED? The rewrite happens whenever one
+    // resolves — --unsigned does not stop it ('--unsigned cannot
+    // skip a configured stored key'), so the advisory keys on this,
+    // not the flag. (run() resolves the stored key once up front and
+    // threads it here, to the precondition, and to the late signing
+    // block, so all three describe the same key.)
+    Future<bool> willSign() async {
+      // Mirrors the late block's ??= exactly: only a NULL flag falls
+      // back to the stored key. A present-but-blank flag (allowed
+      // through under --unsigned) makes the late block sign NOTHING
+      // — so it must not claim a rewrite here.
+      final explicitKey = argResults?['signing-key'] as String?;
+      if (explicitKey != null) return explicitKey.trim().isNotEmpty;
+      return ((await readStoredKey()) ?? '').trim().isNotEmpty;
+    }
+
+    const ok = (warning: null, error: null, isUsageError: false);
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
+    final explicitPatchFile = argResults?['patch-file'] as String?;
+    if (explicitPatchFile == null) {
+      // No flag, no --build: auto-discovery is two stats away —
+      // check them NOW so the run cannot print the unguarded-release
+      // warning and then exit having risked nothing (the spirit of
+      // the pre-fetch invariant; the late check stays as backstop).
+      final shouldBuild = argResults?['build'] as bool? ?? false;
+      if (!shouldBuild &&
+          !File('$root$kPatchOutputPath').existsSync() &&
+          !File('$root$kLegacyPatchOutputPath').existsSync()) {
+        return (
+          warning: null,
+          error: 'No patch file found. Use --build to compile, or '
+              '--patch-file to specify.',
+          isUsageError: true,
+        );
+      }
+      return ok;
+    }
+    if (explicitPatchFile.trim().isEmpty) {
+      // isUsageError carries the 64/70 split STRUCTURALLY — a blank
+      // value is a usage error like its five siblings; the
+      // missing-file paths keep 70 (the tabled continuity). Matching
+      // on message prose would silently re-split on a rewording.
+      return (
+        warning: null,
+        error: 'Empty --patch-file value (an unset CI variable?). Pass a '
+            'patch path, or drop the flag to use the build output.',
+        isUsageError: true,
+      );
+    }
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    final basename =
+        explicitPatchFile.split(RegExp(r'[/\\]')).last.toLowerCase();
+    final outputBasename = kPatchOutputPath.split('/').last;
+    // The override anchors BOTH sides: a relative --patch-file would
+    // otherwise stat the process cwd while the output resolves under
+    // the override root — two roots, green tests. Absolute args are
+    // untouched; production passes no override (root == '').
+    String anchored(String p) => File(p).isAbsolute ? p : '$root$p';
+    if (File(anchored(explicitPatchFile)).existsSync()) {
+      // Once the file EXISTS, the build cannot be what created it —
+      // so this branch judges by NORMALIZED path, not basename: a
+      // stale build/patch.fcppatch (the legacy discovery candidate)
+      // with the matching basename would otherwise be silently
+      // uploaded over the fresh build output. Normalization is safe
+      // ONLY here: an unequal answer costs an advisory line, never a
+      // rejection (the round-10 symlink lesson stays with the
+      // missing-file branch, where a wrong 'different' meant a hard
+      // exit on a correct invocation) — while './'-, '\$PWD'- and
+      // interior-dot spellings of the output stop drawing a false
+      // 'your build output will be ignored'. Two distinct lexical
+      // paths cannot normalize equal, so the stale candidate stays
+      // caught.
+      if (shouldBuild) {
+        String norm(String p) =>
+            File(p).absolute.uri.normalizePath().toFilePath();
+        bool sameAsOutput;
+        try {
+          sameAsOutput = norm(anchored(explicitPatchFile)) ==
+              norm('$root$kPatchOutputPath');
+        } catch (_) {
+          // Undecidable must not decide (the _plausiblySameFile
+          // lesson): a vanished cwd makes .absolute throw, and the
+          // open direction here is silence.
+          sameAsOutput = true;
+        }
+        if (!sameAsOutput) {
+          // CONDITIONAL wording: normalization cannot see through
+          // symlinked prefixes ($PWD is logical, getcwd is physical
+          // — macOS /var -> /private/var) or case-insensitive
+          // filesystems, so for those spellings the comparison is
+          // wrong and an assertive warning would state the opposite
+          // of what happens. The conditional is true in every case.
+          // The rewrite suffix appears only when a key will be used
+          // — an unsigned upload with no key never touches the file.
+          final rewriteSuffix = await willSign()
+              ? ' — and signing rewrites the named file in place to '
+                  'embed the signature.'
+              : '.';
+          return (
+            warning: '--patch-file $explicitPatchFile already exists: if '
+                'this is not the build output, the build will run but '
+                'THIS pre-existing file is what uploads (the build '
+                'writes to $kPatchOutputPath)$rewriteSuffix',
+            error: null,
+            isUsageError: false,
+          );
+        }
+      }
+      if (!shouldBuild && await willSign()) {
+        // The rewrite is NOT gated on --build OR on --unsigned: the
+        // signing step runs whenever a key resolves and re-signs the
+        // named file IN PLACE — the saved-artifact flow (re-sign and
+        // upload a kept patch) is exactly where an untouched copy is
+        // expected.
+        return (
+          warning: 'Signing will rewrite $explicitPatchFile in place to '
+              'embed the signature — keep a copy elsewhere if you need '
+              'the original bytes.',
+          error: null,
+          isUsageError: false,
+        );
+      }
+      return ok;
+    }
+    if (shouldBuild && basename == outputBasename) return ok;
+    return (
+      warning: null,
+      error: missingPatchFileMessage(explicitPatchFile, withBuild: shouldBuild),
+      isUsageError: false,
+    );
+  }
+
+  /// Early check for an EXPLICIT --patch-entry-file: the
+  /// missing-file and outside-lib shapes are pure argument mistakes
+  /// (one stat plus a string rule) that used to surface only after
+  /// the fetch and the guard warning. Message text matches the late
+  /// resolver exactly so the two sites cannot drift; auto-discovery
+  /// (no flag) stays late — it scans lib/. Blank is blankArgError's.
+  /// Public for tests; [projectRootOverride] anchors a relative
+  /// stat AND the lib root the import check resolves against.
+  String? patchEntryFileArgError({String? projectRootOverride}) {
+    final raw = argResults?['patch-entry-file'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    final root = projectRootOverride == null ? '' : '$projectRootOverride/';
+    final anchoredPath = File(raw).isAbsolute ? raw : '$root$raw';
+    if (!File(anchoredPath).existsSync()) {
+      return 'Patch entry source not found: $raw';
+    }
+    if (importPathForPatchSource(anchoredPath, libDirPath: '${root}lib') ==
+        null) {
+      return '--patch-entry-file must point to a Dart file under `lib/`.';
+    }
+    return null;
+  }
+
+  /// iOS build-only flags passed without --build are read by
+  /// nothing — the quiet misreading baselineArgCheck already warns
+  /// for; the same rule for its four siblings, in one line (the new
+  /// early entry-file validation is gated on the build path, so
+  /// without this the identical typo is loud under --build and
+  /// silent without it). Returns the warning or null. Public for
+  /// tests; reads its own args.
+  String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    // ONE list for the "iOS only." flags, consumed by both axes — a
+    // fifth entry added to one axis and missed on the other was a
+    // silent regression on the missed axis. The repeatable options
+    // go through their own pinned helpers.
+    final iosOnly = <String>[
+      if (((argResults?['patch-entry-file'] as String?) ?? '')
+          .trim()
+          .isNotEmpty)
+        '--patch-entry-file',
+      if (((argResults?['package-prefix'] as String?) ?? '').trim().isNotEmpty)
+        '--package-prefix',
+      if (argResults?['swap-mode'] as bool? ?? false) '--swap-mode',
+      if (includeUriValues().isNotEmpty) '--include-uri',
+    ];
+    if (shouldBuild) {
+      // Second axis: the documented "iOS only." flags on a build for
+      // another platform — read by nothing there, the mirror of the
+      // no---build asymmetry this helper already closes.
+      if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      if (iosOnly.isEmpty) return null;
+      return '${iosOnly.join(', ')} '
+          '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
+          'a $resolvedPlatform build.';
+    }
+    final ignored = <String>[
+      ...iosOnly,
+      if (dartDefineValues().isNotEmpty) '--dart-define',
+      // Read at exactly one site, inside the build path — and the
+      // flag this command's own blankArgError calls dangerous when
+      // mis-set. (On release it IS read without --build: it becomes
+      // the release record — correctly absent from that list.)
+      if (((argResults?['flutter-version'] as String?) ?? '').trim().isNotEmpty)
+        '--flutter-version',
+    ];
+    if (ignored.isEmpty) return null;
+    return '${ignored.join(', ')} '
+        '${ignored.length == 1 ? 'is' : 'are'} only used together with '
+        '--build; ignoring.';
+  }
+
+  /// The --dart-define values, through the shared filter — public
+  /// and arg-reading so the FILTER cannot silently revert at this
+  /// command. Public for tests.
+  List<String> dartDefineValues() =>
+      nonBlankEntries(argResults?['dart-define'] as List<String>?);
+
+  /// The --include-uri entries: trimmed AND filtered — the
+  /// deliberate divergence from [nonBlankEntries], stated where the
+  /// two rules sit apart: these are package URIs, only ever
+  /// string-compared, where whitespace can match nothing (a
+  /// --dart-define value, by contrast, is compiled in and stays
+  /// untrimmed). Public for tests.
+  List<String> includeUriValues() => [
+        for (final u in argResults?['include-uri'] as List<String>? ?? const [])
+          if (u.trim().isNotEmpty) u.trim(),
+      ];
+
+  /// Same contract as the release command's blankArgError, for the
+  /// boundary reads the per-flag helpers here do not own. A blank
+  /// --flutter-version silently fell through to local detection,
+  /// recording the machine's own SDK — the patch then targets a
+  /// release compiled against a different Flutter. A blank
+  /// --patch-entry-file fell into candidate discovery, which errors
+  /// on ambiguity but with exactly one candidate ships code the
+  /// operator did not name. A blank --package-prefix is benign (the
+  /// pubspec auto-detect answers the same) and joins the rule so
+  /// the next reader can tell it was decided. Public for tests;
+  /// reads its own args.
+  String? blankArgError() {
+    for (final flag in [
+      'flutter-version',
+      'package-prefix',
+      'patch-entry-file',
+    ]) {
+      final raw = argResults?[flag] as String?;
+      if (raw != null && raw.trim().isEmpty) {
+        return 'Empty --$flag value (an unset CI variable?). Pass a value, '
+            'or drop the flag to use its normal fallback.';
+      }
+    }
+    return null;
+  }
+
+  /// Normalizes and validates `--platform` via the shared
+  /// [normalizeCodePushPlatformArg] (one rule for the patch AND
+  /// release commands). A free-text value that matches no branch
+  /// would flow to the local-hash fallback, match neither platform
+  /// set, and silently drop the device-side baseline check (served,
+  /// not gated) — the platform the user EXPLICITLY named must never
+  /// be silently not-understood. Returns (normalized value, error);
+  /// a non-null error means exit 64. Public for tests; reads its own
+  /// args.
+  (String?, String?) platformArgOrError() => normalizeCodePushPlatformArg(
+        argResults?['platform'] as String?,
+        forBuild: argResults?['build'] as bool? ?? false,
+      );
+
+  /// The no-key message — one source for the early precondition and
+  /// the late backstop, so the two sites cannot drift.
+  static const missingSigningKeyMessage =
+      'No signing key found. Patches must be signed for production.\n'
+      '  Run "fcp codepush keys generate" to create a key pair, then\n'
+      '  "fcp codepush keys register" to upload the public key, or\n'
+      '  pass --signing-key <path>.\n'
+      '  To bypass (testing only): --unsigned';
+
+  /// The signing preconditions, checkable BEFORE any build work: on
+  /// a fresh machine or a new CI runner with no registered key the
+  /// run can only ever end at the no-key error, and the remedy is a
+  /// two-step key setup — the worst thing to learn after minutes of
+  /// building. An explicit `--signing-key` naming a missing file is
+  /// the same class. Returns the error to print, or null. The late
+  /// signing block stays as the backstop. Public for tests; reads
+  /// its own args. [readStoredKey] defaults to the real config read
+  /// and is injectable so the stored-key rows are pinned without a
+  /// config seam.
+  Future<({String? error, bool isUsageError})> signingPreconditionError({
+    Future<String?> Function() readStoredKey =
+        CodePushClient.getStoredSigningKey,
+  }) async {
+    const okSigning = (error: null, isUsageError: false);
+    final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
+    final explicitKey = argResults?['signing-key'] as String?;
+    // Blankness is classified on the TRIMMED value like every
+    // sibling — '' and '  ' are the same unset variable, and must
+    // not diverge (whitespace used to hit 'Signing key not found:  '
+    // while empty got the blank message, and under --unsigned the
+    // two behaved differently). The stat below still uses the
+    // UNTRIMMED path — the deliberate path-flag rule.
+    final explicitKeyIsBlank =
+        explicitKey != null && explicitKey.trim().isEmpty;
+    // A usable explicit key is checked even under --unsigned: the
+    // late block signs whenever a key path is present, so a broken
+    // explicit key would still end the run post-build.
+    if (explicitKey != null && !explicitKeyIsBlank) {
+      if (!File(explicitKey).existsSync()) {
+        return (
+          error: 'Signing key not found: $explicitKey',
+          isUsageError: false
+        );
+      }
+      return okSigning;
+    }
+    if (explicitKeyIsBlank) {
+      // Empty: under --unsigned it proceeds (matching the late
+      // block, which ignores an empty key there); otherwise it is
+      // REJECTED, not treated as absent — an unset CI variable
+      // expanding to '' is the commonest way this flag goes wrong,
+      // and silently falling back to the stored key would sign with
+      // a key the user did not name.
+      if (allowUnsigned) return okSigning;
+      // isUsageError: a blank value decided from argResults alone is
+      // a usage error (64) like its six siblings; the missing-KEY
+      // messages keep 70 (backstop continuity).
+      return (
+        error: 'Empty --signing-key value (an unset CI variable?). Pass a '
+            'key path, drop the flag to use the stored key, or --unsigned.',
+        isUsageError: true,
+      );
+    }
+    // No explicit key. The stored key is checked EVEN under
+    // --unsigned, because the late block consults it unconditionally
+    // and signs whenever the resolved path is non-empty — a dangling
+    // stored path (rotated key, rebuilt CI image, moved HOME) would
+    // otherwise still end the run post-build at 'Signing failed' on
+    // an invocation whose whole point was that signing is optional.
+    final storedKey = await readStoredKey();
+    // trim(): a hand-edited rc line 'codepush_signing_key: ' round-
+    // trips as whitespace; both sites must classify it as absent or
+    // the '--unsigned cannot skip a configured stored key' sentence
+    // stops being true for this shape.
+    if (storedKey == null || storedKey.trim().isEmpty) {
+      // Genuinely no key anywhere: fine under --unsigned.
+      if (allowUnsigned) return okSigning;
+      return (error: missingSigningKeyMessage, isUsageError: false);
+    }
+    if (!File(storedKey).existsSync()) {
+      return (
+        error: 'Stored signing key not found: $storedKey (from '
+            '~/.flutter_compilerc). Remove the stale entry, re-run '
+            '"fcp codepush keys generate", or pass --signing-key <path>. '
+            '(--unsigned cannot skip a configured stored key: the signing '
+            'step uses whatever the config names.)',
+        isUsageError: false,
+      );
+    }
+    return okSigning;
+  }
+
+  /// The upload channel: trimmed like every boundary read. Present-
+  /// but-blank is REJECTED like the three flags beside it
+  /// (--signing-key, --platform, --rollout): an unset CI variable
+  /// must cost a re-run — pre-fix it created a patch on channel ''
+  /// that no device polls (verified: the server stores the empty
+  /// string verbatim), and defaulting instead would publish to the
+  /// widest channel there is at the default rollout, the direction
+  /// parseRollout refuses for the sibling option. A genuinely
+  /// absent flag defaults to 'production'. Returns
+  /// (channel, error); a non-null error means exit 64. Public for
+  /// tests; reads its own args.
+  (String?, String?) resolvedChannelOrError() {
+    final raw = argResults?['channel'] as String?;
+    // Null only when argResults itself is absent (direct helper
+    // calls in tests): on every real invocation the PARSER supplies
+    // the 'production' default, not this branch.
+    if (raw == null) return ('production', null);
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) {
+      return (
+        null,
+        'Empty --channel value (an unset CI variable?). Pass a channel '
+            'name or drop the flag (default: production).',
+      );
+    }
+    return (trimmed, null);
+  }
+
+  /// The rejection message for an invalid `--rollout`: leads with
+  /// the likely cause for the unset-variable shape (its siblings'
+  /// convention — the readable line in a CI log), the value domain
+  /// otherwise. [parseRollout] collapses every invalid shape to
+  /// null, so the split happens here. Public for tests; reads its
+  /// own args.
+  String rolloutErrorMessage() {
+    final raw = (argResults?['rollout'] as String? ?? '100').trim();
+    if (raw.isEmpty) {
+      return 'Empty --rollout value (an unset CI variable?). Pass an '
+          'integer between 1 and 100, or drop the flag (default: 100).';
+    }
+    return 'Rollout percentage must be an integer between 1 and 100.';
+  }
+
+  /// The pre-build `--baseline` check: (warning, error). Present-
+  /// but-blank is an ERROR like every other boundary read (an unset
+  /// CI variable — pre-fix it silently uploaded a full snapshot
+  /// with BOTH advisories suppressed by the isEmpty guards). The
+  /// path value is deliberately NOT trimmed for the stat (a leading
+  /// space can be a legitimate filename; the trim below only
+  /// classifies blank-as-unset), matching the late reader. The
+  /// two advisory directions stay warnings, not exits: without
+  /// `--build` the flag is read by nothing (the diff comes from the
+  /// freshly built snapshot) — the quiet misreading worth flagging;
+  /// with `--build`, a path that does not exist means a
+  /// full-snapshot upload, legitimate but worth saying where the
+  /// operator can still cheaply abort (the packaging step repeats
+  /// it in context). Public for tests; reads its own args.
+  (String?, String?) baselineArgCheck() {
+    final baselineArg = argResults?['baseline'] as String?;
+    if (baselineArg == null) return (null, null);
+    if (baselineArg.trim().isEmpty) {
+      return (
+        null,
+        'Empty --baseline value (an unset CI variable?). Pass a baseline '
+            'path, or drop the flag to upload a full snapshot.',
+      );
+    }
+    final shouldBuild = argResults?['build'] as bool? ?? false;
+    if (!shouldBuild) {
+      return (
+        '--baseline is only used together with --build; ignoring it.',
+        null,
+      );
+    }
+    if (!File(baselineArg).existsSync()) {
+      return (
+        'Baseline not found at $baselineArg — the patch will upload '
+            'as a full snapshot, not a diff.',
+        null,
+      );
+    }
+    return (null, null);
+  }
+
+  /// The missing-patch-file error. Under `--build` it names the path
+  /// the build writes ([kPatchOutputPath]) and that `--patch-file`
+  /// can be dropped — the fix the operator almost certainly wants,
+  /// whether the miss was caught BEFORE the build (a basename the
+  /// build can never produce) or AFTER it (right basename, wrong
+  /// directory — the fail-open case, where the guidance matters most
+  /// because minutes were already spent).
+  static String missingPatchFileMessage(
+    String path, {
+    required bool withBuild,
+  }) {
+    if (!withBuild) return 'Patch file not found: $path';
+    return 'Patch file not found: $path. With --build the patch is '
+        'written to $kPatchOutputPath — pass that path, or drop '
+        '--patch-file entirely.';
+  }
+
+  /// Read the target release and inspect it BEFORE any build: the
+  /// null warn and the unguarded-release warn both fire here, where
+  /// aborting is still cheap. Generous default deadline: this fetch
+  /// also carries the release's stored baseline hash, and for a
+  /// patch-file-only invocation there is no local fallback — so a
+  /// timeout must be rare (30s tolerates a cold proxy handshake) and
+  /// degrade like every other failure. Public for tests ([run]
+  /// cannot be cheaply exercised), because this wire is the one
+  /// place where deleting a call leaves the whole guard feature
+  /// inert with every unit test still green.
+  Future<Map<String, dynamic>?> readTargetRelease({
+    required CodePushClient client,
+    required String token,
+    required String releaseId,
+    // Matches the client-wide connectionTimeout on purpose: for a
+    // stalled CONNECT the two fire together; this one additionally
+    // covers a server that accepts and then stalls on the body,
+    // which the connect deadline cannot see. Neither is redundant.
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    _logger.detail('Reading release $releaseId…');
+    final releaseInfo = await client
+        .getRelease(token: token, releaseId: releaseId)
+        .timeout(timeout, onTimeout: () => null);
+    if (releaseInfo == null) {
+      // Cheap to say NOW, expensive to discover after the build: a
+      // typo'd release id, an expired login, an old server, and
+      // being offline all collapse into this null.
+      _logger.warn(
+        'Could not read release $releaseId from the server (wrong '
+        'id, expired login, offline, or an old server). Continuing '
+        "— the upload will verify the release id, but the release's "
+        'stored baseline hash could not be read: unless a local '
+        'build supplies one, this patch uploads without the '
+        'device-side baseline check.',
+      );
+    }
+    warnIfUnguardedRelease(releaseInfo);
+    return releaseInfo;
+  }
 
   @override
   final String name = 'patch';
@@ -107,9 +749,16 @@ class CodePushPatchSubCommand extends Command<int> {
       return ExitCode.software.code;
     }
 
-    final releaseId = argResults?['release-id'] as String?;
+    // Trimmed at the boundary so the query, the listing comparison,
+    // and the upload all agree on the same spelling.
+    final releaseId = (argResults?['release-id'] as String?)?.trim();
     if (releaseId == null || releaseId.isEmpty) {
-      _logger.err('--release-id is required.');
+      _logger.err(
+        releaseId == null
+            ? '--release-id is required.'
+            : 'Empty --release-id value (an unset CI variable?). Pass the '
+                'release id to patch against.',
+      );
       return ExitCode.usage.code;
     }
 
@@ -121,22 +770,115 @@ class CodePushPatchSubCommand extends Command<int> {
     CodePushClient? client;
 
     try {
+      // Resolve the build platform BEFORE the release fetch: the
+      // unguarded-release warning must not fire for a run that then
+      // exits on argument validation — nothing was ever at risk.
+      final (platformArg, platformError) = platformArgOrError();
+      if (platformError != null) {
+        _logger.err(platformError);
+        return ExitCode.usage.code;
+      }
       if (shouldBuild) {
-        var platform = argResults?['platform'] as String?;
-        platform ??= buildService.detectPlatform();
-        if (platform == null) {
+        var resolvedPlatform = platformArg;
+        resolvedPlatform ??= buildService.detectPlatform();
+        if (resolvedPlatform == null) {
           _logger.err(
             'Cannot detect platform. '
             'Use --platform to specify (apk, appbundle, ios, linux, macos, windows).',
           );
           return ExitCode.usage.code;
         }
-        builtPlatform = platform;
+        builtPlatform = resolvedPlatform;
+      }
+
+      // The remaining pure argument checks also run BEFORE the fetch,
+      // completing the same invariant: nothing that needs only
+      // argResults may exit the command after the warning (or the
+      // build) has already happened.
+      final rollout = parseRollout();
+      if (rollout == null) {
+        _logger.err(rolloutErrorMessage());
+        return ExitCode.usage.code;
+      }
+      final (resolvedChannel, channelError) = resolvedChannelOrError();
+      if (channelError != null) {
+        _logger.err(channelError);
+        return ExitCode.usage.code;
+      }
+      final channel = resolvedChannel!;
+      // ONE stored-key read per run: the rewrite advisory and the
+      // signing precondition must describe the same key (a rotation
+      // between two reads would split them).
+      final storedSigningKey = await CodePushClient.getStoredSigningKey();
+      Future<String?> storedKeyOnce() async => storedSigningKey;
+      final patchCheck = await patchFileArgCheck(readStoredKey: storedKeyOnce);
+      if (patchCheck.error != null) {
+        _logger.err(patchCheck.error!);
+        return patchCheck.isUsageError
+            ? ExitCode.usage.code
+            : ExitCode.software.code;
+      }
+      // (patchCheck.warning is held until every rejection below has
+      // passed: an advisory about a build must not print on a run
+      // that then exits without building.)
+      final blankError = blankArgError();
+      if (blankError != null) {
+        _logger.err(blankError);
+        return ExitCode.usage.code;
+      }
+      final signingCheck =
+          await signingPreconditionError(readStoredKey: storedKeyOnce);
+      if (signingCheck.error != null) {
+        _logger.err(signingCheck.error!);
+        return signingCheck.isUsageError
+            ? ExitCode.usage.code
+            : ExitCode.software.code;
+      }
+      final (baselineWarning, baselineError) = baselineArgCheck();
+      if (baselineError != null) {
+        _logger.err(baselineError);
+        return ExitCode.usage.code;
+      }
+      if (builtPlatform == 'ios') {
+        final entryError = patchEntryFileArgError();
+        if (entryError != null) {
+          _logger.err(entryError);
+          return ExitCode.software.code;
+        }
+      }
+      if (patchCheck.warning != null) {
+        _logger.warn(patchCheck.warning!);
+      }
+      if (baselineWarning != null) {
+        _logger.warn(baselineWarning);
+      }
+      final buildOnlyWarning =
+          buildOnlyFlagsWarning(resolvedPlatform: builtPlatform);
+      if (buildOnlyWarning != null) {
+        _logger.warn(buildOnlyWarning);
+      }
+
+      // Fetch the target release's metadata next — still ahead of any
+      // build work: several minutes of building must not precede the
+      // news that the target cannot safely take a widget-adding patch;
+      // the acknowledgement flag should be a decision, not a post-hoc
+      // apology. Best-effort: getRelease returns null on any failure
+      // (old server, offline) and every consumer below degrades.
+      final serverUrl = await CodePushClient.getServerUrl();
+      client = CodePushClient(serverUrl: serverUrl);
+      final releaseInfo = await readTargetRelease(
+        client: client,
+        token: token,
+        releaseId: releaseId,
+      );
+
+      if (shouldBuild) {
+        final platform = builtPlatform!;
 
         final artifactManager = CodePushArtifactManager(logger: _logger);
 
         final flutterVersion = await buildService.resolveFlutterVersion(
-          explicit: argResults?['flutter-version'] as String?,
+          explicit: (argResults?['flutter-version'] as String?)?.trim(),
           buildPlatform: platform,
           artifactManager: artifactManager,
         );
@@ -150,10 +892,7 @@ class CodePushPatchSubCommand extends Command<int> {
         }
         _logger.detail('Using Flutter version: $flutterVersion');
 
-        final dartDefines =
-            (argResults?['dart-define'] as List<String>? ?? const <String>[])
-                .where((value) => value.isNotEmpty)
-                .toList();
+        final dartDefines = dartDefineValues();
         final extraBuildArgs = [
           for (final value in dartDefines) '--dart-define=$value',
         ];
@@ -164,7 +903,10 @@ class CodePushPatchSubCommand extends Command<int> {
         var iosHelperImports = <String>[];
 
         if (platform == 'ios') {
-          iosPackagePrefix = argResults?['package-prefix'] as String?;
+          // Trimmed: unlike the path flags, a package URI prefix is
+          // only ever string-compared against library URIs, where
+          // whitespace can match nothing.
+          iosPackagePrefix = (argResults?['package-prefix'] as String?)?.trim();
           if (iosPackagePrefix == null || iosPackagePrefix.isEmpty) {
             iosPackagePrefix = _readPackagePrefixFromPubspec();
             if (iosPackagePrefix == null) {
@@ -324,13 +1066,11 @@ class CodePushPatchSubCommand extends Command<int> {
           //
           // In both modes, include any helper libraries discovered from
           // the patch source's direct relative imports.
-          final explicitIncludes =
-              argResults?['include-uri'] as List<String>? ?? const [];
           final includeUris = <String>{
             if (iosSwapMode && iosPatchSourceImport != null)
               '$packagePrefix$iosPatchSourceImport',
             for (final helper in iosHelperImports) '$packagePrefix$helper',
-            ...explicitIncludes.where((u) => u.isNotEmpty),
+            ...includeUriValues(),
           }.toList();
 
           final bcResult = await buildService.bytecodeFromKernel(
@@ -401,6 +1141,8 @@ class CodePushPatchSubCommand extends Command<int> {
           );
         } else {
           payloadData = Uint8List.fromList(snapshotData);
+          // Blank was rejected by baselineArgCheck; only null means
+          // no flag here.
           if (baselinePath != null) {
             _logger.warn(
               'Baseline not found at $baselinePath, using full snapshot.',
@@ -409,24 +1151,25 @@ class CodePushPatchSubCommand extends Command<int> {
         }
 
         final packageProgress = _logger.progress('Packaging patch');
-        const patchOutputPath = 'build/codepush/patch.fcppatch';
         final packaged = await buildService.packagePayload(
           payload: payloadData,
-          outputPath: patchOutputPath,
+          outputPath: kPatchOutputPath,
           artifactManager: artifactManager,
         );
         if (!packaged) {
           packageProgress.fail('Packaging failed.');
           return ExitCode.software.code;
         }
-        packageProgress.complete('Patch ready → $patchOutputPath');
+        packageProgress.complete('Patch ready → $kPatchOutputPath');
       }
 
+      // Blank was rejected by patchFileArgCheck; only null means no
+      // flag here.
       var patchPath = argResults?['patch-file'] as String?;
-      if (patchPath == null || patchPath.isEmpty) {
+      if (patchPath == null) {
         final candidates = [
-          'build/codepush/patch.fcppatch',
-          'build/patch.fcppatch',
+          kPatchOutputPath,
+          kLegacyPatchOutputPath,
         ];
         for (final candidate in candidates) {
           if (File(candidate).existsSync()) {
@@ -443,18 +1186,16 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.detail('Using patch: $patchPath');
       }
 
+      // Re-checked here because patchPath may be a build OUTPUT (the
+      // explicit --patch-file arg was validated before the fetch).
+      // Same guided message as the early check: the fail-open cases
+      // (right basename, wrong directory) land HERE after a full
+      // build — the reader who most needs to know where the build
+      // actually wrote the file.
       final patchFile = File(patchPath);
       if (!patchFile.existsSync()) {
-        _logger.err('Patch file not found: $patchPath');
+        _logger.err(missingPatchFileMessage(patchPath, withBuild: shouldBuild));
         return ExitCode.software.code;
-      }
-
-      final rolloutStr = argResults?['rollout'] as String? ?? '100';
-      final rollout = int.tryParse(rolloutStr) ?? 100;
-      final channel = argResults?['channel'] as String? ?? 'production';
-      if (rollout < 1 || rollout > 100) {
-        _logger.err('Rollout percentage must be between 1 and 100.');
-        return ExitCode.usage.code;
       }
 
       // Sign the raw payload inside the container and embed the
@@ -468,8 +1209,14 @@ class CodePushPatchSubCommand extends Command<int> {
       final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
       String? signatureBase64;
       var signingKeyPath = argResults?['signing-key'] as String?;
-      signingKeyPath ??= await CodePushClient.getStoredSigningKey();
-      if (signingKeyPath != null && signingKeyPath.isNotEmpty) {
+      // The run's ONE stored-key read, resolved before the fetch —
+      // the advisory, the precondition, and this block must describe
+      // the same key even across a mid-run rotation.
+      signingKeyPath ??= storedSigningKey;
+      // trim(): blankness is classified the same way the
+      // precondition classifies it — '' and '  ' are one shape, or
+      // the two sites diverge under --unsigned.
+      if (signingKeyPath != null && signingKeyPath.trim().isNotEmpty) {
         final signProgress = _logger.progress('Signing patch');
         signatureBase64 = await buildService.signPatchContainer(
           patchPath: patchPath,
@@ -477,18 +1224,17 @@ class CodePushPatchSubCommand extends Command<int> {
           artifactManager: artifactManagerForSigning,
         );
         if (signatureBase64 == null) {
-          signProgress.fail('Signing failed');
+          // Name the key in use: a wrong path, an unreadable file, a
+          // bad format, and a tool failure all land here — the path
+          // separates the first case from the rest.
+          signProgress.fail('Signing failed (key: $signingKeyPath)');
           return ExitCode.software.code;
         }
         signProgress.complete('Signed and embedded');
       } else if (!allowUnsigned) {
-        _logger.err(
-          'No signing key found. Patches must be signed for production.\n'
-          '  Run "fcp codepush keys generate" to create a key pair, then\n'
-          '  "fcp codepush keys register" to upload the public key, or\n'
-          '  pass --signing-key <path>.\n'
-          '  To bypass (testing only): --unsigned',
-        );
+        // Backstop only: signingPreconditionError() reported this
+        // before any build work; a key can still vanish in between.
+        _logger.err(missingSigningKeyMessage);
         return ExitCode.software.code;
       } else {
         _logger.warn(
@@ -503,23 +1249,13 @@ class CodePushPatchSubCommand extends Command<int> {
       final patchData = patchFile.readAsBytesSync();
       _logger.detail('Patch size: ${patchData.length} bytes');
 
-      final serverUrl = await CodePushClient.getServerUrl();
-      client = CodePushClient(serverUrl: serverUrl);
-
       // The baseline_hash must match what the DEVICE is running (the
       // release binary), not the binary we just built (post-edit).
-      // When --release-id is provided, fetch the release's stored
-      // hash from the server so hashes always agree with the
-      // device's installed baseline.
-      String? baselineHash;
-      try {
-        baselineHash = await client.getReleaseHash(
-          token: token,
-          releaseId: releaseId,
-        );
-      } catch (_) {
-        // Best-effort — fall through to local computation.
-      }
+      // The release was fetched before the build; WHEN the fetch
+      // succeeded and the release stores a usable hash, it agrees
+      // with the device's installed baseline — the fallback below
+      // covers every other case (shape rules: [baselineHashFrom]).
+      var baselineHash = baselineHashFrom(releaseInfo);
 
       if (baselineHash != null) {
         _logger.detail(
@@ -527,6 +1263,17 @@ class CodePushPatchSubCommand extends Command<int> {
           '${baselineHash.substring(0, 16)}…',
         );
       } else {
+        // A present NON-NULL but unusable hash is otherwise
+        // indistinguishable from an absent one: name it at
+        // --verbose. Value read, not containsKey — a toJson that
+        // emits every column sends an explicit null for no-hash,
+        // which is absence, not garbage.
+        if (releaseInfo?['snapshot_hash'] != null) {
+          _logger.detail(
+            'Release carries an unusable snapshot_hash; falling back '
+            'to local build output.',
+          );
+        }
         // Fallback: compute from local build output. This path runs
         // when the release has no stored hash or the server lookup
         // fails. Candidates are gated by the patch's platform — a dev
@@ -543,14 +1290,13 @@ class CodePushPatchSubCommand extends Command<int> {
         // may be hashed (what devices actually run); the
         // merged_native_libs copy this used to hash is pre-strip and
         // hashes differently.
-        final fallbackPlatform =
-            (argResults?['platform'] as String?) ?? builtPlatform;
+        final patchPlatform = platformArg ?? builtPlatform;
         final isAndroidFallback =
-            const {'apk', 'appbundle', 'android'}.contains(fallbackPlatform);
+            const {'apk', 'appbundle', 'android'}.contains(patchPlatform);
         final androidBaselineLib = isAndroidFallback
             ? buildService.findAndroidBaselineLibPath()
             : null;
-        final iosBaselineBinary = fallbackPlatform == 'ios'
+        final iosBaselineBinary = patchPlatform == 'ios'
             ? buildService.findIosBaselineAppBinaryPath()
             : null;
         final candidateAppFrameworks = [
@@ -569,6 +1315,29 @@ class CodePushPatchSubCommand extends Command<int> {
             break;
           }
         }
+        if (baselineHash == null) {
+          // The one outcome that drops the gate must say so — this
+          // is the fetch-failure warn's sentence, stated where it is
+          // a fact rather than a prediction — and, when the fallback
+          // was empty by construction (no definitive platform), it
+          // names the one-flag remedy.
+          final remedy = patchPlatform == null
+              ? ' Pass --platform ios (or apk) if the released build '
+                  'tree is on this machine.'
+              : '';
+          _logger.warn(
+            'No baseline hash available: this patch will upload '
+            'without the device-side baseline check (devices fall '
+            'back to the coarser engine compatibility check).$remedy',
+          );
+        }
+      }
+      // Re-surface the guard warning at the decision point: with
+      // --build the early emission is minutes of build output up the
+      // scrollback by now. (The early emission stays — it fires
+      // where aborting is cheapest.)
+      if (shouldBuild) {
+        warnIfUnguardedRelease(releaseInfo, repeat: true);
       }
       final progress = _logger.progress(
         'Uploading patch${rollout < 100 ? ' ($rollout% rollout)' : ''}',
@@ -615,7 +1384,9 @@ class CodePushPatchSubCommand extends Command<int> {
           return ExitCode.software.code;
         }
 
-        final patch = result['patch'] as Map<String, dynamic>?;
+        // Post-201: tolerate any shape, as on the release path.
+        final rawPatch = result['patch'];
+        final patch = rawPatch is Map<String, dynamic> ? rawPatch : null;
         progress.complete('Patch uploaded');
 
         if (patch != null) {
@@ -661,7 +1432,10 @@ class CodePushPatchSubCommand extends Command<int> {
           // Best-effort cleanup only.
         }
       }
-      client?.close();
+      // force: a timed-out release fetch abandons its future but not
+      // its socket; tear it down here instead of relying on the
+      // entrypoint's exit().
+      client?.close(force: true);
     }
   }
 

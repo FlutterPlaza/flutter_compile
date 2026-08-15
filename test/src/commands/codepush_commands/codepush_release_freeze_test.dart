@@ -6,6 +6,8 @@ import 'package:flutter_compile/src/shared/codepush_archive_service.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/exception.dart';
 import 'package:flutter_compile/src/shared/interface_freeze_constants.dart';
+import 'package:flutter_compile/src/shared/ios_baseline_plist.dart'
+    show kDefaultBuiltIosAppPath;
 import 'package:mason_logger/mason_logger.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -763,6 +765,588 @@ void main() {
       verify(
         () => progress.fail('Could not analyze the app for the release build'),
       ).called(1);
+    });
+
+    test(
+        'interfaceAttestation: only an un-overridden iOS build this '
+        'run attests', () {
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = true;
+
+      // The one direction the feature must never fail in: an explicit
+      // --snapshot uploads bytes the build did not produce — foreign
+      // bytes must attest NOTHING, never true.
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: true,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: false,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'apk',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+      // The honest build attests the record's truth.
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
+
+    test(
+        'interfaceAttestation: freeze off is a fact; contradicted '
+        'evidence is unknown', () {
+      // --no-interface-freeze: intent and fact agree — false, false.
+      command.writtenInterfaceSpec = null;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: false, extendableWidgets: false),
+      );
+
+      // Changed spec + no compiler report = the suspected-SDK-drift
+      // state: the server record must not out-claim the archive.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.changed
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+
+      // The same changed spec WITH its report is evidence — attest.
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
+
+    test(
+        'interfaceAttestation: --no-extendable-widgets is the row the '
+        'warning exists for — freeze true, guarding FALSE', () {
+      // The only attestation whose two bits differ, and the bit the
+      // feature is named after: hard-coding extendableWidgets: true
+      // (or wiring the wrong field) would pass every other test
+      // while making every unguarded release read as guarded on the
+      // server — silent, and only observable as a device crash.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: false,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: false),
+      );
+    });
+
+    test(
+        'interfaceAttestation: a from-scratch build (unknown spec '
+        'state) with no report is unknown, not attested', () {
+      // The clean-CI case: no previous spec swept, so specChange is
+      // unknown and the compile ran from scratch — a cache hit cannot
+      // explain a missing report. Attesting true here would silence
+      // the patch-time warning on the ordinary way a release is cut.
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unknown
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: null, extendableWidgets: null),
+      );
+
+      // With the report observed, unknown spec state is fine — the
+      // report itself is the evidence.
+      command.interfaceReportObservedAfterBuild = true;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+
+      // Only an unchanged spec excuses a missing report (the cache
+      // hit reused a compile of these exact bytes).
+      command.writtenInterfaceSpec = (
+        path: '/spec/dynamic_interface_abcd1234abcd1234.yaml',
+        reportPath: '/spec/dynamic_interface_report.json',
+        extendable: true,
+        specChange: InterfaceSpecChange.unchanged
+      );
+      command.interfaceReportObservedAfterBuild = false;
+      expect(
+        command.interfaceAttestation(
+          shouldBuild: true,
+          builtPlatform: 'ios',
+          usedExplicitSnapshot: false,
+        ),
+        (interfaceFreeze: true, extendableWidgets: true),
+      );
+    });
+  });
+
+  group('blankArgError', () {
+    test(
+        'present-but-blank --snapshot/--version/--app-id reject; '
+        'absent keeps the fallback', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+
+      // --snapshot blank is the worst: it fell through to
+      // auto-discovery and recorded whatever the local build tree
+      // held as THIS version's baseline identity.
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '']);
+      expect(cmd.blankArgError(), contains('Empty --snapshot'));
+
+      cmd.parsedArgs = cmd.argParser.parse(['--version', '  ']);
+      expect(cmd.blankArgError(), contains('Empty --version'));
+
+      cmd.parsedArgs = cmd.argParser.parse(['--app-id', '']);
+      expect(cmd.blankArgError(), contains('Empty --app-id'));
+      cmd.parsedArgs = cmd.argParser.parse(['--app-id', '  ']);
+      expect(cmd.blankArgError(), contains('Empty --app-id'));
+
+      // One row per list entry: blankArgError is a loop over a
+      // string list, so deleting an entry is a silent, fully green
+      // regression without these.
+      cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', ' ']);
+      expect(cmd.blankArgError(), contains('Empty --flutter-version'));
+      cmd.parsedArgs = cmd.argParser.parse(['--baseline-id', '']);
+      expect(cmd.blankArgError(), contains('Empty --baseline-id'));
+
+      // Absent flags keep their fallbacks (build / pubspec / stored
+      // config) — only present-but-blank rejects.
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.blankArgError(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', 'build/app.so', '--version', '1.0.0+1'],
+      );
+      expect(cmd.blankArgError(), isNull);
+    });
+  });
+
+  group('version resolution', () {
+    test(
+        'pubspecVersionValue: comments and quotes are the parser\'s '
+        'problem', () {
+      // Both shapes are ordinary, legal pubspec that the end-of-line
+      // capture keeps.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1 # bumped'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('"1.0.0+1"'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue("'1.0.0'"),
+        '1.0.0',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('"1.0.0+1" # x'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1'),
+        '1.0.0+1',
+      );
+      // A '#' NOT preceded by whitespace is part of the scalar in
+      // YAML — it must survive to the validator's rejection, never
+      // be truncated into a version the pubspec does not contain.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0#1'),
+        '1.0.0#1',
+      );
+    });
+
+    test('pubspecVersionFrom: one line only; valueless falls through', () {
+      // \s would cross the newline and read 'environment:' as the
+      // version — a hard exit naming a line the operator never wrote.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom(
+          'name: demo\nversion:\nenvironment:\n  sdk: ^3.4.0\n',
+        ),
+        isNull,
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom(
+          'name: demo\nversion: "1.0.0+1" # bumped\n',
+        ),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom('name: demo\n'),
+        isNull,
+      );
+    });
+
+    test('usedExplicitSnapshot: foreign bytes, not the flag', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Shared by the attestation, the baseline-app save, and the
+      // archive gate — the three records agree because this is ONE
+      // read. The question is byte provenance: the built binary's
+      // OWN path passed explicitly (the spelling the guidance
+      // teaches) is still the frozen build.
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', 'app.bin']);
+      expect(cmd.usedExplicitSnapshot, isTrue);
+      cmd.parsedArgs = cmd.argParser.parse([
+        '--snapshot',
+        'build/ios/iphoneos/Runner.app/Frameworks/App.framework/App',
+      ]);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '/elsewhere/Other.app/Frameworks/App.framework/App'],
+      );
+      expect(cmd.usedExplicitSnapshot, isTrue);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      // Blank AND whitespace read as absent (trimmed like every
+      // boundary read); blankArgError rejects both earlier in run().
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '']);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+      cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '  ']);
+      expect(cmd.usedExplicitSnapshot, isFalse);
+    });
+
+    test('buildOnlyFlagsWarning (release): ignored flags warn', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--no-extendable-widgets', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]extendable-widgets'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(['--dart-define', 'A=1']);
+      expect(cmd.buildOnlyFlagsWarning(), contains('--dart-define'));
+      // The interface-freeze clause needs its own row, and wasParsed
+      // (not the value) is the predicate: explicitly passing the
+      // DEFAULT ('--extendable-widgets', value true) must still warn
+      // — a value-based read would silently drop it.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--interface-freeze', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]interface-freeze'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(['--extendable-widgets']);
+      expect(
+        cmd.buildOnlyFlagsWarning(),
+        contains('--[no-]extendable-widgets'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--no-extendable-widgets'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+    });
+
+    test(
+        'usedExplicitSnapshot: the PHYSICAL tier decides through '
+        'symlinked prefixes', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // systemTemp itself is the symlinked prefix on macOS
+      // (/var -> /private/var): the logical and physical spellings
+      // of the same app dir differ there, and only the physical
+      // tier equates them — deleting it (keeping the lexical
+      // fallback) turns this row red on macOS. On Linux the two
+      // spellings coincide and the row still passes.
+      final root = Directory.systemTemp.createTempSync('fcp_phys');
+      addTearDown(() => root.deleteSync(recursive: true));
+      Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .createSync(recursive: true);
+      final physicalAppDir = Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .resolveSymbolicLinksSync();
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '$physicalAppDir/Frameworks/App.framework/App'],
+      );
+      expect(
+        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+        isFalse,
+      );
+      // A SYMLINK spelling makes the two paths differ on EVERY
+      // POSIX platform (the systemTemp prefix only differs on
+      // macOS), so deleting the physical tier goes red on Linux CI
+      // too. Gated off on Windows: symlink creation there needs
+      // Developer Mode or an elevated token — an undeclared runner-
+      // image dependency for a row whose subject is POSIX-only.
+      if (!Platform.isWindows) {
+        Link('${root.path}/via_link').createSync(root.path);
+        cmd.parsedArgs = cmd.argParser.parse([
+          '--snapshot',
+          '${root.path}/via_link/$kDefaultBuiltIosAppPath'
+              '/Frameworks/App.framework/App',
+        ]);
+        expect(
+          cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+          isFalse,
+        );
+      }
+      // A genuinely different app dir under the same root stays
+      // foreign through the same tier.
+      Directory('${root.path}/Other.app').createSync(recursive: true);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--snapshot', '${root.path}/Other.app/Frameworks/App.framework/App'],
+      );
+      expect(
+        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+        isTrue,
+      );
+    });
+
+    test('identity flags on a non-iOS NO-BUILD release warn', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // The split made 'iOS' the load-bearing word: a no-build apk
+      // release with --baseline-id is read by nothing and must say
+      // so — while on ios it is genuinely read and stays silent.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--baseline-id', 'u-1', '--snapshot', 'app.bin'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('only used for iOS releases'),
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
+        isNull,
+      );
+    });
+
+    test('the identity flags are NOT build-only: no false ignore', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // The documented pre-built-app flow: --baseline-id (and its
+      // escape hatch) are read on every iOS release, build or not —
+      // warning that they are ignored is the inverse defect (read,
+      // and says it isn't).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--baseline-id', 'u-1', '--snapshot', 'app.bin'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--allow-missing-baseline', '--snapshot', 'app.bin'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      // On the PLATFORM axis they still warn (an apk build reads
+      // neither).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'u-1'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('--baseline-id'),
+      );
+    });
+
+    test('buildOnlyFlagsWarning (release): the platform axis', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--no-extendable-widgets'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('--[no-]extendable-widgets'),
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
+        isNull,
+      );
+    });
+
+    test('saveIosBaselineApp is best-effort by construction', () {
+      final logger = MockLogger();
+      when(() => logger.warn(any())).thenReturn(null);
+      when(() => logger.detail(any())).thenReturn(null);
+      final cmd = ParsedArgsReleaseCommand(logger);
+      final root = Directory.systemTemp.createTempSync('fcp_save');
+      addTearDown(() => root.deleteSync(recursive: true));
+      // A built app exists, but the dest PARENT path is blocked by a
+      // plain file — the mkdir throws, and the method must warn, not
+      // throw (a post-success step must never fail the release).
+      Directory('${root.path}/$kDefaultBuiltIosAppPath')
+          .createSync(recursive: true);
+      File('${root.path}/build/codepush')
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      final saved = cmd.saveIosBaselineApp(
+        baselineId: 'b-1',
+        projectRootOverride: root.path,
+      );
+      verify(
+        () => logger.warn(any(that: contains('Saved-baseline step skipped'))),
+      ).called(1);
+      // FALSE gates the archive at the caller: archiving whatever
+      // (possibly the PREVIOUS release's bundle) sits at the saved
+      // path under this release's id would break two-records-one-
+      // story.
+      expect(saved, isFalse);
+    });
+
+    test('dartDefineValues (release): filter applied at this command', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--dart-define', 'BANNER=beta ', '--dart-define', '  '],
+      );
+      expect(cmd.dartDefineValues(), ['BANNER=beta ']);
+    });
+
+    test('platformArgOrError twin: forBuild wired, call pinned', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Flipping forBuild to false re-opens `release --build
+      // --platform android` (a full engine preparation ending in
+      // flutter's own usage error); the shared helper is tested via
+      // the patch command, so THIS wire needs its own rows.
+      cmd.parsedArgs = cmd.argParser.parse(['--build', '-p', 'android']);
+      final (androidValue, androidError) = cmd.platformArgOrError();
+      expect(androidValue, isNull);
+      expect(androidError, contains('not a buildable target'));
+      cmd.parsedArgs = cmd.argParser.parse(['-p', 'iOS']);
+      expect(cmd.platformArgOrError(), ('ios', null));
+    });
+
+    test('pubspecContentForVersion: lazy and guarded', () {
+      final logger = MockLogger();
+      when(() => logger.detail(any())).thenReturn(null);
+      final cmd = ParsedArgsReleaseCommand(logger);
+      final root = Directory.systemTemp.createTempSync('fcp_pubspec');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/pubspec.yaml').writeAsStringSync('version: 1.0.0+1\n');
+
+      // LAZY: a run that passed --version never reads the file, even
+      // when a perfectly readable one exists.
+      cmd.parsedArgs = cmd.argParser.parse(['--version', '2.0.0']);
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: root.path),
+        isNull,
+      );
+
+      // No flag: the content is returned; a missing file is null.
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: root.path),
+        contains('1.0.0+1'),
+      );
+      final empty = Directory.systemTemp.createTempSync('fcp_nopub');
+      addTearDown(() => empty.deleteSync(recursive: true));
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: empty.path),
+        isNull,
+      );
+
+      // GUARDED: an unreadable pubspec degrades to null with the
+      // cause at detail visibility, never an unhandled exception.
+      // Mode bits are ignored for uid 0, so the row is also gated
+      // off under root (root Docker CI) — brittle red, not green.
+      final isRoot = !Platform.isWindows &&
+          Process.runSync('id', ['-u']).stdout.toString().trim() == '0';
+      if (!Platform.isWindows && !isRoot) {
+        final locked = Directory.systemTemp.createTempSync('fcp_locked');
+        addTearDown(() {
+          Process.runSync('chmod', ['644', '${locked.path}/pubspec.yaml']);
+          locked.deleteSync(recursive: true);
+        });
+        File('${locked.path}/pubspec.yaml')
+            .writeAsStringSync('version: 1.0.0+1\n');
+        Process.runSync('chmod', ['000', '${locked.path}/pubspec.yaml']);
+        expect(
+          cmd.pubspecContentForVersion(projectRootOverride: locked.path),
+          isNull,
+        );
+        verify(
+          () => logger.detail(any(that: contains('Could not read'))),
+        ).called(1);
+      }
+    });
+
+    test('resolvedVersionAndSource: the SOURCE is pinned per branch', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Swapping the two assignments used to compile and pass green
+      // while sending the operator to the wrong file.
+      cmd.parsedArgs = cmd.argParser.parse(['--version', ' 2.0.0+5 ']);
+      expect(
+        cmd.resolvedVersionAndSource('version: 1.0.0+1\n'),
+        ('2.0.0+5', '--version'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(
+        cmd.resolvedVersionAndSource('version: 1.0.0+1\n'),
+        ('1.0.0+1', 'pubspec.yaml'),
+      );
+      expect(cmd.resolvedVersionAndSource(null), (null, 'pubspec.yaml'));
+    });
+
+    test('versionValidationError: shared predicate, producer named', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      expect(
+        cmd.versionValidationError('1.0.0+1', source: '--version'),
+        isNull,
+      );
+      // The mid-build ArgumentError class: whitespace and parens can
+      // be neither stamped nor matched — exit 64 naming the producer.
+      expect(
+        cmd.versionValidationError('1.0.0 (42)', source: 'pubspec.yaml'),
+        allOf(contains('1.0.0 (42)'), contains('pubspec.yaml')),
+      );
+      expect(
+        cmd.versionValidationError('a b', source: '--version'),
+        contains('--version'),
+      );
     });
   });
 }
