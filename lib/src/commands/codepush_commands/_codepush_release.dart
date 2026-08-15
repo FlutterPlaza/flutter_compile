@@ -456,8 +456,9 @@ class CodePushReleaseSubCommand extends Command<int> {
       _logger.err(versionError);
       return ExitCode.usage.code;
     }
-    // Advisories print behind every rejection (the patch command's
-    // rule): a warning about ignored flags must not precede an exit.
+    // Advisories print behind every argResults-only rejection (the
+    // patch command's invariant); later I/O-dependent exits (missing
+    // artifacts, identity resolution) may still follow this line.
     final releaseBuildOnlyWarning = buildOnlyFlagsWarning();
     if (releaseBuildOnlyWarning != null) {
       _logger.warn(releaseBuildOnlyWarning);
@@ -736,8 +737,16 @@ class CodePushReleaseSubCommand extends Command<int> {
     // (staler or newer) build whose id would not match the binary. A
     // --snapshot pointing outside an app bundle provides no identity
     // and must use --baseline-id.
+    // ONE read for the whole run (the getter re-resolves symlinks on
+    // every access, and a workspace cleanup between the identity,
+    // the attestation, and the archive gate could move later calls
+    // to a different tier — the records must share one answer).
+    final snapshotIsForeign = usedExplicitSnapshot;
     if (resolvedPlatform == 'ios') {
       final appDirForIdentity = builtIosAppDirFromBinaryPath(snapshotPath);
+      // Captured BEFORE the reassignment: the third-state message
+      // below asserts a stamp happened, which only this knows.
+      final stampedByThisBuild = baselineId;
       baselineId = resolveIosBaselineId(
         // The stamp is withheld when --snapshot names foreign bytes:
         // the stamped UUID lives only in the locally-built app that
@@ -747,19 +756,35 @@ class CodePushReleaseSubCommand extends Command<int> {
         // explicit flag) is the identity of what actually serves.
         // Fourth record on the usedExplicitSnapshot rule, beside the
         // attestation, the saved app, and the archive.
-        stampedByBuild: usedExplicitSnapshot ? null : baselineId,
+        stampedByBuild: snapshotIsForeign ? null : baselineId,
         explicitFlag: argResults?['baseline-id'] as String?,
         fromBuiltApp: appDirForIdentity != null
             ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
             : null,
       );
+      final explicitBaselineIdFlag =
+          (argResults?['baseline-id'] as String?)?.trim();
+      if (shouldBuild &&
+          !snapshotIsForeign &&
+          stampedByThisBuild != null &&
+          explicitBaselineIdFlag != null &&
+          explicitBaselineIdFlag.isNotEmpty) {
+        // The last flag read by nothing: correct (the built bytes
+        // carry the stamp) but no longer silent.
+        _logger.detail(
+          '--baseline-id is superseded by the id this build stamped; '
+          'ignoring the flag.',
+        );
+      }
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (shouldBuild && usedExplicitSnapshot) {
-          // Third state (a foreign --snapshot on a run that BUILT —
-          // without --build the sibling branch below is correct and
-          // --allow-missing-baseline is the legitimate escape):
+        if (shouldBuild && snapshotIsForeign && stampedByThisBuild != null) {
+          // Third state (a foreign --snapshot on a run that BUILT
+          // and STAMPED — without --build the sibling branch below
+          // is correct and --allow-missing-baseline is the
+          // legitimate escape; a build whose stamp failed falls to
+          // the plist branch, which names that cause):
           // this run DID stamp, but the stamp belongs to an app that
           // never shipped, and the snapshot carries no readable id.
           // --allow-missing-baseline is deliberately not suggested —
@@ -850,7 +875,7 @@ class CodePushReleaseSubCommand extends Command<int> {
     final attestation = interfaceAttestation(
       shouldBuild: shouldBuild,
       builtPlatform: builtPlatform,
-      usedExplicitSnapshot: usedExplicitSnapshot,
+      usedExplicitSnapshot: snapshotIsForeign,
     );
     try {
       final result = await client.createRelease(
@@ -909,7 +934,6 @@ class CodePushReleaseSubCommand extends Command<int> {
       // snapshot_hash is the foreign bytes'), and a device installed
       // from it would silently fail the baseline check on every
       // patch.
-      final snapshotIsForeign = usedExplicitSnapshot;
       // Not gated on baselineId: the --allow-missing-baseline corner
       // has a null id and skips all three records too — silence
       // there was the worst combination.

@@ -1105,6 +1105,19 @@ void main() {
         cmd.snapshotIsForeignTo(projectRootOverride: root.path),
         isFalse,
       );
+      // A SYMLINK spelling makes the two paths differ on EVERY
+      // platform (the systemTemp prefix only differs on macOS), so
+      // deleting the physical tier goes red on Linux CI too.
+      Link('${root.path}/via_link').createSync(root.path);
+      cmd.parsedArgs = cmd.argParser.parse([
+        '--snapshot',
+        '${root.path}/via_link/$kDefaultBuiltIosAppPath'
+            '/Frameworks/App.framework/App',
+      ]);
+      expect(
+        cmd.snapshotIsForeignTo(projectRootOverride: root.path),
+        isFalse,
+      );
       // A genuinely different app dir under the same root stays
       // foreign through the same tier.
       Directory('${root.path}/Other.app').createSync(recursive: true);
