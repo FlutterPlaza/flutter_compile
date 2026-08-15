@@ -244,8 +244,9 @@ class CodePushPatchSubCommand extends Command<int> {
     // Will a signing key be USED? The rewrite happens whenever one
     // resolves — --unsigned does not stop it ('--unsigned cannot
     // skip a configured stored key'), so the advisory keys on this,
-    // not the flag. Evaluated lazily: only the branches that warn
-    // about the rewrite need it.
+    // not the flag. (run() resolves the stored key once up front and
+    // threads it here, to the precondition, and to the late signing
+    // block, so all three describe the same key.)
     Future<bool> willSign() async {
       // Mirrors the late block's ??= exactly: only a NULL flag falls
       // back to the stored key. A present-but-blank flag (allowed
@@ -1204,7 +1205,10 @@ class CodePushPatchSubCommand extends Command<int> {
       final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
       String? signatureBase64;
       var signingKeyPath = argResults?['signing-key'] as String?;
-      signingKeyPath ??= await CodePushClient.getStoredSigningKey();
+      // The run's ONE stored-key read, resolved before the fetch —
+      // the advisory, the precondition, and this block must describe
+      // the same key even across a mid-run rotation.
+      signingKeyPath ??= storedSigningKey;
       // trim(): blankness is classified the same way the
       // precondition classifies it — '' and '  ' are one shape, or
       // the two sites diverge under --unsigned.

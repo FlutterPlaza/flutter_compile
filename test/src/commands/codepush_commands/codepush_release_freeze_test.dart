@@ -1151,6 +1151,31 @@ void main() {
       );
     });
 
+    test('the identity flags are NOT build-only: no false ignore', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // The documented pre-built-app flow: --baseline-id (and its
+      // escape hatch) are read on every iOS release, build or not —
+      // warning that they are ignored is the inverse defect (read,
+      // and says it isn't).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--baseline-id', 'u-1', '--snapshot', 'app.bin'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--allow-missing-baseline', '--snapshot', 'app.bin'],
+      );
+      expect(cmd.buildOnlyFlagsWarning(), isNull);
+      // On the PLATFORM axis they still warn (an apk build reads
+      // neither).
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'u-1'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        contains('--baseline-id'),
+      );
+    });
+
     test('buildOnlyFlagsWarning (release): the platform axis', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       cmd.parsedArgs = cmd.argParser.parse(

@@ -222,14 +222,20 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// or null. Public for tests; reads its own args.
   String? buildOnlyFlagsWarning({String? resolvedPlatform}) {
     final shouldBuild = argResults?['build'] as bool? ?? false;
-    // ONE list for the iOS-shaped flags, consumed by both axes — a
-    // fifth entry added to one axis and missed on the other was a
-    // silent regression on the missed axis.
-    final iosOnly = <String>[
+    // TWO lists, because the release command's axes genuinely
+    // differ (the patch command's did not): the freeze flags are
+    // build-only AND iOS-only, but the identity flags are read on
+    // every iOS release — a no---build --snapshot release NEEDS
+    // --baseline-id, and telling that flow the flag is ignored is
+    // the inverse of the defect this family exists to close (read,
+    // and says it isn't).
+    final iosBuildOnly = <String>[
       if (argResults?.wasParsed('extendable-widgets') ?? false)
         '--[no-]extendable-widgets',
       if (argResults?.wasParsed('interface-freeze') ?? false)
         '--[no-]interface-freeze',
+    ];
+    final iosIdentity = <String>[
       if (((argResults?['baseline-id'] as String?) ?? '').trim().isNotEmpty)
         '--baseline-id',
       if (argResults?['allow-missing-baseline'] as bool? ?? false)
@@ -240,13 +246,14 @@ class CodePushReleaseSubCommand extends Command<int> {
       // the iOS-shaped flags on a build for another platform are
       // read by nothing and must say so.
       if (resolvedPlatform == null || resolvedPlatform == 'ios') return null;
+      final iosOnly = [...iosBuildOnly, ...iosIdentity];
       if (iosOnly.isEmpty) return null;
       return '${iosOnly.join(', ')} '
           '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
           'a $resolvedPlatform build.';
     }
     final ignored = <String>[
-      ...iosOnly,
+      ...iosBuildOnly,
       if (dartDefineValues().isNotEmpty) '--dart-define',
     ];
     if (ignored.isEmpty) return null;
@@ -1013,7 +1020,7 @@ class CodePushReleaseSubCommand extends Command<int> {
           // save failure (the false) and the no-release-id corner.
           _logger.info(
             'Skipping the per-release archive: '
-            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (see above)'}'
+            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (no built Runner.app, or the copy failed — see any warning above)'}'
             ' — archiving would record a bundle that did not produce '
             'this release.',
           );
