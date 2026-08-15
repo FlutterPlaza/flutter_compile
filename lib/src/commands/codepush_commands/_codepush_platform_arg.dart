@@ -25,8 +25,21 @@ const knownCodePushPlatforms = {
 /// must be a fast exit, never a silent miss. Returns
 /// `(normalized, error)`; a non-null error means exit 64.
 (String?, String?) normalizeCodePushPlatformArg(String? raw) {
-  final trimmed = raw?.trim();
-  if (trimmed == null || trimmed.isEmpty) return (null, null);
+  if (raw == null) return (null, null);
+  final trimmed = raw.trim();
+  // Present-but-blank is REJECTED, not treated as absent — the same
+  // rule as an empty --signing-key: an unset CI variable expanding
+  // to '' must fail fast, not silently become "no platform named"
+  // (on patch that can mean an upload with no baseline identity; on
+  // release, a dual-platform prompt telling the operator to pass
+  // the flag they passed).
+  if (trimmed.isEmpty) {
+    return (
+      null,
+      'Empty --platform value (an unset CI variable?). Use one of: '
+          'apk, appbundle, ios, linux, macos, windows — or drop the flag.',
+    );
+  }
   final normalized = trimmed.toLowerCase();
   if (!knownCodePushPlatforms.contains(normalized)) {
     return (

@@ -249,9 +249,9 @@ class CodePushPatchSubCommand extends Command<int> {
   /// building. An explicit `--signing-key` naming a missing file is
   /// the same class. Returns the error to print, or null. The late
   /// signing block stays as the backstop. Public for tests; reads
-  /// its own args, and the stored-key lookup runs only when no
-  /// explicit flag decides first — so tests pin the arg-driven rows
-  /// without a config seam.
+  /// its own args. The stored-key rows read ~/.flutter_compilerc and
+  /// are deliberately unpinned (no config seam, #49); the arg-driven
+  /// rows are all pinned via real parses.
   Future<String?> signingPreconditionError() async {
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
     final explicitKey = argResults?['signing-key'] as String?;
@@ -264,29 +264,46 @@ class CodePushPatchSubCommand extends Command<int> {
       }
       return null;
     }
-    // --unsigned with no usable key: proceeds unsigned, matching the
-    // late block (which also ignores an empty key under --unsigned).
-    if (allowUnsigned) return null;
     if (explicitKey != null) {
-      // Empty is REJECTED, not treated as absent: an unset CI
-      // variable expanding to '' is the commonest way this flag goes
-      // wrong, and silently falling back to the stored key would
-      // sign with a key the user did not name. Deciding it here
-      // keeps the two sites' answers identical (the late backstop
-      // also treats '' as unusable).
+      // Empty: under --unsigned it proceeds (matching the late
+      // block, which ignores an empty key there); otherwise it is
+      // REJECTED, not treated as absent — an unset CI variable
+      // expanding to '' is the commonest way this flag goes wrong,
+      // and silently falling back to the stored key would sign with
+      // a key the user did not name.
+      if (allowUnsigned) return null;
       return 'Empty --signing-key value (an unset CI variable?). Pass a '
           'key path, drop the flag to use the stored key, or --unsigned.';
     }
+    // No explicit key. The stored key is checked EVEN under
+    // --unsigned, because the late block consults it unconditionally
+    // and signs whenever the resolved path is non-empty — a dangling
+    // stored path (rotated key, rebuilt CI image, moved HOME) would
+    // otherwise still end the run post-build at 'Signing failed' on
+    // an invocation whose whole point was that signing is optional.
     final storedKey = await CodePushClient.getStoredSigningKey();
     if (storedKey == null || storedKey.isEmpty) {
+      // Genuinely no key anywhere: fine under --unsigned.
+      if (allowUnsigned) return null;
       return missingSigningKeyMessage;
     }
     if (!File(storedKey).existsSync()) {
       return 'Stored signing key not found: $storedKey (from '
           '~/.flutter_compilerc). Re-run "fcp codepush keys generate", '
-          'or pass --signing-key <path>.';
+          'pass --signing-key <path>, or remove the stale entry.';
     }
     return null;
+  }
+
+  /// The upload channel: trimmed like every boundary read, and an
+  /// empty value (an unset CI variable) falls back to 'production'
+  /// rather than creating a patch on a channel no device polls —
+  /// the least diagnosable failure this command can produce (the
+  /// upload succeeds; devices are simply never offered it). Public
+  /// for tests; reads its own args.
+  String resolvedChannel() {
+    final raw = (argResults?['channel'] as String? ?? 'production').trim();
+    return raw.isEmpty ? 'production' : raw;
   }
 
   /// The pre-build `--baseline` advisory, or null. Both directions
@@ -425,7 +442,7 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err('Rollout percentage must be an integer between 1 and 100.');
         return ExitCode.usage.code;
       }
-      final channel = argResults?['channel'] as String? ?? 'production';
+      final channel = resolvedChannel();
       final patchFileError = earlyPatchFileError();
       if (patchFileError != null) {
         _logger.err(patchFileError);

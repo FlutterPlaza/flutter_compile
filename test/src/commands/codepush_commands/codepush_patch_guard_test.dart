@@ -277,8 +277,17 @@ void main() {
     });
 
     test('signing preconditions are checked before any build work', () async {
-      // --unsigned decides without touching config or disk.
-      cmd.parsedArgs = cmd.argParser.parse(['--unsigned']);
+      // (A bare --unsigned row would read the machine's stored-key
+      // config — deliberately unpinned, no config seam. The rows
+      // below are hermetic.)
+      // --unsigned with a valid explicit key proceeds (it signs).
+      final unsignedKey = File(
+        '${Directory.systemTemp.createTempSync('fcp_sign_u').path}/k.pem',
+      )..writeAsBytesSync([1]);
+      addTearDown(() => unsignedKey.parent.deleteSync(recursive: true));
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--unsigned', '--signing-key', unsignedKey.path],
+      );
       expect(await cmd.signingPreconditionError(), isNull);
 
       // An explicit key naming a missing file is a pure argument
@@ -409,6 +418,28 @@ void main() {
       final (value, error) = resolved(['--platform', 'web']);
       expect(value, isNull);
       expect(error, contains('web'));
+      // Present-but-blank is rejected like an empty --signing-key —
+      // an unset CI variable must not read as "no platform named".
+      final (blankValue, blankError) = resolved(['--platform', '']);
+      expect(blankValue, isNull);
+      expect(blankError, contains('Empty --platform'));
+      final (wsValue, wsError) = resolved(['--platform', '  ']);
+      expect(wsValue, isNull);
+      expect(wsError, contains('Empty --platform'));
+    });
+
+    test('resolvedChannel: trimmed, empty falls back to production', () {
+      String channel(List<String> args) {
+        cmd.parsedArgs = cmd.argParser.parse(args);
+        return cmd.resolvedChannel();
+      }
+
+      expect(channel([]), 'production');
+      expect(channel(['--channel', 'beta']), 'beta');
+      // ' production ' with spaces would be a channel no device
+      // polls — the upload succeeds and nothing is ever offered.
+      expect(channel(['--channel', ' production ']), 'production');
+      expect(channel(['--channel', '']), 'production');
     });
   });
 
