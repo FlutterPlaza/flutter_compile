@@ -230,8 +230,10 @@ class CodePushPatchSubCommand extends Command<int> {
   /// be silently not-understood. Returns (normalized value, error);
   /// a non-null error means exit 64. Public for tests; reads its own
   /// args.
-  (String?, String?) platformArgOrError() =>
-      normalizeCodePushPlatformArg(argResults?['platform'] as String?);
+  (String?, String?) platformArgOrError() => normalizeCodePushPlatformArg(
+        argResults?['platform'] as String?,
+        forBuild: argResults?['build'] as bool? ?? false,
+      );
 
   /// The no-key message — one source for the early precondition and
   /// the late backstop, so the two sites cannot drift.
@@ -322,27 +324,42 @@ class CodePushPatchSubCommand extends Command<int> {
     return (trimmed, null);
   }
 
-  /// The pre-build `--baseline` advisory, or null. Both directions
-  /// are warnings, not exits: without `--build` the flag is read by
-  /// nothing (the diff comes from the freshly built snapshot) — the
-  /// quiet misreading worth flagging; with `--build`, a path that
-  /// does not exist means a full-snapshot upload, legitimate but
-  /// worth saying where the operator can still cheaply abort (the
-  /// packaging step repeats it in context). Empty values are
-  /// ignored at both this and the packaging-time site. Public for
-  /// tests; reads its own args.
-  String? baselineArgWarning() {
+  /// The pre-build `--baseline` check: (warning, error). Present-
+  /// but-blank is an ERROR like every other boundary read (an unset
+  /// CI variable — pre-fix it silently uploaded a full snapshot
+  /// with BOTH advisories suppressed by the isEmpty guards). The
+  /// two advisory directions stay warnings, not exits: without
+  /// `--build` the flag is read by nothing (the diff comes from the
+  /// freshly built snapshot) — the quiet misreading worth flagging;
+  /// with `--build`, a path that does not exist means a
+  /// full-snapshot upload, legitimate but worth saying where the
+  /// operator can still cheaply abort (the packaging step repeats
+  /// it in context). Public for tests; reads its own args.
+  (String?, String?) baselineArgCheck() {
     final baselineArg = argResults?['baseline'] as String?;
-    if (baselineArg == null || baselineArg.isEmpty) return null;
+    if (baselineArg == null) return (null, null);
+    if (baselineArg.trim().isEmpty) {
+      return (
+        null,
+        'Empty --baseline value (an unset CI variable?). Pass a baseline '
+            'path, or drop the flag to upload a full snapshot.',
+      );
+    }
     final shouldBuild = argResults?['build'] as bool? ?? false;
     if (!shouldBuild) {
-      return '--baseline is only used together with --build; ignoring it.';
+      return (
+        '--baseline is only used together with --build; ignoring it.',
+        null,
+      );
     }
     if (!File(baselineArg).existsSync()) {
-      return 'Baseline not found at $baselineArg — the patch will upload '
-          'as a full snapshot, not a diff.';
+      return (
+        'Baseline not found at $baselineArg — the patch will upload '
+            'as a full snapshot, not a diff.',
+        null,
+      );
     }
-    return null;
+    return (null, null);
   }
 
   /// The missing-patch-file error. Under `--build` it names the path
@@ -476,7 +493,11 @@ class CodePushPatchSubCommand extends Command<int> {
         _logger.err(signingError);
         return ExitCode.software.code;
       }
-      final baselineWarning = baselineArgWarning();
+      final (baselineWarning, baselineError) = baselineArgCheck();
+      if (baselineError != null) {
+        _logger.err(baselineError);
+        return ExitCode.usage.code;
+      }
       if (baselineWarning != null) {
         _logger.warn(baselineWarning);
       }

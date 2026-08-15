@@ -382,7 +382,7 @@ void main() {
       expect(parsed(['--rollout', '9' * 20]), isNull);
     });
 
-    test('baselineArgWarning: both silent-failure directions pinned', () {
+    test('baselineArgCheck: warnings, and the empty-value reject', () {
       final baseline = File(
         '${Directory.systemTemp.createTempSync('fcp_base').path}/b.so',
       )..writeAsBytesSync([1]);
@@ -391,21 +391,27 @@ void main() {
       // Valid baseline WITHOUT --build: read by nothing — the quiet
       // misreading must warn, not silently ignore.
       cmd.parsedArgs = cmd.argParser.parse(['--baseline', baseline.path]);
-      expect(cmd.baselineArgWarning(), contains('only used together'));
+      expect(cmd.baselineArgCheck().$1, contains('only used together'));
 
       // Missing baseline WITH --build: full-snapshot advisory.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--baseline', '/definitely/not/b.so'],
       );
-      expect(cmd.baselineArgWarning(), contains('full snapshot'));
+      expect(cmd.baselineArgCheck().$1, contains('full snapshot'));
 
-      // Valid + --build: silent. Empty: silent (no 'not found at ').
+      // Valid + --build: silent.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--baseline', baseline.path],
       );
-      expect(cmd.baselineArgWarning(), isNull);
+      expect(cmd.baselineArgCheck(), (null, null));
+
+      // Present-but-blank REJECTS like the four flags beside it —
+      // pre-fix it silently uploaded a full snapshot with both
+      // advisories suppressed.
       cmd.parsedArgs = cmd.argParser.parse(['--baseline', '']);
-      expect(cmd.baselineArgWarning(), isNull);
+      final (warning, error) = cmd.baselineArgCheck();
+      expect(warning, isNull);
+      expect(error, contains('Empty --baseline'));
     });
 
     test('platformArgOrError: normalize, validate, never silently drop', () {
@@ -420,8 +426,16 @@ void main() {
       expect(resolved(['--platform', 'iOS']), ('ios', null));
       expect(resolved(['--platform', ' apk ']), ('apk', null));
       // 'android' is the fallback alias the help never listed — it
-      // has always worked and must keep working.
+      // has always worked on the no-build paths and must keep
+      // working there...
       expect(resolved(['--platform', 'android']), ('android', null));
+      // ...but under --build it is a guaranteed failure AFTER a full
+      // engine preparation (flutter build has no 'android'
+      // subcommand) — fast exit naming the buildable pair instead.
+      final (androidValue, androidError) =
+          resolved(['--build', '--platform', 'android']);
+      expect(androidValue, isNull);
+      expect(androidError, contains('not a buildable target'));
       // Free text is a fast exit 64, never an ungated upload.
       final (value, error) = resolved(['--platform', 'web']);
       expect(value, isNull);

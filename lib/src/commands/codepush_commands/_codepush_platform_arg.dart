@@ -1,10 +1,12 @@
 /// Every `--platform` value the code push commands understand: the
 /// six documented ones plus 'android', the alias the patch command's
-/// local-hash fallback has always accepted. 'android' is deliberately
-/// NOT advertised in the error text below — under `--build` it is
+/// local-hash fallback has always accepted. 'android' is neither
+/// advertised in the error text below nor accepted under `--build`
+/// (see [normalizeCodePushPlatformArg]'s `forBuild`) — it is
 /// forwarded to `flutter build <platform>`, which has no such
-/// subcommand, so recommending it would send a mistyping operator
-/// into a guaranteed build failure.
+/// subcommand, so a `--build` run would pay a full engine
+/// preparation (artifact download on a cold cache) only to fail in
+/// flutter's own usage error.
 const knownCodePushPlatforms = {
   'apk',
   'appbundle',
@@ -24,7 +26,10 @@ const knownCodePushPlatforms = {
 /// Android packaged-lib rule. A value the commands do not understand
 /// must be a fast exit, never a silent miss. Returns
 /// `(normalized, error)`; a non-null error means exit 64.
-(String?, String?) normalizeCodePushPlatformArg(String? raw) {
+(String?, String?) normalizeCodePushPlatformArg(
+  String? raw, {
+  required bool forBuild,
+}) {
   if (raw == null) return (null, null);
   final trimmed = raw.trim();
   // Present-but-blank is REJECTED, not treated as absent — the same
@@ -46,6 +51,16 @@ const knownCodePushPlatforms = {
       null,
       'Unknown --platform "$trimmed". Use one of: '
           'apk, appbundle, ios, linux, macos, windows.',
+    );
+  }
+  // The alias is understood for the no-build paths only; a value
+  // the command understands for one purpose and cannot act on for
+  // the other must still be a fast exit under --build.
+  if (forBuild && normalized == 'android') {
+    return (
+      null,
+      "--platform android is not a buildable target; use 'apk' or "
+          "'appbundle' with --build.",
     );
   }
   return (normalized, null);

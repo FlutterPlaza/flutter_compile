@@ -219,8 +219,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     // wrong-cased value would skip the iOS baseline-identity
     // requirement and the Android packaged-lib rule silently. A
     // value the command does not understand must be a fast exit.
-    final (platformArg, platformError) =
-        normalizeCodePushPlatformArg(argResults?['platform'] as String?);
+    final (platformArg, platformError) = normalizeCodePushPlatformArg(
+      argResults?['platform'] as String?,
+      forBuild: shouldBuild,
+    );
     if (platformError != null) {
       _logger.err(platformError);
       return ExitCode.usage.code;
