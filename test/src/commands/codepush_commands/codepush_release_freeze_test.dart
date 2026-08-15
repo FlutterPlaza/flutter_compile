@@ -974,4 +974,51 @@ void main() {
       expect(cmd.blankArgError(), isNull);
     });
   });
+
+  group('version resolution', () {
+    test(
+        'pubspecVersionValue: comments and quotes are the parser\'s '
+        'problem', () {
+      // Both shapes are ordinary, legal pubspec that the end-of-line
+      // capture keeps.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1 # bumped'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('"1.0.0+1"'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue("'1.0.0'"),
+        '1.0.0',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('"1.0.0+1" # x'),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1'),
+        '1.0.0+1',
+      );
+    });
+
+    test('versionValidationError: shared predicate, producer named', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      expect(
+        cmd.versionValidationError('1.0.0+1', source: '--version'),
+        isNull,
+      );
+      // The mid-build ArgumentError class: whitespace and parens can
+      // be neither stamped nor matched — exit 64 naming the producer.
+      expect(
+        cmd.versionValidationError('1.0.0 (42)', source: 'pubspec.yaml'),
+        allOf(contains('1.0.0 (42)'), contains('pubspec.yaml')),
+      );
+      expect(
+        cmd.versionValidationError('a b', source: '--version'),
+        contains('--version'),
+      );
+    });
+  });
 }

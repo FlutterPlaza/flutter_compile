@@ -195,6 +195,39 @@ class CodePushReleaseSubCommand extends Command<int> {
     return null;
   }
 
+  /// Parses the raw capture of a pubspec `version:` line. Strips a
+  /// trailing YAML comment AND a matching surrounding quote pair —
+  /// both are ordinary, legal pubspec (`version: "1.0.0+1"`,
+  /// `version: 1.0.0+1 # bumped by CI`) that the end-of-line capture
+  /// keeps. The YAML subtleties are this PARSER's problem;
+  /// [versionValidationError] catches what is genuinely invalid.
+  /// Static and pure; public for tests.
+  static String pubspecVersionValue(String rawCapture) {
+    var value = rawCapture.split('#').first.trim();
+    for (final quote in ['"', "'"]) {
+      if (value.length >= 2 &&
+          value.startsWith(quote) &&
+          value.endsWith(quote)) {
+        value = value.substring(1, value.length - 1).trim();
+        break;
+      }
+    }
+    return value;
+  }
+
+  /// The rejection for a release version that can be neither stamped
+  /// (Android yaml) nor matched by any device, or null. Uses the
+  /// SAME predicate the Android stamp enforces with its uncaught
+  /// ArgumentError ([isStampableReleaseVersion]), so the pre-check
+  /// cannot silently diverge from the crash it exists to prevent.
+  /// [source] names the producer so the operator checks the right
+  /// place. Public for tests.
+  String? versionValidationError(String version, {required String source}) {
+    if (isStampableReleaseVersion(version)) return null;
+    return 'Invalid release version "$version" (from $source): only '
+        'letters, digits, ".", "_", "+", and "-" are allowed.';
+  }
+
   @override
   final String name = 'release';
   @override
@@ -231,7 +264,9 @@ class CodePushReleaseSubCommand extends Command<int> {
     // records a server version no device ever reports; the pubspec
     // fallback below already trims, so the two halves now agree.
     var version = (argResults?['version'] as String?)?.trim();
+    var versionSource = '--version';
     if (version == null || version.isEmpty) {
+      versionSource = 'pubspec.yaml';
       // Try to read from pubspec.yaml in current directory.
       final pubspec = File('pubspec.yaml');
       if (pubspec.existsSync()) {
@@ -241,10 +276,7 @@ class CodePushReleaseSubCommand extends Command<int> {
           multiLine: true,
         ).firstMatch(content);
         if (match != null) {
-          // The capture runs to end of line; a trailing YAML comment
-          // ('version: 1.0.0+1 # bumped by CI') is valid pubspec and
-          // must be stripped here, not shipped as part of the version.
-          version = match.group(1)?.split('#').first.trim();
+          version = pubspecVersionValue(match.group(1)!);
         }
       }
       if (version == null || version.isEmpty) {
@@ -255,17 +287,14 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       _logger.detail('Using version from pubspec.yaml: $version');
     }
-    // One validation after both producers (flag and pubspec)
-    // converge — the same charset the Android yaml stamp enforces
-    // with an ArgumentError that nothing catches. A version that
-    // cannot be stamped or matched by any device must exit 64 here,
-    // not crash mid-build or ship silently.
-    if (!RegExp(r'^[A-Za-z0-9._+\-]+$').hasMatch(version)) {
-      _logger.err(
-        'Invalid release version "$version" (from --version or '
-        'pubspec.yaml): only letters, digits, ".", "_", "+", and "-" '
-        'are allowed.',
-      );
+    // One validation after both producers converge — exit 64 here,
+    // not a mid-build crash or a silently unmatched server version.
+    final versionError = versionValidationError(
+      version,
+      source: versionSource,
+    );
+    if (versionError != null) {
+      _logger.err(versionError);
       return ExitCode.usage.code;
     }
 

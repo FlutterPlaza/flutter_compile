@@ -645,7 +645,10 @@ class CodePushPatchSubCommand extends Command<int> {
         var iosHelperImports = <String>[];
 
         if (platform == 'ios') {
-          iosPackagePrefix = argResults?['package-prefix'] as String?;
+          // Trimmed: unlike the path flags, a package URI prefix is
+          // only ever string-compared against library URIs, where
+          // whitespace can match nothing.
+          iosPackagePrefix = (argResults?['package-prefix'] as String?)?.trim();
           if (iosPackagePrefix == null || iosPackagePrefix.isEmpty) {
             iosPackagePrefix = _readPackagePrefixFromPubspec();
             if (iosPackagePrefix == null) {
