@@ -241,7 +241,10 @@ class CodePushReleaseSubCommand extends Command<int> {
           multiLine: true,
         ).firstMatch(content);
         if (match != null) {
-          version = match.group(1)?.trim();
+          // The capture runs to end of line; a trailing YAML comment
+          // ('version: 1.0.0+1 # bumped by CI') is valid pubspec and
+          // must be stripped here, not shipped as part of the version.
+          version = match.group(1)?.split('#').first.trim();
         }
       }
       if (version == null || version.isEmpty) {
@@ -251,6 +254,19 @@ class CodePushReleaseSubCommand extends Command<int> {
         return ExitCode.usage.code;
       }
       _logger.detail('Using version from pubspec.yaml: $version');
+    }
+    // One validation after both producers (flag and pubspec)
+    // converge — the same charset the Android yaml stamp enforces
+    // with an ArgumentError that nothing catches. A version that
+    // cannot be stamped or matched by any device must exit 64 here,
+    // not crash mid-build or ship silently.
+    if (!RegExp(r'^[A-Za-z0-9._+\-]+$').hasMatch(version)) {
+      _logger.err(
+        'Invalid release version "$version" (from --version or '
+        'pubspec.yaml): only letters, digits, ".", "_", "+", and "-" '
+        'are allowed.',
+      );
+      return ExitCode.usage.code;
     }
 
     // If --build is set, build the app first.
@@ -290,7 +306,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
       final flutterVersion = await buildService.resolveFlutterVersion(
-        explicit: argResults?['flutter-version'] as String?,
+        explicit: (argResults?['flutter-version'] as String?)?.trim(),
         buildPlatform: platform,
         artifactManager: artifactManager,
       );
@@ -580,7 +596,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     _logger.detail('Snapshot size: ${snapshotData.length} bytes');
 
     // Resolve Flutter version for server-side compilation.
-    var flutterVersion = argResults?['flutter-version'] as String?;
+    // Trimmed at the boundary: the server records this verbatim as
+    // the SDK every future patch compiles against, and the padded
+    // shape otherwise becomes an engine-cache path with a space.
+    var flutterVersion = (argResults?['flutter-version'] as String?)?.trim();
     if (flutterVersion == null || flutterVersion.isEmpty) {
       final flutter = buildService.findFlutterBin();
       if (flutter != null) {

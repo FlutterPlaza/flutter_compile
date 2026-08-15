@@ -956,6 +956,14 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(['--app-id', '']);
       expect(cmd.blankArgError(), contains('Empty --app-id'));
 
+      // One row per list entry: blankArgError is a loop over a
+      // string list, so deleting an entry is a silent, fully green
+      // regression without these.
+      cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', ' ']);
+      expect(cmd.blankArgError(), contains('Empty --flutter-version'));
+      cmd.parsedArgs = cmd.argParser.parse(['--baseline-id', '']);
+      expect(cmd.blankArgError(), contains('Empty --baseline-id'));
+
       // Absent flags keep their fallbacks (build / pubspec / stored
       // config) — only present-but-blank rejects.
       cmd.parsedArgs = cmd.argParser.parse([]);

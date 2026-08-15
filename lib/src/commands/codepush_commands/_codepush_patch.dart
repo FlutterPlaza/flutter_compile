@@ -265,16 +265,27 @@ class CodePushPatchSubCommand extends Command<int> {
   }
 
   /// Same contract as the release command's blankArgError, for the
-  /// one boundary read the per-flag helpers here do not own: a blank
+  /// boundary reads the per-flag helpers here do not own. A blank
   /// --flutter-version silently fell through to local detection,
-  /// recording the machine's own SDK — and the patch then targets a
-  /// release compiled against a different Flutter. Public for
-  /// tests; reads its own args.
-  String? blankFlutterVersionError() {
-    final raw = argResults?['flutter-version'] as String?;
-    if (raw != null && raw.trim().isEmpty) {
-      return 'Empty --flutter-version value (an unset CI variable?). Pass '
-          'a version, or drop the flag to auto-detect.';
+  /// recording the machine's own SDK — the patch then targets a
+  /// release compiled against a different Flutter. A blank
+  /// --patch-entry-file fell into candidate discovery, which errors
+  /// on ambiguity but with exactly one candidate ships code the
+  /// operator did not name. A blank --package-prefix is benign (the
+  /// pubspec auto-detect answers the same) and joins the rule so
+  /// the next reader can tell it was decided. Public for tests;
+  /// reads its own args.
+  String? blankArgError() {
+    for (final flag in [
+      'flutter-version',
+      'package-prefix',
+      'patch-entry-file',
+    ]) {
+      final raw = argResults?[flag] as String?;
+      if (raw != null && raw.trim().isEmpty) {
+        return 'Empty --$flag value (an unset CI variable?). Pass a value, '
+            'or drop the flag to use its normal fallback.';
+      }
     }
     return null;
   }
@@ -567,9 +578,9 @@ class CodePushPatchSubCommand extends Command<int> {
       if (patchCheck.warning != null) {
         _logger.warn(patchCheck.warning!);
       }
-      final flutterVersionError = blankFlutterVersionError();
-      if (flutterVersionError != null) {
-        _logger.err(flutterVersionError);
+      final blankError = blankArgError();
+      if (blankError != null) {
+        _logger.err(blankError);
         return ExitCode.usage.code;
       }
       final signingError = await signingPreconditionError();
@@ -606,7 +617,7 @@ class CodePushPatchSubCommand extends Command<int> {
         final artifactManager = CodePushArtifactManager(logger: _logger);
 
         final flutterVersion = await buildService.resolveFlutterVersion(
-          explicit: argResults?['flutter-version'] as String?,
+          explicit: (argResults?['flutter-version'] as String?)?.trim(),
           buildPlatform: platform,
           artifactManager: artifactManager,
         );

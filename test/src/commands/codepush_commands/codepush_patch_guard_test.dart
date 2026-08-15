@@ -330,16 +330,19 @@ void main() {
       expect(cmd.patchFileArgCheck().isUsageError, isFalse);
     });
 
-    test('blankFlutterVersionError: blank rejects, absent auto-detects', () {
+    test('blankArgError: blank rejects, absent keeps the fallback', () {
+      // Deleting an entry from the flag list is a silent, fully
+      // green regression — one row per flag holds the list in place.
       cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', ' ']);
-      expect(
-        cmd.blankFlutterVersionError(),
-        contains('Empty --flutter-version'),
-      );
+      expect(cmd.blankArgError(), contains('Empty --flutter-version'));
+      cmd.parsedArgs = cmd.argParser.parse(['--package-prefix', '']);
+      expect(cmd.blankArgError(), contains('Empty --package-prefix'));
+      cmd.parsedArgs = cmd.argParser.parse(['--patch-entry-file', ' ']);
+      expect(cmd.blankArgError(), contains('Empty --patch-entry-file'));
       cmd.parsedArgs = cmd.argParser.parse([]);
-      expect(cmd.blankFlutterVersionError(), isNull);
+      expect(cmd.blankArgError(), isNull);
       cmd.parsedArgs = cmd.argParser.parse(['--flutter-version', '3.41.2']);
-      expect(cmd.blankFlutterVersionError(), isNull);
+      expect(cmd.blankArgError(), isNull);
     });
 
     test(
