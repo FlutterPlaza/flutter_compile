@@ -1033,6 +1033,56 @@ void main() {
       );
     });
 
+    test('pubspecContentForVersion: lazy and guarded', () {
+      final logger = MockLogger();
+      when(() => logger.detail(any())).thenReturn(null);
+      final cmd = ParsedArgsReleaseCommand(logger);
+      final root = Directory.systemTemp.createTempSync('fcp_pubspec');
+      addTearDown(() => root.deleteSync(recursive: true));
+      File('${root.path}/pubspec.yaml').writeAsStringSync('version: 1.0.0+1\n');
+
+      // LAZY: a run that passed --version never reads the file, even
+      // when a perfectly readable one exists.
+      cmd.parsedArgs = cmd.argParser.parse(['--version', '2.0.0']);
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: root.path),
+        isNull,
+      );
+
+      // No flag: the content is returned; a missing file is null.
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: root.path),
+        contains('1.0.0+1'),
+      );
+      final empty = Directory.systemTemp.createTempSync('fcp_nopub');
+      addTearDown(() => empty.deleteSync(recursive: true));
+      expect(
+        cmd.pubspecContentForVersion(projectRootOverride: empty.path),
+        isNull,
+      );
+
+      // GUARDED: an unreadable pubspec degrades to null with the
+      // cause at detail visibility, never an unhandled exception.
+      if (!Platform.isWindows) {
+        final locked = Directory.systemTemp.createTempSync('fcp_locked');
+        addTearDown(() {
+          Process.runSync('chmod', ['644', '${locked.path}/pubspec.yaml']);
+          locked.deleteSync(recursive: true);
+        });
+        File('${locked.path}/pubspec.yaml')
+            .writeAsStringSync('version: 1.0.0+1\n');
+        Process.runSync('chmod', ['000', '${locked.path}/pubspec.yaml']);
+        expect(
+          cmd.pubspecContentForVersion(projectRootOverride: locked.path),
+          isNull,
+        );
+        verify(
+          () => logger.detail(any(that: contains('Could not read'))),
+        ).called(1);
+      }
+    });
+
     test('resolvedVersionAndSource: the SOURCE is pinned per branch', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       // Swapping the two assignments used to compile and pass green

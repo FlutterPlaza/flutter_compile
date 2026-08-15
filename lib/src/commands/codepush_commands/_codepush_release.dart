@@ -235,6 +235,34 @@ class CodePushReleaseSubCommand extends Command<int> {
     return value.isEmpty ? null : value;
   }
 
+  /// The pubspec content the version resolution may consult, or null
+  /// when it must not or cannot. LAZY: a run that passed --version
+  /// never touches the file — blankArgError already rejected blank,
+  /// so a non-null flag wins; that coupling is recorded HERE, beside
+  /// the gate that depends on it (deleting blankArgError's 'version'
+  /// entry would change what a blank flag resolves to). GUARDED: an
+  /// unreadable or non-UTF-8 pubspec degrades to null — landing on
+  /// the actionable no-version error, with the cause kept at detail
+  /// visibility — never an unhandled exception on a run that worked
+  /// yesterday. Same rule as prepareIosInterfaceFreeze's read of
+  /// this file, same seam for tests. Public for tests; reads its
+  /// own args.
+  String? pubspecContentForVersion({String? projectRootOverride}) {
+    if (argResults?['version'] != null) return null;
+    final root = projectRootOverride ?? Directory.current.path;
+    final pubspecFile = File('$root/pubspec.yaml');
+    if (!pubspecFile.existsSync()) return null;
+    try {
+      return pubspecFile.readAsStringSync();
+    } on FileSystemException catch (e) {
+      _logger.detail('Could not read pubspec.yaml: $e');
+      return null;
+    } on FormatException catch (e) {
+      _logger.detail('Could not read pubspec.yaml: $e');
+      return null;
+    }
+  }
+
   /// The resolved (version, source) pair: the trimmed `--version`
   /// flag wins when non-blank; otherwise the pubspec content (null
   /// content = no pubspec). The SOURCE is part of the contract — it
@@ -299,34 +327,18 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Resolve version — flag, then pubspec — via the tested helper,
+    // Resolve version — flag, then pubspec — via the tested helpers,
     // so the producer named in any later error is pinned rather
-    // than assigned by hand in two branches. The pubspec read is
-    // LAZY (a run that passed --version must never touch the file —
-    // blankArgError already rejected blank, so non-null means the
-    // flag wins) and GUARDED (a present-but-unreadable or non-UTF-8
-    // pubspec lands on the actionable no-version error below, not
-    // an unhandled FileSystemException after `--version` worked
-    // yesterday — same rule as prepareIosInterfaceFreeze's read).
-    String? pubspecContent;
-    if (argResults?['version'] == null) {
-      final pubspecFile = File('pubspec.yaml');
-      if (pubspecFile.existsSync()) {
-        try {
-          pubspecContent = pubspecFile.readAsStringSync();
-        } on FileSystemException {
-          pubspecContent = null;
-        } on FormatException {
-          pubspecContent = null;
-        }
-      }
-    }
+    // than assigned by hand in two branches.
     final (resolvedVersion, versionSource) =
-        resolvedVersionAndSource(pubspecContent);
+        resolvedVersionAndSource(pubspecContentForVersion());
     final version = resolvedVersion;
     if (version == null || version.isEmpty) {
+      // Worded for BOTH causes: no version anywhere, and a pubspec
+      // that exists but could not be read (cause at --verbose).
       _logger.err(
-        'No version specified. Use --version or add one to pubspec.yaml.',
+        'No version specified. Use --version, or check that '
+        'pubspec.yaml exists, is readable, and has a version: line.',
       );
       return ExitCode.usage.code;
     }

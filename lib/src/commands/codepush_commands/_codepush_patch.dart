@@ -361,7 +361,11 @@ class CodePushPatchSubCommand extends Command<int> {
     // otherwise still end the run post-build at 'Signing failed' on
     // an invocation whose whole point was that signing is optional.
     final storedKey = await CodePushClient.getStoredSigningKey();
-    if (storedKey == null || storedKey.isEmpty) {
+    // trim(): a hand-edited rc line 'codepush_signing_key: ' round-
+    // trips as whitespace; both sites must classify it as absent or
+    // the '--unsigned cannot skip a configured stored key' sentence
+    // stops being true for this shape.
+    if (storedKey == null || storedKey.trim().isEmpty) {
       // Genuinely no key anywhere: fine under --unsigned.
       if (allowUnsigned) return null;
       return missingSigningKeyMessage;
