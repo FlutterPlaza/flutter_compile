@@ -955,6 +955,8 @@ void main() {
 
       cmd.parsedArgs = cmd.argParser.parse(['--app-id', '']);
       expect(cmd.blankArgError(), contains('Empty --app-id'));
+      cmd.parsedArgs = cmd.argParser.parse(['--app-id', '  ']);
+      expect(cmd.blankArgError(), contains('Empty --app-id'));
 
       // One row per list entry: blankArgError is a loop over a
       // string list, so deleting an entry is a silent, fully green
@@ -1001,6 +1003,44 @@ void main() {
         CodePushReleaseSubCommand.pubspecVersionValue('1.0.0+1'),
         '1.0.0+1',
       );
+    });
+
+    test('pubspecVersionFrom: one line only; valueless falls through', () {
+      // \s would cross the newline and read 'environment:' as the
+      // version — a hard exit naming a line the operator never wrote.
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom(
+          'name: demo\nversion:\nenvironment:\n  sdk: ^3.4.0\n',
+        ),
+        isNull,
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom(
+          'name: demo\nversion: "1.0.0+1" # bumped\n',
+        ),
+        '1.0.0+1',
+      );
+      expect(
+        CodePushReleaseSubCommand.pubspecVersionFrom('name: demo\n'),
+        isNull,
+      );
+    });
+
+    test('resolvedVersionAndSource: the SOURCE is pinned per branch', () {
+      final cmd = ParsedArgsReleaseCommand(MockLogger());
+      // Swapping the two assignments used to compile and pass green
+      // while sending the operator to the wrong file.
+      cmd.parsedArgs = cmd.argParser.parse(['--version', ' 2.0.0+5 ']);
+      expect(
+        cmd.resolvedVersionAndSource('version: 1.0.0+1\n'),
+        ('2.0.0+5', '--version'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      expect(
+        cmd.resolvedVersionAndSource('version: 1.0.0+1\n'),
+        ('1.0.0+1', 'pubspec.yaml'),
+      );
+      expect(cmd.resolvedVersionAndSource(null), (null, 'pubspec.yaml'));
     });
 
     test('versionValidationError: shared predicate, producer named', () {

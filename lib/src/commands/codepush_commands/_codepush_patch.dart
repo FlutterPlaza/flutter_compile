@@ -326,16 +326,24 @@ class CodePushPatchSubCommand extends Command<int> {
   Future<String?> signingPreconditionError() async {
     final allowUnsigned = argResults?['unsigned'] as bool? ?? false;
     final explicitKey = argResults?['signing-key'] as String?;
-    // A NON-EMPTY explicit key is checked even under --unsigned: the
+    // Blankness is classified on the TRIMMED value like every
+    // sibling — '' and '  ' are the same unset variable, and must
+    // not diverge (whitespace used to hit 'Signing key not found:  '
+    // while empty got the blank message, and under --unsigned the
+    // two behaved differently). The stat below still uses the
+    // UNTRIMMED path — the deliberate path-flag rule.
+    final explicitKeyIsBlank =
+        explicitKey != null && explicitKey.trim().isEmpty;
+    // A usable explicit key is checked even under --unsigned: the
     // late block signs whenever a key path is present, so a broken
     // explicit key would still end the run post-build.
-    if (explicitKey != null && explicitKey.isNotEmpty) {
+    if (explicitKey != null && !explicitKeyIsBlank) {
       if (!File(explicitKey).existsSync()) {
         return 'Signing key not found: $explicitKey';
       }
       return null;
     }
-    if (explicitKey != null) {
+    if (explicitKeyIsBlank) {
       // Empty: under --unsigned it proceeds (matching the late
       // block, which ignores an empty key there); otherwise it is
       // REJECTED, not treated as absent — an unset CI variable
@@ -814,7 +822,9 @@ class CodePushPatchSubCommand extends Command<int> {
             if (iosSwapMode && iosPatchSourceImport != null)
               '$packagePrefix$iosPatchSourceImport',
             for (final helper in iosHelperImports) '$packagePrefix$helper',
-            ...explicitIncludes.where((u) => u.isNotEmpty),
+            // Trimmed like --package-prefix: package URIs are only
+            // ever string-compared, where whitespace matches nothing.
+            ...explicitIncludes.map((u) => u.trim()).where((u) => u.isNotEmpty),
           }.toList();
 
           final bcResult = await buildService.bytecodeFromKernel(

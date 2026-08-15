@@ -404,6 +404,17 @@ void main() {
       cmd.parsedArgs = cmd.argParser.parse(['--unsigned', '--signing-key', '']);
       expect(await cmd.signingPreconditionError(), isNull);
 
+      // Whitespace-only classifies as blank like every sibling —
+      // the same unset variable as '', in both directions.
+      cmd.parsedArgs = cmd.argParser.parse(['--signing-key', '  ']);
+      expect(
+        await cmd.signingPreconditionError(),
+        contains('Empty --signing-key'),
+      );
+      cmd.parsedArgs =
+          cmd.argParser.parse(['--unsigned', '--signing-key', '  ']);
+      expect(await cmd.signingPreconditionError(), isNull);
+
       // An explicit key that exists passes without a config lookup.
       final key = File(
         '${Directory.systemTemp.createTempSync('fcp_sign').path}/k.pem',

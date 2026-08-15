@@ -215,6 +215,40 @@ class CodePushReleaseSubCommand extends Command<int> {
     return value;
   }
 
+  /// Resolves the version from raw pubspec content, or null when the
+  /// key is absent or valueless. The capture is confined to ONE line
+  /// (`[^\S\r\n]` instead of `\s`, which crosses newlines): a
+  /// valueless `version:` must fall to the no-version error, never
+  /// read the NEXT line as the version. Quoting/comment subtleties
+  /// are [pubspecVersionValue]'s. Static and pure; public for tests.
+  static String? pubspecVersionFrom(String fileContent) {
+    final match = RegExp(
+      r'^version:[^\S\r\n]*(.*)$',
+      multiLine: true,
+    ).firstMatch(fileContent);
+    if (match == null) return null;
+    final value = pubspecVersionValue(match.group(1)!);
+    return value.isEmpty ? null : value;
+  }
+
+  /// The resolved (version, source) pair: the trimmed `--version`
+  /// flag wins when non-blank; otherwise the pubspec content (null
+  /// content = no pubspec). The SOURCE is part of the contract — it
+  /// names the file the operator must fix in any later validation
+  /// error, and hand-assigning it in two run() branches let the two
+  /// be swapped with every test green. Public for tests; reads its
+  /// own args.
+  (String?, String) resolvedVersionAndSource(String? pubspecContent) {
+    final flagVersion = (argResults?['version'] as String?)?.trim();
+    if (flagVersion != null && flagVersion.isNotEmpty) {
+      return (flagVersion, '--version');
+    }
+    return (
+      pubspecContent == null ? null : pubspecVersionFrom(pubspecContent),
+      'pubspec.yaml',
+    );
+  }
+
   /// The rejection for a release version that can be neither stamped
   /// (Android yaml) nor matched by any device, or null. Uses the
   /// SAME predicate the Android stamp enforces with its uncaught
@@ -248,8 +282,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Resolve app ID.
-    var appId = argResults?['app-id'] as String?;
+    // Resolve app ID. Trimmed at the boundary: padding would be
+    // invisible in the progress prose, encode as '+' on the wire,
+    // and either fail AFTER the whole baseline upload or land the
+    // release under an app id nothing polls.
+    var appId = (argResults?['app-id'] as String?)?.trim();
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
@@ -258,33 +295,21 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
-    // Resolve version. Trimmed at the boundary like --release-id and
-    // --rollout on the patch command: a padded CI value otherwise
-    // throws an uncaught ArgumentError in the Android yaml stamp and
-    // records a server version no device ever reports; the pubspec
-    // fallback below already trims, so the two halves now agree.
-    var version = (argResults?['version'] as String?)?.trim();
-    var versionSource = '--version';
+    // Resolve version — flag, then pubspec — via the tested helper,
+    // so the producer named in any later error is pinned rather
+    // than assigned by hand in two branches.
+    final pubspecFile = File('pubspec.yaml');
+    final (resolvedVersion, versionSource) = resolvedVersionAndSource(
+      pubspecFile.existsSync() ? pubspecFile.readAsStringSync() : null,
+    );
+    final version = resolvedVersion;
     if (version == null || version.isEmpty) {
-      versionSource = 'pubspec.yaml';
-      // Try to read from pubspec.yaml in current directory.
-      final pubspec = File('pubspec.yaml');
-      if (pubspec.existsSync()) {
-        final content = pubspec.readAsStringSync();
-        final match = RegExp(
-          r'^version:\s*(.+)$',
-          multiLine: true,
-        ).firstMatch(content);
-        if (match != null) {
-          version = pubspecVersionValue(match.group(1)!);
-        }
-      }
-      if (version == null || version.isEmpty) {
-        _logger.err(
-          'No version specified. Use --version or add one to pubspec.yaml.',
-        );
-        return ExitCode.usage.code;
-      }
+      _logger.err(
+        'No version specified. Use --version or add one to pubspec.yaml.',
+      );
+      return ExitCode.usage.code;
+    }
+    if (versionSource == 'pubspec.yaml') {
       _logger.detail('Using version from pubspec.yaml: $version');
     }
     // One validation after both producers converge — exit 64 here,
