@@ -41,7 +41,26 @@ void restoreIosInfoPlist(
   String originalContent, {
   String plistPath = kDefaultIosInfoPlistPath,
 }) {
-  File(plistPath).writeAsStringSync(originalContent);
+  // Temp + rename, like the Android yaml restore: a bare
+  // writeAsStringSync truncates BEFORE writing, so a mid-write
+  // failure (ENOSPC right after a build filled the disk) would
+  // leave the plist EMPTY — while the caller's failure guidance
+  // says the stamp is still there. With the rename, a failed
+  // restore provably leaves the target untouched. Dot-prefixed
+  // basename so a leftover never looks like a plist to anything.
+  final base = plistPath.split(RegExp(r'[/\\]')).last;
+  final tempFile = File('${File(plistPath).parent.path}/.$base.$pid.tmp');
+  try {
+    tempFile.writeAsStringSync(originalContent);
+    tempFile.renameSync(plistPath);
+  } on FileSystemException {
+    try {
+      tempFile.deleteSync();
+    } on FileSystemException {
+      // Best-effort cleanup; the target is untouched either way.
+    }
+    rethrow;
+  }
 }
 
 const String kDefaultBuiltIosAppPath = 'build/ios/iphoneos/Runner.app';

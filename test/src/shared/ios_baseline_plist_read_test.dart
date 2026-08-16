@@ -43,6 +43,70 @@ void main() {
     });
   });
 
+  group('restoreIosInfoPlist', () {
+    test('round-trips through a temp file with no leftover', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plist = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('stamped');
+
+      restoreIosInfoPlist('original', plistPath: plist.path);
+
+      expect(plist.readAsStringSync(), 'original');
+      // The write is temp+rename ON PURPOSE: a bare truncating write
+      // could leave an EMPTY plist on a mid-write failure, while the
+      // release command's failure guidance says the stamp survives.
+      final leftovers = dir
+          .listSync()
+          .map((e) => e.path)
+          .where((path) => path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    });
+
+    test('a symlink at the target is REPLACED, not written through', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist3');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final elsewhere = File('${root.path}/elsewhere.txt')
+        ..writeAsStringSync('x');
+      final plistPath = '${dir.path}/Info.plist';
+      Link(plistPath).createSync(elsewhere.path);
+
+      restoreIosInfoPlist('original', plistPath: plistPath);
+
+      // The rename replaces the LINK itself; a bare truncating write
+      // would follow it and scribble on the link target instead —
+      // the one observable difference between the two mechanisms.
+      expect(
+        FileSystemEntity.typeSync(plistPath, followLinks: false),
+        FileSystemEntityType.file,
+      );
+      expect(File(plistPath).readAsStringSync(), 'original');
+      expect(elsewhere.readAsStringSync(), 'x');
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
+
+    test('a failed restore leaves the target untouched', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist2');
+      addTearDown(() => root.deleteSync(recursive: true));
+      // The plist's parent does not exist: the temp write throws
+      // before anything touches the (also nonexistent) target.
+      expect(
+        () => restoreIosInfoPlist(
+          'original',
+          plistPath: '${root.path}/ios/Runner/Info.plist',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+      expect(
+        Directory('${root.path}/ios').existsSync(),
+        isFalse,
+      );
+    });
+  });
+
   group('builtIosAppDirFromBinaryPath', () {
     test('derives the app bundle from a baseline binary path', () {
       expect(

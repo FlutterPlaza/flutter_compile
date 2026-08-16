@@ -1318,15 +1318,45 @@ void main() {
       });
 
       test(
-          'foreign bytes that do NOT exist yet: the fail clause is '
-          'conditional — the build may create them, id included', () {
+          'missing foreign bytes OUTSIDE build/: base only — the '
+          'pre-build warning already owns the fail risk', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         cmd.parsedArgs =
             cmd.argParser.parse(['--snapshot', '/elsewhere/app.bin']);
         final advisory = cmd.foreignSnapshotAdvisory()!;
         expect(advisory, contains('will be skipped'));
+        expect(advisory.toLowerCase(), isNot(contains('fail')));
+      });
+
+      test(
+          'missing foreign bytes UNDER build/ keep the conditional '
+          'clause — no pre-build warning fires there', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/build/other/app.bin']);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
         expect(advisory, contains('If those bytes carry no readable'));
         expect(advisory, isNot(contains('FAIL after the build')));
+      });
+
+      test(
+          "with an override, this build's own output under that root "
+          'is not foreign: silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser.parse([
+          '--snapshot',
+          '${root.path}/$kDefaultBuiltIosAppPath'
+              '/Frameworks/App.framework/App',
+        ]);
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          isNull,
+        );
       });
 
       test(
@@ -1430,11 +1460,13 @@ void main() {
           'the swap exists', () {
         Directory(dest).createSync(recursive: true);
         File('$dest/marker.txt').writeAsStringSync('old');
-        // Occupy the temp destination with a plain FILE: cp cannot
-        // copy a directory over it, so the copy fails before any
-        // delete — this row goes red if anyone reverts the save to
-        // delete-first.
-        File('$dest.tmp').writeAsBytesSync([1]);
+        // Make a SOURCE file unreadable so cp fails mid-copy — the
+        // realistic failure shape — before any delete. This row goes
+        // red if anyone reverts the save to delete-first.
+        final locked = File('${root.path}/$kDefaultBuiltIosAppPath/locked.txt')
+          ..writeAsStringSync('x');
+        Process.runSync('chmod', ['000', locked.path]);
+        addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
         final saved = cmd.saveIosBaselineApp(
           baselineId: 'b-1',
           projectRootOverride: root.path,
@@ -1444,6 +1476,24 @@ void main() {
         verify(
           () => logger.warn(any(that: contains('left in place'))),
         ).called(1);
+      });
+
+      test(
+          'a plain file occupying the temp path is cleared and the '
+          'save lands — it must not block every subsequent run', () {
+        File('$dest.tmp')
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([1]);
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(
+          FileSystemEntity.typeSync('$dest.tmp', followLinks: false),
+          FileSystemEntityType.notFound,
+        );
       });
 
       test('a stale temp from a killed run is cleared and the save lands', () {
