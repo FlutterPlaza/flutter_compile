@@ -19,7 +19,7 @@ void main() {
       archive.addFile(ArchiveFile(path, bytes.length, bytes));
     });
     final file = File('${tmp.path}/$name')
-      ..writeAsBytesSync(ZipEncoder().encode(archive)!);
+      ..writeAsBytesSync(ZipEncoder().encode(archive));
     return file.path;
   }
 
