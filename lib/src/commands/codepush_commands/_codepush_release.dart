@@ -252,19 +252,13 @@ class CodePushReleaseSubCommand extends Command<int> {
         'pass --build.';
   }
 
-  /// The directory-aware core BOTH snapshot emitters share — the
-  /// pre-build gate and the post-build stat — so the two cannot
-  /// drift: the bundle-instead-of-binary mistake must never read as
-  /// "not found" while the directory sits right there. On the
-  /// --build path a bundle built THIS run is only met by the late
-  /// emitter; a pre-existing one is also caught up front by
-  /// [snapshotPreBuildWarning]'s directory branch.
   /// The flag-vs-built-bytes identity decision, pure and rowable
   /// (the same seam discipline as [snapshotArgError]: a rejection
   /// deserves rows). Returns null when --baseline-id raises no
   /// objection, else a statement of the contradiction — the CALLER
-  /// picks the remedy (refuse, or warn-and-drop under
-  /// --allow-missing-baseline). Fires only for a --build run
+  /// picks the remedy (refuse; or, under --allow-missing-baseline,
+  /// fall back to the embedded id when one exists, else proceed
+  /// identity-less). Fires only for a --build run
   /// releasing that build's own bytes whose stamp FAILED: a
   /// successful stamp supersedes the flag, and a foreign --snapshot's
   /// identity belongs to the third-state branch. The compare is
@@ -298,6 +292,13 @@ class CodePushReleaseSubCommand extends Command<int> {
             'never be offered to them.';
   }
 
+  /// The directory-aware core the snapshot emitters share — the
+  /// pre-build gates and the post-build stat — so they cannot
+  /// drift: the bundle-instead-of-binary mistake must never read as
+  /// "not found" while the directory sits right there. On the
+  /// --build path a bundle built THIS run is only met by the late
+  /// emitter; a pre-existing one is also caught up front by
+  /// [snapshotPreBuildWarning]'s directory branch.
   String missingSnapshotCore(String path) {
     if (Directory(path).existsSync()) {
       return '--snapshot names a directory: $path. Pass the binary file '
@@ -1234,16 +1235,27 @@ class CodePushReleaseSubCommand extends Command<int> {
       );
       if (contradiction != null) {
         if (argResults?['allow-missing-baseline'] as bool? ?? false) {
-          // The opt-out means what it says: the operator accepted an
-          // identity-less release, so the contradicting flag is
-          // dropped (never recorded — recording it would mint the
-          // dead release the guard refuses) and the run proceeds on
-          // the no-identity path with no false id in any record.
-          _logger.warn(
-            '$contradiction Ignoring --baseline-id and proceeding '
-            'WITHOUT a baseline identity per --allow-missing-baseline.',
-          );
-          baselineId = null;
+          // The opt-out drops the contradicting FLAG, not the truth:
+          // when the built bytes carry an id, releasing under THAT id
+          // is strictly better than identity-less (the refusal's own
+          // remedy is "drop the flag to use the embedded id") — so
+          // the fallback lands exactly where dropping the flag
+          // would. Only the nothing-embedded variant proceeds
+          // identity-less, the outcome the opt-out names.
+          if (idFromBuiltApp != null) {
+            baselineId = idFromBuiltApp.trim();
+            _logger.warn(
+              '$contradiction Ignoring --baseline-id and releasing '
+              'under the id the built app embeds ($baselineId).',
+            );
+          } else {
+            _logger.warn(
+              '$contradiction Ignoring --baseline-id and proceeding '
+              'WITHOUT a baseline identity per '
+              '--allow-missing-baseline.',
+            );
+            baselineId = null;
+          }
         } else {
           _logger.err(
             '$contradiction '
