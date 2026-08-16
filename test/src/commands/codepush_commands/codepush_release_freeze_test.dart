@@ -1285,6 +1285,39 @@ void main() {
           contains('names a directory'),
         );
       });
+
+      test(
+          'a stale directory UNDER build/ defers to the post-build '
+          'stat when --build will run — and is still rejected '
+          'without --build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdirb');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final under = Directory('${root.path}/build/stale/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
+        // The carve-out: the build MAY clean build/ and rebuild the
+        // path as a file, so an up-front rejection here would be the
+        // false-reject the heuristic must never cause. Deferral, not
+        // approval — the post-build stat still fails the run if the
+        // directory survives.
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          isNull,
+        );
+        // Without --build nothing can replace it: directory fact,
+        // rejected with the directory text either side of build/.
+        expect(
+          cmd.snapshotArgError(
+            willBuild: false,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+      });
     });
 
     group('snapshotPreBuildWarning (--build --snapshot)', () {

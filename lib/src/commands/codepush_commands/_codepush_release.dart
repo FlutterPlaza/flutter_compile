@@ -221,7 +221,10 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// With --build, run() takes [snapshotPreBuildWarning] instead —
   /// a guess about what the build is about to create must never
   /// reject a run that would have succeeded.
-  String? snapshotArgError({required bool willBuild}) {
+  String? snapshotArgError({
+    required bool willBuild,
+    String? projectRootOverride,
+  }) {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
@@ -231,7 +234,11 @@ class CodePushReleaseSubCommand extends Command<int> {
       // the build first proves nothing. Under build/ a stale
       // directory CAN be cleaned and rebuilt as a file, so that one
       // case stays with the pre-build warning + post-build stat.
-      if (!willBuild || !lexicallyUnderBuildDir(raw)) {
+      if (!willBuild ||
+          !lexicallyUnderBuildDir(
+            raw,
+            projectRootOverride: projectRootOverride,
+          )) {
         return missingSnapshotCore(raw);
       }
       return null;
@@ -287,9 +294,13 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// Case-folded lexical test for "under this project's build/".
   /// Heuristic by design — symlinked working directories and
   /// case-sensitive filesystems can fool it in both directions —
-  /// so callers use it ONLY to choose between warning texts, never
-  /// to reject; undecidable resolves to true, the softer path.
-  /// Public for tests.
+  /// so callers use it only to pick the SOFTER of two outcomes
+  /// (which warning text; whether an existing directory defers to
+  /// the post-build stat instead of rejecting up front — the
+  /// rejection itself rests on the directory FACT, and no flutter
+  /// build target replaces a directory outside build/ with a file);
+  /// undecidable resolves to true, the softer path. Public for
+  /// tests.
   bool lexicallyUnderBuildDir(String raw, {String? projectRootOverride}) {
     try {
       final abs = File(raw).absolute.uri.normalizePath().toFilePath();
@@ -781,8 +792,11 @@ class CodePushReleaseSubCommand extends Command<int> {
             // must read as "unstamped build", not as a tool crash —
             // and not as "not found" (the file exists, unwritable).
             // The unstamped outcome is fully supported downstream.
-            iosStampFailureCause =
-                'ios/Runner/Info.plist could not be written ($e)';
+            // The raw exception stays OUT of the cause: the exit
+            // message splices the cause mid-sentence, and the warn
+            // right below already prints the full exception once.
+            iosStampFailureCause = 'ios/Runner/Info.plist could not be written '
+                '(permissions?)';
             _logger.warn(
               'Could not stamp ios/Runner/Info.plist: $e. '
               'This build will not embed a baseline identity.',
@@ -1110,20 +1124,25 @@ class CodePushReleaseSubCommand extends Command<int> {
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (shouldBuild && snapshotIsForeign && stampedByThisBuild != null) {
-          // Third state (a foreign --snapshot on a run that BUILT
-          // and STAMPED — without --build the sibling branch below
+        if (shouldBuild && snapshotIsForeign) {
+          // Third state (a foreign --snapshot on a run that BUILT —
+          // stamped or not: the stamp is withheld for foreign bytes
+          // either way, so a failed stamp changes nothing about this
+          // outcome, and routing it to the plist branch would tell
+          // the user to fix the plist, burn a second build, and land
+          // right back here; the pre-build advisory already named
+          // the real cause. Without --build the sibling branch below
           // is correct and --allow-missing-baseline is the
-          // legitimate escape; a build whose stamp failed falls to
-          // the plist branch, which names that cause):
-          // this run DID stamp, but the stamp belongs to an app that
-          // never shipped, and the snapshot carries no readable id.
+          // legitimate escape):
+          // the snapshot carries no readable id, and any id this run
+          // stamped belongs to an app that never shipped.
           // --allow-missing-baseline is deliberately not suggested —
           // it produces the never-updated release warned about above.
           _logger.err(
             'No baseline identity: --snapshot names bytes other than '
-            "this run's build output, so the build's stamped id does "
-            'not apply, and the snapshot carries no readable '
+            "this run's build output, so "
+            '${stampedByThisBuild != null ? "the build's stamped id does not apply" : "a stamped id would not apply even if the build had produced one (this build's stamp also failed: ${iosStampFailureCause ?? 'see the warning above'})"}'
+            ', and the snapshot carries no readable '
             'FCPBaselineId. Pass --baseline-id <the id embedded in the '
             "app those bytes come from>, point --snapshot at this "
             "build's own binary, or drop --snapshot.",
