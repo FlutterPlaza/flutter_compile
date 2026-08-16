@@ -23,6 +23,22 @@ void main() {
       );
     });
 
+    test(
+        'the flag wins IN ITS OWN CASING — why the release guard '
+        'must compare exactly', () {
+      // Devices present the EMBEDDED id verbatim and the server's
+      // compare is exact, so whatever this resolver returns is the
+      // identity the release lives or dies by. The flag beating a
+      // case-different embedded id here is precisely why run()'s
+      // flag-vs-embedded guard refuses anything but an exact match:
+      // a case-tolerant acceptance would record 'abc' for devices
+      // that present 'ABC'.
+      expect(
+        resolveIosBaselineId(explicitFlag: 'abc', fromBuiltApp: 'ABC'),
+        'abc',
+      );
+    });
+
     test('the built app is the last resort', () {
       expect(resolveIosBaselineId(fromBuiltApp: 'built'), 'built');
     });

@@ -259,12 +259,24 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// --build path a bundle built THIS run is only met by the late
   /// emitter; a pre-existing one is also caught up front by
   /// [snapshotPreBuildWarning]'s directory branch.
-  String missingSnapshotCore(String path) => Directory(path).existsSync()
-      ? '--snapshot names a directory: $path. Pass the binary file '
+  String missingSnapshotCore(String path) {
+    if (Directory(path).existsSync()) {
+      return '--snapshot names a directory: $path. Pass the binary file '
           'inside it (for an iOS app bundle: '
           '<bundle>/Frameworks/App.framework/App; for an Android '
-          'build: the libapp.so for your ABI).'
-      : 'Snapshot file not found: $path.';
+          'build: the libapp.so for your ABI).';
+    }
+    // existsSync follows links, so a dangling symlink reads as
+    // absent while `ls` shows the entry sitting right there — name
+    // the real state instead of sending the operator typo-hunting.
+    if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.link) {
+      return '--snapshot names a symbolic link whose target does not '
+          'exist: $path. Restore the target, or pass the real binary '
+          'path.';
+    }
+    return 'Snapshot file not found: $path.';
+  }
 
   /// Pre-build advisory for a --build run whose --snapshot does not
   /// exist yet: builds only write under build/, so a missing path
@@ -285,7 +297,9 @@ class CodePushReleaseSubCommand extends Command<int> {
       // path as a file, so this stays a warning.
       return '${missingSnapshotCore(raw)} If the build does not '
           'replace it with a file, this release will fail after the '
-          'build.';
+          'build — and no Flutter build target replaces an app '
+          'BUNDLE directory with a file, so for a Runner.app path '
+          'the failure is certain: pass the binary inside it.';
     }
     if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
       return null;
@@ -1123,20 +1137,21 @@ class CodePushReleaseSubCommand extends Command<int> {
       // Captured BEFORE the reassignment: the third-state message
       // below asserts a stamp happened, which only this knows.
       final stampedByThisBuild = baselineId;
+      // The stamp is withheld when --snapshot names foreign bytes:
+      // the stamped UUID lives only in the locally-built app that
+      // was never shipped, and recording it would create the
+      // no-error-anywhere never-updates release this block's own
+      // comment warns about — the foreign bundle's own id (or the
+      // explicit flag) is the identity of what actually serves.
+      // Fourth record on the usedExplicitSnapshot rule, beside the
+      // attestation, the saved app, and the archive.
+      final idFromBuiltApp = appDirForIdentity != null
+          ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
+          : null;
       baselineId = resolveIosBaselineId(
-        // The stamp is withheld when --snapshot names foreign bytes:
-        // the stamped UUID lives only in the locally-built app that
-        // was never shipped, and recording it would create the
-        // no-error-anywhere never-updates release this block's own
-        // comment warns about — the foreign bundle's own id (or the
-        // explicit flag) is the identity of what actually serves.
-        // Fourth record on the usedExplicitSnapshot rule, beside the
-        // attestation, the saved app, and the archive.
         stampedByBuild: snapshotIsForeign ? null : baselineId,
         explicitFlag: argResults?['baseline-id'] as String?,
-        fromBuiltApp: appDirForIdentity != null
-            ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
-            : null,
+        fromBuiltApp: idFromBuiltApp,
       );
       final explicitBaselineIdFlag =
           (argResults?['baseline-id'] as String?)?.trim();
@@ -1151,6 +1166,54 @@ class CodePushReleaseSubCommand extends Command<int> {
           '--baseline-id is superseded by the id this build stamped; '
           'ignoring the flag.',
         );
+      }
+      // The flag's contract is "the id embedded in the app you are
+      // releasing". On a --build run releasing THIS build's bytes,
+      // that is checkable — and a flag the bytes contradict must not
+      // become the release's identity: recording an id the shipped
+      // app does not carry makes three records (server row, saved
+      // bundle, archive) agree on a lie, and a device that DOES send
+      // an embedded id can then never match the release (hard 204).
+      // Reachable exactly when the stamp failed (e.g. the read-only
+      // ios/Runner/ this feature's CHANGELOG documents) and the
+      // operator followed the old "pass --baseline-id" advice.
+      if (shouldBuild &&
+          !snapshotIsForeign &&
+          stampedByThisBuild == null &&
+          explicitBaselineIdFlag != null &&
+          explicitBaselineIdFlag.isNotEmpty) {
+        final embedded = idFromBuiltApp?.trim();
+        // EXACT compare, deliberately not case-folded: the flag (when
+        // accepted) becomes the recorded identity in ITS casing while
+        // devices present the EMBEDDED casing verbatim, and the
+        // server's id compare is exact — a case-tolerant acceptance
+        // here would record an id no device ever sends. Refusing the
+        // case-different spelling is actionable (message B says to
+        // drop the flag); accepting it would be the silent dead
+        // release this guard exists to prevent.
+        final flagMatchesEmbedded =
+            embedded != null && embedded == explicitBaselineIdFlag;
+        if (!flagMatchesEmbedded) {
+          _logger.err(
+            embedded == null
+                ? '--baseline-id names an id this build did not embed: '
+                    'the stamp failed '
+                    '(${iosStampFailureCause ?? 'ios/Runner/Info.plist is missing'}), '
+                    'so the built app carries no FCPBaselineId and a '
+                    'release recorded under the flag would never match '
+                    'a device that checks identity. Fix the stamp '
+                    '(writable ios/Runner/), pre-stamp Info.plist with '
+                    'this exact id, or drop the flag and pass '
+                    '--allow-missing-baseline.'
+                : '--baseline-id ($explicitBaselineIdFlag) contradicts '
+                    'the id the built app actually embeds ($embedded). '
+                    'Devices send the embedded id, so a release '
+                    'recorded under the flag would never be offered to '
+                    'them. Drop the flag to use the embedded id, or '
+                    'fix the plist to carry the intended one.',
+          );
+          return ExitCode.usage.code;
+        }
       }
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
@@ -1184,11 +1247,17 @@ class CodePushReleaseSubCommand extends Command<int> {
           // would send them in a circle, and "flutter create ."
           // advice is destructive for a present-but-unusable plist —
           // it is offered only when the plist is genuinely absent.
+          // --baseline-id is deliberately NOT suggested here: this
+          // branch means the built bytes embed nothing (a pre-stamped
+          // plist would have resolved via fromBuiltApp and never
+          // reached it), so the flag would name an id the app does
+          // not carry — the exact release the guard above refuses.
           _logger.err(
             'The build could not stamp a baseline identity: '
             '${iosStampFailureCause ?? 'ios/Runner/Info.plist is missing'}. '
             '${iosPlistWasMissing || iosStampFailureCause == null ? 'Restore the plist ("flutter create ." regenerates it) and re-run, or pass ' : 'Fix that and re-run, or pass '}'
-            '--baseline-id <uuid>.',
+            '--allow-missing-baseline if you accept a release matched '
+            'by fallback rather than by identity.',
           );
         } else {
           _logger.err(

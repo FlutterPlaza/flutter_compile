@@ -29,6 +29,37 @@ void main() {
     });
 
     test(
+        'a writable file inside a read-only directory throws and the '
+        'target stays byte-identical — the documented COST', () {
+      // The one genuine breaking change vs the in-place writers: the
+      // temp+rename shape needs w+x on the DIRECTORY. This row is
+      // what keeps a future revert to in-place-on-EACCES (which would
+      // reopen the truncate-on-ENOSPC hole) from shipping green.
+      // (Assumes a non-root test process; root writes through 0555.)
+      final dir = Directory('${root.path}/Runner')..createSync();
+      final target = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('original');
+      Process.runSync('chmod', ['555', dir.path]);
+      addTearDown(() => Process.runSync('chmod', ['755', dir.path]));
+
+      expect(
+        () => atomicReplaceFileContents(target.path, 'replaced'),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      Process.runSync('chmod', ['755', dir.path]);
+      expect(target.readAsStringSync(), 'original');
+      final leftovers = dir
+          .listSync()
+          .map((e) => e.path)
+          .where((path) => path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    },
+        skip: Platform.isWindows
+            ? 'POSIX directory-permission semantics'
+            : false);
+
+    test(
         'a failed RENAME discards the temp and rethrows — the one '
         'property nothing else pinned', () {
       // A non-empty directory at the target path: the temp write

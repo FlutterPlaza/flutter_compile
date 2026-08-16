@@ -1302,6 +1302,18 @@ void main() {
         );
       });
 
+      test('a dangling symlink reads as a dead link, not as "not found"', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaplink');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/app.bin')
+          ..createSync('${root.path}/never-built.bin');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final msg = cmd.snapshotArgError(willBuild: false)!;
+        expect(msg, contains('symbolic link'));
+        expect(msg, isNot(contains('not found:')));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
       test(
           'a stale directory UNDER build/ defers to the post-build '
           'stat when --build will run — and is still rejected '
