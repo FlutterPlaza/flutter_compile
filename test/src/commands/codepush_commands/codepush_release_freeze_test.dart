@@ -1246,6 +1246,16 @@ void main() {
         expect(cmd.snapshotArgError(), contains('Snapshot file not found'));
       });
 
+      test('a directory gets its own message, not "not found"', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdir');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', root.path]);
+        final error = cmd.snapshotArgError()!;
+        expect(error, contains('names a directory'));
+        expect(error, isNot(contains('not found')));
+      });
+
       test('an existing file passes; no flag is silent', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snaparg');

@@ -225,6 +225,14 @@ class CodePushReleaseSubCommand extends Command<int> {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
+    if (Directory(raw).existsSync()) {
+      // The bundle-instead-of-binary mistake: "not found" would send
+      // the operator hunting a typo while the directory sits right
+      // there.
+      return '--snapshot names a directory: $raw. Pass the binary '
+          'file inside it (for an iOS app bundle: '
+          '<bundle>/Frameworks/App.framework/App).';
+    }
     return 'Snapshot file not found: $raw. Check the --snapshot path — '
         'or, if you expected this run to produce the bytes to upload, '
         'pass --build.';
@@ -723,15 +731,31 @@ class CodePushReleaseSubCommand extends Command<int> {
         // not leave the app repo dirty.
         if (platform == 'ios') {
           final generatedBaselineId = generateBaselineId();
-          originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
-            generatedBaselineId,
-          );
-          if (originalIosInfoPlist == null) {
+          var iosStampFailed = false;
+          try {
+            originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
+              generatedBaselineId,
+            );
+            iosStampFailed = false;
+          } on FileSystemException catch (e) {
+            // Same guard as the restore in the finally below: a
+            // permissions problem (e.g. a read-only ios/Runner/)
+            // must read as "unstamped build", not as a tool crash —
+            // and not as "not found" (the file exists, unwritable).
+            // The unstamped outcome is fully supported downstream.
+            _logger.warn(
+              'Could not stamp ios/Runner/Info.plist: $e. '
+              'This build will not embed a baseline identity.',
+            );
+            originalIosInfoPlist = null;
+            iosStampFailed = true;
+          }
+          if (originalIosInfoPlist == null && !iosStampFailed) {
             _logger.warn(
               'Warning: ios/Runner/Info.plist not found. '
               'This build will not embed a baseline identity.',
             );
-          } else {
+          } else if (originalIosInfoPlist != null) {
             baselineId = generatedBaselineId;
             _logger.detail('Wrote FCPBaselineId=$baselineId to Info.plist');
           }
@@ -743,14 +767,26 @@ class CodePushReleaseSubCommand extends Command<int> {
         // stays clean (same pattern as the iOS Info.plist stamp above).
         if ((platform == 'apk' || platform == 'appbundle') &&
             version.isNotEmpty) {
-          originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
-          if (originalAndroidYaml == null) {
+          var androidStampFailed = false;
+          try {
+            originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
+            androidStampFailed = false;
+          } on FileSystemException catch (e) {
+            // Mirror of the iOS stamp guard above.
+            _logger.warn(
+              'Could not stamp $kDefaultAndroidCodePushYamlPath: $e. '
+              'This build will not embed a release version.',
+            );
+            originalAndroidYaml = null;
+            androidStampFailed = true;
+          }
+          if (originalAndroidYaml == null && !androidStampFailed) {
             _logger.warn(
               'Warning: $kDefaultAndroidCodePushYamlPath not found. '
               'This build will not embed a release version. '
               'Run "fcp codepush init" to set up Android.',
             );
-          } else {
+          } else if (originalAndroidYaml != null) {
             _logger.detail(
               'Stamped release_version=$version into codepush.yaml',
             );

@@ -123,6 +123,65 @@ void main() {
       expect(leftovers, isEmpty);
     }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
 
+    test(
+        'a DANGLING link is the documented exception: replaced by a '
+        'real file carrying the content', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist6');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plistPath = '${dir.path}/Info.plist';
+      Link(plistPath).createSync('${root.path}/gone/Info.plist');
+
+      restoreIosInfoPlist('original', plistPath: plistPath);
+
+      // It points at nothing, so there is nothing to preserve — the
+      // helper's comment makes exactly this claim; this row keeps
+      // the claim honest.
+      expect(
+        FileSystemEntity.typeSync(plistPath, followLinks: false),
+        FileSystemEntityType.file,
+      );
+      expect(File(plistPath).readAsStringSync(), 'original');
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
+
+    test('the target mode survives the cycle', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist7');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plist = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('stamped');
+      Process.runSync('chmod', ['600', plist.path]);
+
+      restoreIosInfoPlist('original', plistPath: plist.path);
+
+      // renameSync would otherwise install the temp's default mode,
+      // silently rewriting a 0600 file across the cycle.
+      expect(plist.statSync().mode & 0xFFF, int.parse('600', radix: 8));
+      expect(plist.readAsStringSync(), 'original');
+    }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
+
+    test('a stale temp from a killed run is swept by the next write', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist8');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plist = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('stamped');
+      final stale = File('${dir.path}/.Info.plist.99999.tmp')
+        ..writeAsStringSync('stale');
+
+      restoreIosInfoPlist('original', plistPath: plist.path);
+
+      expect(stale.existsSync(), isFalse);
+      final leftovers = dir
+          .listSync()
+          .map((e) => e.path)
+          .where((path) => path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    });
+
     test('the stamp write is atomic too — no leftover temp', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist5');
       addTearDown(() => root.deleteSync(recursive: true));

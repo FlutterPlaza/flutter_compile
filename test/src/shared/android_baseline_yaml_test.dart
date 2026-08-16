@@ -74,6 +74,34 @@ void main() {
       expect(File(yamlPath).existsSync(), isFalse);
     });
 
+    test('a symlinked codepush.yaml keeps its link through the cycle', () {
+      final yamlPath = nestedYamlPath();
+      final shared = File('${tempDir.path}/shared/codepush.yaml')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('app_id: "a"\n');
+      Link(yamlPath).createSync(shared.path);
+
+      final original = writeReleaseVersionToAndroidYaml(
+        '1.2.3+4',
+        yamlPath: yamlPath,
+      )!;
+      // The write resolves the link and renames AT the shared
+      // target — same mechanism as the iOS Info.plist writer, so
+      // the two cannot disagree about symlinked configs again.
+      expect(
+        FileSystemEntity.typeSync(yamlPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+      expect(shared.readAsStringSync(), contains('release_version'));
+
+      restoreAndroidYaml(original, yamlPath: yamlPath);
+      expect(
+        FileSystemEntity.typeSync(yamlPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+      expect(shared.readAsStringSync(), 'app_id: "a"\n');
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
+
     test('restoreAndroidYaml round-trips the original content', () {
       final yamlPath = nestedYamlPath();
       File(yamlPath).writeAsStringSync('release_version: "old"\n');

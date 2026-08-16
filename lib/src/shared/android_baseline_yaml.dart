@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter_compile/src/shared/atomic_file_write.dart';
+
 const String kDefaultAndroidCodePushYamlPath =
     'android/app/src/main/assets/codepush.yaml';
 
@@ -58,30 +60,13 @@ void restoreAndroidYaml(
   _atomicWrite(yamlPath, originalContent);
 }
 
-/// Writes [content] to [path] via a pid-qualified temp file and an atomic
-/// rename, so a failed or concurrent write can never leave the target
-/// truncated.
-void _atomicWrite(String path, String content) {
-  // Dot-prefixed BASENAME: the target lives under src/main/assets/,
-  // which Gradle packages wholesale, and AAPT's default
-  // ignoreAssetsPattern excludes dotfiles — a leftover temp (kill
-  // between write and rename, or a failed cleanup) must not ship in
-  // the APK. Same directory keeps the rename atomic. The split must
-  // accept BOTH separators (kDefaultAndroidCodePushYamlPath is a
-  // forward-slash literal, and Windows accepts either), and a '/'
-  // join is valid on every platform.
-  final dir = File(path).parent.path;
-  final base = path.split(RegExp(r'[/\\]')).last;
-  final tempFile = File('$dir/.$base.$pid.tmp');
-  try {
-    tempFile.writeAsStringSync(content);
-    tempFile.renameSync(path);
-  } on FileSystemException {
-    try {
-      tempFile.deleteSync();
-    } on FileSystemException {
-      // Best-effort cleanup; the target file is untouched either way.
-    }
-    rethrow;
-  }
-}
+/// Delegates to [atomicReplaceFileContents]. The site-specific
+/// constraint: the target lives under src/main/assets/, which
+/// Gradle packages wholesale — the helper's dot-prefixed temps fall
+/// under AAPT's default ignoreAssetsPattern, so a leftover (kill
+/// between write and rename) can never ship in the APK. The
+/// helper's symlink resolution also means a checkout that symlinks
+/// codepush.yaml to shared config keeps its wiring through the
+/// stamp/restore cycle, matching the iOS Info.plist writer.
+void _atomicWrite(String path, String content) =>
+    atomicReplaceFileContents(path, content);
