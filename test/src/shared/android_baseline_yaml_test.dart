@@ -15,6 +15,27 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
+    test(
+        'a non-UTF-8 yaml throws FileSystemException naming the '
+        'decode — shared premise with the iOS twin', () {
+      // See ios_baseline_plist_read_test.dart: readAsStringSync
+      // reports non-UTF-8 as a decode-naming FileSystemException,
+      // and run()'s guard splits its warning on that message.
+      final yaml = File('${tempDir.path}/codepush.yaml')
+        ..writeAsBytesSync([0x65, 0x6E, 0xFF, 0xFE]);
+
+      expect(
+        () => writeReleaseVersionToAndroidYaml('1.0.0', yamlPath: yaml.path),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            anyOf(contains('decode'), contains('encoding')),
+          ),
+        ),
+      );
+    });
+
     String nestedYamlPath() {
       // Forward-slash joins on purpose, mirroring the shape of
       // kDefaultAndroidCodePushYamlPath: the temp-name computation

@@ -214,13 +214,16 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
-  /// Existence check for an explicit --snapshot on a run with no
-  /// --build: nothing will create the file, so a missing path is an
-  /// argument mistake that must cost an exit 64 here, never a late
-  /// exit 70 after resolution work (blankness is [blankArgError]'s).
-  /// With --build, run() takes [snapshotPreBuildWarning] instead —
+  /// Existence check for an explicit --snapshot. Without --build,
+  /// nothing will create a missing path, so it is an argument
+  /// mistake that must cost an exit 64 here, never a late exit 70
+  /// after resolution work (blankness is [blankArgError]'s). With
+  /// --build, a missing FILE defers to [snapshotPreBuildWarning] —
   /// a guess about what the build is about to create must never
-  /// reject a run that would have succeeded.
+  /// reject a run that would have succeeded — but an existing
+  /// DIRECTORY is a fact, and outside build/ no build replaces one
+  /// with a file, so that one case rejects even with --build
+  /// (under build/ it defers to the post-build stat).
   String? snapshotArgError({
     required bool willBuild,
     String? projectRootOverride,
@@ -796,22 +799,29 @@ class CodePushReleaseSubCommand extends Command<int> {
             // The raw exception stays OUT of the cause: the exit
             // message splices the cause mid-sentence, and the warn
             // right below already prints the full exception once.
-            // "read or written": the stamp's READ throws the same
-            // exception type (unreadable plist, EIO, plist-is-a-
-            // directory), and naming only the write would send the
-            // operator fixing the wrong permission through another
-            // full build. The warn below carries the real errno.
-            iosStampFailureCause =
-                'ios/Runner/Info.plist could not be read or written '
-                '(permissions?)';
+            // EMPIRICAL (pinned in ios_baseline_plist_read_test):
+            // dart:io's readAsStringSync reports a non-UTF-8 file as
+            // a FileSystemException whose message names the decode
+            // ("Failed to decode data using encoding 'utf-8'"), NOT
+            // as a FormatException — so the binary-plist family
+            // arrives HERE and is split off by message, or every
+            // binary plist would be misdiagnosed as permissions.
+            final isDecodeFailure =
+                e.message.contains('decode') || e.message.contains('encoding');
+            iosStampFailureCause = isDecodeFailure
+                ? 'ios/Runner/Info.plist is not readable as UTF-8 '
+                    'text (a binary plist?)'
+                : 'ios/Runner/Info.plist could not be read or '
+                    'written (permissions?)';
             _logger.warn(
               'Could not stamp ios/Runner/Info.plist: $e. '
               'This build will not embed a baseline identity.',
             );
             originalIosInfoPlist = null;
           } on FormatException catch (e) {
-            // A binary plist or a stray non-UTF-8 byte throws from
-            // the READ — the same "exists but unusable" family.
+            // Defensive belt: today's SDK reports non-UTF-8 as the
+            // FileSystemException above; keep this in case a future
+            // SDK surfaces the decode error directly.
             iosStampFailureCause =
                 'ios/Runner/Info.plist is not readable as UTF-8 text '
                 '(a binary plist?)';
@@ -851,17 +861,25 @@ class CodePushReleaseSubCommand extends Command<int> {
             originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
             androidStampFailed = false;
           } on FileSystemException catch (e) {
-            // Mirror of the iOS stamp guard above.
+            // Mirror of the iOS stamp guard above — including the
+            // empirical decode split: non-UTF-8 arrives as a
+            // FileSystemException naming the decode, not as a
+            // FormatException.
+            final isDecodeFailure =
+                e.message.contains('decode') || e.message.contains('encoding');
             _logger.warn(
-              'Could not stamp $kDefaultAndroidCodePushYamlPath: $e. '
-              'This build will not embed a release version.',
+              isDecodeFailure
+                  ? 'Could not read $kDefaultAndroidCodePushYamlPath '
+                      'as UTF-8 text: $e. '
+                      'This build will not embed a release version.'
+                  : 'Could not stamp $kDefaultAndroidCodePushYamlPath: '
+                      '$e. '
+                      'This build will not embed a release version.',
             );
             originalAndroidYaml = null;
             androidStampFailed = true;
           } on FormatException catch (e) {
-            // Mirror of the iOS guard's OTHER half too: the yaml read
-            // uses the same UTF-8 decode, and one stray byte must not
-            // read as a tool crash.
+            // Defensive belt — see the iOS twin.
             _logger.warn(
               'Could not read $kDefaultAndroidCodePushYamlPath as '
               'UTF-8 text: $e. '

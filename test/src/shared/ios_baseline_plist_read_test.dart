@@ -56,6 +56,33 @@ void main() {
       );
       expect(plist.readAsStringSync(), 'not a plist at all');
     });
+
+    test(
+        'a non-UTF-8 plist throws FileSystemException naming the '
+        'decode — the empirical premise of the stamp guard split', () {
+      // Load-bearing and EMPIRICAL: dart:io's readAsStringSync
+      // reports a stray non-UTF-8 byte (binary plist family) as a
+      // FileSystemException whose message names the decode, NOT as
+      // a FormatException. run()'s stamp guard splits the cause on
+      // that message; if a future SDK changes the type or wording,
+      // this row goes red before the guard silently misdiagnoses a
+      // binary plist as a permissions problem.
+      final root = Directory.systemTemp.createTempSync('fcp_plist10');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final plist = File('${root.path}/Info.plist')
+        ..writeAsBytesSync([0x62, 0x70, 0x6C, 0xFF, 0xFE, 0x00]);
+
+      expect(
+        () => writeBaselineIdToIosInfoPlist('u-1', plistPath: plist.path),
+        throwsA(
+          isA<FileSystemException>().having(
+            (e) => e.message,
+            'message',
+            anyOf(contains('decode'), contains('encoding')),
+          ),
+        ),
+      );
+    });
   });
 
   group('restoreIosInfoPlist', () {

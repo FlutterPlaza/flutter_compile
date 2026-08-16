@@ -1644,6 +1644,48 @@ void main() {
           ),
         ).called(1);
       });
+
+      test(
+          'a swap failure whose cleanup ALSO fails reports the copy as '
+          'still on disk — never claims a discard that did not happen', () {
+        // rename blocked by a plain file at dest (the proven ENOTDIR
+        // trigger above); the tmp delete then fails because cp -R
+        // preserved a mode-555 subdirectory from the SOURCE app —
+        // deleting its contents needs write on that directory.
+        // (Assumes a non-root test process; root writes through 555.)
+        File(dest)
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([7]);
+        final lockedDir =
+            Directory('${root.path}/$kDefaultBuiltIosAppPath/locked')
+              ..createSync(recursive: true);
+        File('${lockedDir.path}/inner.txt').writeAsStringSync('x');
+        Process.runSync('chmod', ['555', lockedDir.path]);
+        // Registered AFTER the root-delete tearDown, so it runs FIRST
+        // (LIFO): both the source's and the stranded tmp copy's 555
+        // dirs must be writable again or the root sweep itself fails.
+        addTearDown(() {
+          Process.runSync('chmod', ['755', lockedDir.path]);
+          Process.runSync('chmod', ['-R', 'u+w', root.path]);
+        });
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        verify(
+          () => logger.warn(
+            any(
+              that: allOf(
+                contains('could not swap'),
+                contains('could NOT be discarded'),
+              ),
+            ),
+          ),
+        ).called(1);
+        // The report told the truth: the copy really is still there.
+        expect(Directory('$dest.tmp').existsSync(), isTrue);
+      });
     },
         skip:
             Platform.isWindows ? 'exercises POSIX cp/rename semantics' : false);

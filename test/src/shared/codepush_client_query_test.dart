@@ -99,6 +99,16 @@ void main() {
         )['status_code'],
         200,
       );
+      // The non-object payload is preserved under 'data' — pin the
+      // key, not just the status wrapper.
+      expect(
+        CodePushClient.parseResponseBody(
+          200,
+          '[1, 2]',
+          contentType: 'application/json',
+        )['data'],
+        [1, 2],
+      );
       expect(
         CodePushClient.parseResponseBody(
           200,
