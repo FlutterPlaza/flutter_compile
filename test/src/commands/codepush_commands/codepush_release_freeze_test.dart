@@ -1302,6 +1302,49 @@ void main() {
         );
       });
 
+      group('baselineIdContradiction (flag vs built bytes)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        String? call({
+          bool shouldBuild = true,
+          bool foreign = false,
+          String? stamped,
+          String? flag = 'abc',
+          String? embedded,
+        }) =>
+            cmd.baselineIdContradiction(
+              shouldBuild: shouldBuild,
+              snapshotIsForeign: foreign,
+              stampedByThisBuild: stamped,
+              explicitFlag: flag,
+              embeddedInBuiltApp: embedded,
+              stampFailureCause: 'cause-x',
+            );
+
+        test(
+            'a MATCHING flag is accepted — the pre-stamped read-only '
+            'checkout flow the CHANGELOG recommends', () {
+          expect(call(embedded: 'abc'), isNull);
+        });
+        test(
+            'a case-different flag is REFUSED — reverting == to a '
+            'fold records an id no device presents', () {
+          expect(call(embedded: 'ABC'), contains('contradicts'));
+        });
+        test('a flag nothing embeds is refused, naming the stamp cause', () {
+          expect(call(), contains('did not embed'));
+          expect(call(), contains('cause-x'));
+        });
+        test(
+            'out of scope: foreign snapshot, stamped run, no build, '
+            'no flag', () {
+          expect(call(foreign: true), isNull);
+          expect(call(stamped: 'abc', embedded: null), isNull);
+          expect(call(shouldBuild: false), isNull);
+          expect(call(flag: null), isNull);
+          expect(call(flag: ''), isNull);
+        });
+      });
+
       test('a dangling symlink reads as a dead link, not as "not found"', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snaplink');

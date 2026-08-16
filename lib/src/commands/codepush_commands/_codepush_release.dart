@@ -259,6 +259,45 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// --build path a bundle built THIS run is only met by the late
   /// emitter; a pre-existing one is also caught up front by
   /// [snapshotPreBuildWarning]'s directory branch.
+  /// The flag-vs-built-bytes identity decision, pure and rowable
+  /// (the same seam discipline as [snapshotArgError]: a rejection
+  /// deserves rows). Returns null when --baseline-id raises no
+  /// objection, else a statement of the contradiction — the CALLER
+  /// picks the remedy (refuse, or warn-and-drop under
+  /// --allow-missing-baseline). Fires only for a --build run
+  /// releasing that build's own bytes whose stamp FAILED: a
+  /// successful stamp supersedes the flag, and a foreign --snapshot's
+  /// identity belongs to the third-state branch. The compare is
+  /// EXACT, deliberately not case-folded: an accepted flag becomes
+  /// the recorded identity in ITS casing while devices present the
+  /// EMBEDDED casing verbatim and the server compares exactly — a
+  /// tolerant acceptance would record an id no device ever sends.
+  String? baselineIdContradiction({
+    required bool shouldBuild,
+    required bool snapshotIsForeign,
+    required String? stampedByThisBuild,
+    required String? explicitFlag,
+    required String? embeddedInBuiltApp,
+    String? stampFailureCause,
+  }) {
+    if (!shouldBuild || snapshotIsForeign) return null;
+    if (stampedByThisBuild != null) return null;
+    if (explicitFlag == null || explicitFlag.isEmpty) return null;
+    final embedded = embeddedInBuiltApp?.trim();
+    if (embedded != null && embedded == explicitFlag) return null;
+    return embedded == null
+        ? '--baseline-id names an id this build did not embed: the '
+            'stamp failed '
+            '(${stampFailureCause ?? 'ios/Runner/Info.plist is missing'}), '
+            'so the built app carries no FCPBaselineId and a release '
+            'recorded under the flag would never match a device that '
+            'checks identity.'
+        : '--baseline-id ($explicitFlag) contradicts the id the built '
+            'app actually embeds ($embedded). Devices send the '
+            'embedded id, so a release recorded under the flag would '
+            'never be offered to them.';
+  }
+
   String missingSnapshotCore(String path) {
     if (Directory(path).existsSync()) {
       return '--snapshot names a directory: $path. Pass the binary file '
@@ -299,10 +338,18 @@ class CodePushReleaseSubCommand extends Command<int> {
           'replace it with a file, this release will fail after the '
           'build — and no Flutter build target replaces an app '
           'BUNDLE directory with a file, so for a Runner.app path '
-          'the failure is certain: pass the binary inside it.';
+          'the failure is certain.';
     }
     if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
       return null;
+    }
+    // A dead link outside build/ deserves its accurate text up front
+    // too (the other two emitters get it via missingSnapshotCore).
+    if (FileSystemEntity.typeSync(raw, followLinks: false) ==
+        FileSystemEntityType.link) {
+      return '${missingSnapshotCore(raw)} The build only writes under '
+          'build/, so it will not restore this link — this release '
+          'will fail after the build.';
     }
     return '--snapshot names a file that does not exist yet, and the '
         'build only writes under build/ — if $raw is mistyped, this '
@@ -1177,40 +1224,30 @@ class CodePushReleaseSubCommand extends Command<int> {
       // Reachable exactly when the stamp failed (e.g. the read-only
       // ios/Runner/ this feature's CHANGELOG documents) and the
       // operator followed the old "pass --baseline-id" advice.
-      if (shouldBuild &&
-          !snapshotIsForeign &&
-          stampedByThisBuild == null &&
-          explicitBaselineIdFlag != null &&
-          explicitBaselineIdFlag.isNotEmpty) {
-        final embedded = idFromBuiltApp?.trim();
-        // EXACT compare, deliberately not case-folded: the flag (when
-        // accepted) becomes the recorded identity in ITS casing while
-        // devices present the EMBEDDED casing verbatim, and the
-        // server's id compare is exact — a case-tolerant acceptance
-        // here would record an id no device ever sends. Refusing the
-        // case-different spelling is actionable (message B says to
-        // drop the flag); accepting it would be the silent dead
-        // release this guard exists to prevent.
-        final flagMatchesEmbedded =
-            embedded != null && embedded == explicitBaselineIdFlag;
-        if (!flagMatchesEmbedded) {
+      final contradiction = baselineIdContradiction(
+        shouldBuild: shouldBuild,
+        snapshotIsForeign: snapshotIsForeign,
+        stampedByThisBuild: stampedByThisBuild,
+        explicitFlag: explicitBaselineIdFlag,
+        embeddedInBuiltApp: idFromBuiltApp,
+        stampFailureCause: iosStampFailureCause,
+      );
+      if (contradiction != null) {
+        if (argResults?['allow-missing-baseline'] as bool? ?? false) {
+          // The opt-out means what it says: the operator accepted an
+          // identity-less release, so the contradicting flag is
+          // dropped (never recorded — recording it would mint the
+          // dead release the guard refuses) and the run proceeds on
+          // the no-identity path with no false id in any record.
+          _logger.warn(
+            '$contradiction Ignoring --baseline-id and proceeding '
+            'WITHOUT a baseline identity per --allow-missing-baseline.',
+          );
+          baselineId = null;
+        } else {
           _logger.err(
-            embedded == null
-                ? '--baseline-id names an id this build did not embed: '
-                    'the stamp failed '
-                    '(${iosStampFailureCause ?? 'ios/Runner/Info.plist is missing'}), '
-                    'so the built app carries no FCPBaselineId and a '
-                    'release recorded under the flag would never match '
-                    'a device that checks identity. Fix the stamp '
-                    '(writable ios/Runner/), pre-stamp Info.plist with '
-                    'this exact id, or drop the flag and pass '
-                    '--allow-missing-baseline.'
-                : '--baseline-id ($explicitBaselineIdFlag) contradicts '
-                    'the id the built app actually embeds ($embedded). '
-                    'Devices send the embedded id, so a release '
-                    'recorded under the flag would never be offered to '
-                    'them. Drop the flag to use the embedded id, or '
-                    'fix the plist to carry the intended one.',
+            '$contradiction '
+            '${idFromBuiltApp == null ? 'Fix the stamp (writable ios/Runner/), pre-stamp Info.plist with this exact id, or drop the flag and pass --allow-missing-baseline.' : 'Drop the flag to use the embedded id, or fix the plist to carry the intended one.'}',
           );
           return ExitCode.usage.code;
         }
