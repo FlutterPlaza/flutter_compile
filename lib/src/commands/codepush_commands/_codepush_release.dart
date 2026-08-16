@@ -225,8 +225,9 @@ class CodePushReleaseSubCommand extends Command<int> {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
-    return 'Snapshot file not found: $raw. Check the --snapshot path, '
-        'or pass --build if this run is meant to create it.';
+    return 'Snapshot file not found: $raw. Check the --snapshot path — '
+        'or, if you expected this run to produce the bytes to upload, '
+        'pass --build.';
   }
 
   /// Pre-build advisory for a --build run whose --snapshot does not
@@ -662,9 +663,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       if (iosOnlyWarning != null) {
         _logger.warn(iosOnlyWarning);
       }
-      // Second and third pre-build emissions: a probably-mistyped
-      // --snapshot, and the foreign---snapshot record skips — both
-      // decided already, both worth saying before minutes of build.
+      // Third and fourth emission points (the iOS-only axis above is
+      // the second): a probably-mistyped --snapshot, and the
+      // foreign---snapshot record skips — both decided already, both
+      // worth saying before minutes of build.
       final missingSnapshotWarning = snapshotPreBuildWarning();
       if (missingSnapshotWarning != null) {
         _logger.warn(missingSnapshotWarning);
@@ -1626,14 +1628,24 @@ class CodePushReleaseSubCommand extends Command<int> {
                   FileSystemEntityType.notFound
               ? 'Whatever occupied that path was left as-is.'
               : 'No previously saved bundle remains at that path.';
+      // Clean up FIRST and report what actually happened: the same
+      // permissions problem that failed the rename plausibly fails
+      // the delete, and claiming a hundreds-of-MB copy was
+      // discarded while it sits on disk would be a lie.
+      var tmpState = 'The fresh copy was discarded';
+      try {
+        if (tmpDest.existsSync()) {
+          tmpDest.deleteSync(recursive: true);
+        }
+      } on FileSystemException {
+        tmpState = 'The fresh copy could NOT be discarded and is '
+            'still at ${tmpDest.path}';
+      }
       _logger.warn(
         'Copied the built app but could not swap it into $dest: $e. '
-        'The fresh copy was discarded — re-run the release to retry '
-        'the save. $destState',
+        '$tmpState — re-run the release to retry the save. '
+        '$destState',
       );
-      if (tmpDest.existsSync()) {
-        tmpDest.deleteSync(recursive: true);
-      }
       return false;
     }
 

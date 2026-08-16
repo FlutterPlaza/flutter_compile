@@ -33,7 +33,7 @@ String? writeBaselineIdToIosInfoPlist(
         '${content.substring(idx + '</dict>'.length)}';
   }
 
-  plistFile.writeAsStringSync(content);
+  _atomicPlistWrite(plistPath, content);
   return originalContent;
 }
 
@@ -41,18 +41,44 @@ void restoreIosInfoPlist(
   String originalContent, {
   String plistPath = kDefaultIosInfoPlistPath,
 }) {
-  // Temp + rename, like the Android yaml restore: a bare
-  // writeAsStringSync truncates BEFORE writing, so a mid-write
-  // failure (ENOSPC right after a build filled the disk) would
-  // leave the plist EMPTY — while the caller's failure guidance
-  // says the stamp is still there. With the rename, a failed
-  // restore provably leaves the target untouched. Dot-prefixed
-  // basename so a leftover never looks like a plist to anything.
-  final base = plistPath.split(RegExp(r'[/\\]')).last;
-  final tempFile = File('${File(plistPath).parent.path}/.$base.$pid.tmp');
+  _atomicPlistWrite(plistPath, originalContent);
+}
+
+/// The ONE write both plist halves use. Two properties, both
+/// load-bearing:
+///
+/// 1. Temp + rename, like the Android yaml writes: a bare
+///    writeAsStringSync truncates BEFORE writing, so a mid-write
+///    failure (ENOSPC right after a build filled the disk) would
+///    leave the plist EMPTY — and on the STAMP path the exception
+///    unwinds before the caller has stored the original, so the
+///    only good copy would die with the stack frame. With the
+///    rename, a failed write provably leaves the target untouched.
+/// 2. The path is resolved through symlinks FIRST and the rename
+///    lands on the physical target: rename replaces the LINK
+///    itself, so without the resolve, one stamp/restore pair on a
+///    checkout where Info.plist is a symlink (shared iOS config in
+///    a monorepo) would destroy the link and strand the stamped
+///    bytes in the old target. Resolving keeps the wiring intact —
+///    both halves write through, atomically, at the same file.
+///
+/// Dot-prefixed basename so a leftover never looks like a plist.
+void _atomicPlistWrite(String plistPath, String content) {
+  String target;
   try {
-    tempFile.writeAsStringSync(originalContent);
-    tempFile.renameSync(plistPath);
+    target = File(plistPath).resolveSymbolicLinksSync();
+  } on FileSystemException {
+    // Nonexistent or unresolvable: write as-spelled (the stamp has
+    // already returned null for a missing plist; a restore to a
+    // path deleted mid-build recreates it, which is the best
+    // available outcome).
+    target = plistPath;
+  }
+  final base = target.split(RegExp(r'[/\\]')).last;
+  final tempFile = File('${File(target).parent.path}/.$base.$pid.tmp');
+  try {
+    tempFile.writeAsStringSync(content);
+    tempFile.renameSync(target);
   } on FileSystemException {
     try {
       tempFile.deleteSync();

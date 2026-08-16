@@ -65,28 +65,82 @@ void main() {
       expect(leftovers, isEmpty);
     });
 
-    test('a symlink at the target is REPLACED, not written through', () {
+    test('writes THROUGH a symlinked plist, preserving the link', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist3');
       addTearDown(() => root.deleteSync(recursive: true));
       final dir = Directory('${root.path}/ios/Runner')
         ..createSync(recursive: true);
-      final elsewhere = File('${root.path}/elsewhere.txt')
-        ..writeAsStringSync('x');
+      final target = File('${root.path}/shared/Info.plist')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('stamped');
       final plistPath = '${dir.path}/Info.plist';
-      Link(plistPath).createSync(elsewhere.path);
+      Link(plistPath).createSync(target.path);
 
       restoreIosInfoPlist('original', plistPath: plistPath);
 
-      // The rename replaces the LINK itself; a bare truncating write
-      // would follow it and scribble on the link target instead —
-      // the one observable difference between the two mechanisms.
+      // The write resolves the link and renames AT THE TARGET: a
+      // rename at the spelled path would replace the link itself
+      // and strand the content in the old target — one
+      // release --build on a shared-config monorepo checkout would
+      // destroy the wiring.
       expect(
         FileSystemEntity.typeSync(plistPath, followLinks: false),
-        FileSystemEntityType.file,
+        FileSystemEntityType.link,
       );
-      expect(File(plistPath).readAsStringSync(), 'original');
-      expect(elsewhere.readAsStringSync(), 'x');
+      expect(target.readAsStringSync(), 'original');
     }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
+
+    test('stamp + restore round-trip through a link leaves the repo clean', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist4');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      const original = '<dict>\n</dict>\n';
+      final target = File('${root.path}/shared/Info.plist')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync(original);
+      final plistPath = '${dir.path}/Info.plist';
+      Link(plistPath).createSync(target.path);
+
+      final saved = writeBaselineIdToIosInfoPlist('u-1', plistPath: plistPath)!;
+      expect(target.readAsStringSync(), contains('FCPBaselineId'));
+      expect(
+        FileSystemEntity.typeSync(plistPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+
+      restoreIosInfoPlist(saved, plistPath: plistPath);
+
+      expect(target.readAsStringSync(), original);
+      expect(
+        FileSystemEntity.typeSync(plistPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+      final leftovers = [
+        ...Directory('${root.path}/shared').listSync(),
+        ...dir.listSync(),
+      ].map((e) => e.path).where((path) => path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
+
+    test('the stamp write is atomic too — no leftover temp', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist5');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plist = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('<dict>\n</dict>\n');
+
+      final saved = writeBaselineIdToIosInfoPlist('u-1', plistPath: plist.path);
+
+      expect(saved, '<dict>\n</dict>\n');
+      expect(plist.readAsStringSync(), contains('FCPBaselineId'));
+      final leftovers = dir
+          .listSync()
+          .map((e) => e.path)
+          .where((path) => path.endsWith('.tmp'));
+      expect(leftovers, isEmpty);
+    });
 
     test('a failed restore leaves the target untouched', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist2');

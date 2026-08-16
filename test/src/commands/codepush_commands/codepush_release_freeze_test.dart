@@ -1462,7 +1462,9 @@ void main() {
         File('$dest/marker.txt').writeAsStringSync('old');
         // Make a SOURCE file unreadable so cp fails mid-copy — the
         // realistic failure shape — before any delete. This row goes
-        // red if anyone reverts the save to delete-first.
+        // red if anyone reverts the save to delete-first. (Assumes a
+        // non-root test process, as on this repo's CI runners: root
+        // reads through mode 000 and cp would succeed.)
         final locked = File('${root.path}/$kDefaultBuiltIosAppPath/locked.txt')
           ..writeAsStringSync('x');
         Process.runSync('chmod', ['000', locked.path]);
