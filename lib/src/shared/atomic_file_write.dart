@@ -39,9 +39,11 @@ import 'dart:io';
 /// Callers already treat the throw as "unstamped build", never as a
 /// tool crash. Sibling cost: rename replaces the INODE, so the
 /// target's owner becomes the writing process's user where an
-/// in-place write preserved it — a sudo run leaves the file
-/// root-owned for the next unprivileged run (which then hits the
-/// throw above).
+/// in-place write preserved it — a sudo run silently takes ownership
+/// of the plist. (The next unprivileged run still succeeds: it needs
+/// nothing on the file, only a writable directory, so ownership just
+/// flips back. The throw above needs a read-only DIRECTORY or an
+/// unreadable file, not merely a root-owned one.)
 ///
 /// Temps are dot-prefixed so a leftover never looks like the real
 /// file to anything; for targets under Android assets/ the dot

@@ -1353,6 +1353,55 @@ void main() {
         });
       });
 
+      group('iosStampCauseFor (exception shape → operator cause)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('non-UTF-8 read (no OSError + decode message) → binary plist', () {
+          expect(
+            cmd.iosStampCauseFor(
+              const FileSystemException(
+                "Failed to decode data using encoding 'utf-8'",
+                'ios/Runner/Info.plist',
+              ),
+            ),
+            contains('binary plist'),
+          );
+        });
+        test('EACCES → the directory, not just the file', () {
+          expect(
+            cmd.iosStampCauseFor(
+              const FileSystemException(
+                'Cannot create file',
+                '.Info.plist.1.tmp',
+                OSError('Permission denied', 13),
+              ),
+            ),
+            contains('writable ios/Runner/ directory'),
+          );
+        });
+        test('ENOSPC → disk, NOT permissions', () {
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot write',
+              '.Info.plist.1.tmp',
+              OSError('No space left on device', 28),
+            ),
+          );
+          expect(msg, contains('disk is full'));
+          expect(msg, isNot(contains('permissions')));
+        });
+        test('unknown OSError → neutral read-or-write', () {
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot write',
+              '.Info.plist.1.tmp',
+              OSError('I/O error', 5),
+            ),
+          );
+          expect(msg, contains('could not be read'));
+          expect(msg, isNot(contains('permissions')));
+        });
+      });
+
       group('baselineIdUnderOptOut (which id the opt-out releases under)', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         test('embedded id wins when the bytes carry one', () {

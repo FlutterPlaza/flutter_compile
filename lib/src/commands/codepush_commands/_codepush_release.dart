@@ -300,6 +300,38 @@ class CodePushReleaseSubCommand extends Command<int> {
             'never be offered to them.';
   }
 
+  /// Maps an iOS stamp-write/read [FileSystemException] to an
+  /// operator-facing cause, structurally (by `osError.errorCode`),
+  /// not lexically — same discipline as the decode split. Pure and
+  /// rowable so the exception-shape→text mapping has a seam:
+  /// - no OSError + a decode message → binary plist (the READ
+  ///   throwing on non-UTF-8, before any temp is created);
+  /// - EACCES/EPERM → the directory the temp+rename needs (or an
+  ///   unreadable plist — both are "fix a permission", and naming
+  ///   the directory is the one the flagship read-only-`ios/Runner/`
+  ///   case actually needs);
+  /// - ENOSPC/EDQUOT/EROFS → a full/read-only disk, NOT permissions;
+  /// - anything else → a neutral could-not-read-or-write.
+  String iosStampCauseFor(FileSystemException e) {
+    if (e.osError == null && e.message.contains('Failed to decode')) {
+      return 'ios/Runner/Info.plist is not readable as UTF-8 text '
+          '(a binary plist?)';
+    }
+    const eacces = 13, eperm = 1, enospc = 28, edquot = 69, erofs = 30;
+    final code = e.osError?.errorCode;
+    if (code == eacces || code == eperm) {
+      return 'the stamp needs a writable ios/Runner/ directory '
+          '(not just a writable Info.plist), or the plist is '
+          'unreadable — a permissions problem either way';
+    }
+    if (code == enospc || code == edquot || code == erofs) {
+      return 'ios/Runner/ could not be written — the disk is full '
+          'or the checkout is on a read-only mount';
+    }
+    return 'ios/Runner/Info.plist could not be read, or the stamp '
+        'could not be written to ios/Runner/';
+  }
+
   /// The identity a --allow-missing-baseline run releases under when
   /// [baselineIdContradiction] fired: the id the built bytes embed
   /// (trimmed) when they carry one — strictly better than
@@ -894,18 +926,7 @@ class CodePushReleaseSubCommand extends Command<int> {
             // encoding*-named directory would fool a message-only
             // test; OS-level failures always carry an OSError, the
             // decode exception never does.
-            final isDecodeFailure =
-                e.osError == null && e.message.contains('Failed to decode');
-            iosStampFailureCause = isDecodeFailure
-                ? 'ios/Runner/Info.plist is not readable as UTF-8 '
-                    'text (a binary plist?)'
-                // The breaking change names the DIRECTORY: temp+rename
-                // needs a writable ios/Runner/, not just a writable
-                // Info.plist, so "chmod the plist" (already 0644) is a
-                // dead end. The refusal at baselineIdContradiction says
-                // the same; this cause feeds the no-flag exit below.
-                : 'the stamp needs a writable ios/Runner/ directory, '
-                    'not just a writable Info.plist (permissions?)';
+            iosStampFailureCause = iosStampCauseFor(e);
             // The source plist is untouched by a failed stamp, so a
             // plist that already carries an id STILL ships it — don't
             // assert "will not embed" when it might.
@@ -930,13 +951,33 @@ class CodePushReleaseSubCommand extends Command<int> {
             originalIosInfoPlist = null;
           }
           if (originalIosInfoPlist == null && iosStampFailureCause == null) {
-            // Null without a throw has TWO causes; "not found" for a
-            // file the operator can see would send them hunting.
-            iosPlistWasMissing = !File(kDefaultIosInfoPlistPath).existsSync();
-            iosStampFailureCause = iosPlistWasMissing
-                ? 'ios/Runner/Info.plist is missing'
-                : 'ios/Runner/Info.plist has no closing </dict> — '
-                    'truncated, or not an XML plist';
+            // Null without a throw has THREE causes; "not found" for a
+            // file the operator can see would send them hunting, and a
+            // dangling symlink (existsSync follows links → false) is
+            // neither missing nor malformed and "flutter create ."
+            // won't fix it.
+            // A DEAD link only: a symlink (followLinks:false → link)
+            // whose target is absent (followLinks:true → notFound).
+            // A live link to a present-but-malformed target falls
+            // through to the malformed branch, which is the true cause.
+            final isDeadLink = FileSystemEntity.typeSync(
+                      kDefaultIosInfoPlistPath,
+                      followLinks: false,
+                    ) ==
+                    FileSystemEntityType.link &&
+                FileSystemEntity.typeSync(
+                      kDefaultIosInfoPlistPath,
+                    ) ==
+                    FileSystemEntityType.notFound;
+            iosPlistWasMissing =
+                !isDeadLink && !File(kDefaultIosInfoPlistPath).existsSync();
+            iosStampFailureCause = isDeadLink
+                ? 'ios/Runner/Info.plist is a symbolic link whose '
+                    'target does not exist — restore the target'
+                : iosPlistWasMissing
+                    ? 'ios/Runner/Info.plist is missing'
+                    : 'ios/Runner/Info.plist has no closing </dict> — '
+                        'truncated, or not an XML plist';
             _logger.warn(
               'Warning: $iosStampFailureCause. '
               'This build will not embed a baseline identity.',
