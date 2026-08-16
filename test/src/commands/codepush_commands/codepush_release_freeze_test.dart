@@ -1238,6 +1238,255 @@ void main() {
       expect(saved, isFalse);
     });
 
+    group('snapshotArgError (no---build --snapshot stat)', () {
+      test('a typo is an argument error, not a late failure', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '/definitely/not/here.bin']);
+        expect(cmd.snapshotArgError(), contains('Snapshot file not found'));
+      });
+
+      test('an existing file passes; no flag is silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaparg');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        expect(cmd.snapshotArgError(), isNull);
+        final bare = ParsedArgsReleaseCommand(MockLogger());
+        bare.parsedArgs = bare.argParser.parse([]);
+        expect(bare.snapshotArgError(), isNull);
+      });
+    });
+
+    group('snapshotPreBuildWarning (--build --snapshot)', () {
+      test('a missing path OUTSIDE build/ warns — never rejects', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${root.path}/nope.bin']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          contains('will fail after the build'),
+        );
+      });
+
+      test('a missing path UNDER build/ is silent — the build may create it',
+          () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/build/future/App']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test('the containment test is case-folded (NTFS, default APFS)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn3');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/Build/future/App']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test('an existing file is silent wherever it lives', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+    });
+
+    group('foreignSnapshotAdvisory (pre-build)', () {
+      test('no --snapshot: silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse([]);
+        expect(cmd.foreignSnapshotAdvisory(), isNull);
+      });
+
+      test(
+          'foreign bytes that do NOT exist yet: the fail clause is '
+          'conditional — the build may create them, id included', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '/elsewhere/app.bin']);
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory, contains('If those bytes carry no readable'));
+        expect(advisory, isNot(contains('FAIL after the build')));
+      });
+
+      test(
+          'foreign bytes that EXIST with no readable identity: certain '
+          'failure, said before the build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('FAIL after the build'));
+      });
+
+      test(
+          'an id-less bundle UNDER build/ stays conditional — this '
+          'build may rewrite it, stamp included', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/build/stale/app.bin')
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
+        expect(advisory, contains('will fail after the build'));
+        expect(advisory, isNot(contains('FAIL after the build')));
+      });
+
+      test('--baseline-id settles the identity: no fail clause', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--snapshot', '/elsewhere/app.bin', '--baseline-id', 'u-1'],
+        );
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory, contains('comes from --baseline-id'));
+        expect(advisory.toLowerCase(), isNot(contains('fail')));
+      });
+
+      test('--allow-missing-baseline: skips named, nothing demanded', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--snapshot', '/elsewhere/app.bin', '--allow-missing-baseline'],
+        );
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory.toLowerCase(), isNot(contains('baseline identity')));
+      });
+
+      test("this build's own output path is not foreign: silent", () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          [
+            '--snapshot',
+            '$kDefaultBuiltIosAppPath/Frameworks/App.framework/App',
+          ],
+        );
+        expect(cmd.foreignSnapshotAdvisory(), isNull);
+      });
+    });
+
+    group('saveIosBaselineApp copy-then-swap', () {
+      late Directory root;
+      late String dest;
+      late ParsedArgsReleaseCommand cmd;
+      late MockLogger logger;
+
+      setUp(() {
+        logger = MockLogger();
+        when(() => logger.warn(any())).thenReturn(null);
+        when(() => logger.detail(any())).thenReturn(null);
+        when(() => logger.info(any())).thenReturn(null);
+        when(() => logger.success(any())).thenReturn(null);
+        cmd = ParsedArgsReleaseCommand(logger);
+        root = Directory.systemTemp.createTempSync('fcp_swap');
+        dest = '${root.path}/build/codepush/baseline/Runner.app';
+        Directory('${root.path}/$kDefaultBuiltIosAppPath')
+            .createSync(recursive: true);
+        File('${root.path}/$kDefaultBuiltIosAppPath/marker.txt')
+            .writeAsStringSync('new');
+      });
+
+      tearDown(() => root.deleteSync(recursive: true));
+
+      test('a pre-existing saved bundle is replaced by the fresh one', () {
+        Directory(dest).createSync(recursive: true);
+        File('$dest/marker.txt').writeAsStringSync('old');
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+      });
+
+      test(
+          'a failed copy leaves the previous bundle intact — the reason '
+          'the swap exists', () {
+        Directory(dest).createSync(recursive: true);
+        File('$dest/marker.txt').writeAsStringSync('old');
+        // Occupy the temp destination with a plain FILE: cp cannot
+        // copy a directory over it, so the copy fails before any
+        // delete — this row goes red if anyone reverts the save to
+        // delete-first.
+        File('$dest.tmp').writeAsBytesSync([1]);
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'old');
+        verify(
+          () => logger.warn(any(that: contains('left in place'))),
+        ).called(1);
+      });
+
+      test('a stale temp from a killed run is cleared and the save lands', () {
+        Directory('$dest.tmp').createSync(recursive: true);
+        File('$dest.tmp/stale.txt').writeAsStringSync('stale');
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(File('$dest/stale.txt').existsSync(), isFalse);
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+      });
+
+      test(
+          'a swap blocked by a plain file at dest discards the copy and '
+          'reports, leaving the blocker as-is', () {
+        File(dest)
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([7]);
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        expect(File(dest).existsSync(), isTrue);
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+        verify(
+          () => logger.warn(
+            any(
+              that: allOf(
+                contains('could not swap'),
+                contains('left as-is'),
+              ),
+            ),
+          ),
+        ).called(1);
+      });
+    },
+        skip:
+            Platform.isWindows ? 'exercises POSIX cp/rename semantics' : false);
+
     test('dartDefineValues (release): filter applied at this command', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());
       cmd.parsedArgs = cmd.argParser.parse(
