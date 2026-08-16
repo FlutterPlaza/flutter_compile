@@ -37,7 +37,11 @@ import 'dart:io';
 /// now throws at temp creation. Deliberate: an EACCES fallback to an
 /// in-place write would reopen property 2's truncate-on-ENOSPC hole.
 /// Callers already treat the throw as "unstamped build", never as a
-/// tool crash.
+/// tool crash. Sibling cost: rename replaces the INODE, so the
+/// target's owner becomes the writing process's user where an
+/// in-place write preserved it — a sudo run leaves the file
+/// root-owned for the next unprivileged run (which then hits the
+/// throw above).
 ///
 /// Temps are dot-prefixed so a leftover never looks like the real
 /// file to anything; for targets under Android assets/ the dot

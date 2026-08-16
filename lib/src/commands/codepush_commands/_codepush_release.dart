@@ -804,10 +804,16 @@ class CodePushReleaseSubCommand extends Command<int> {
             // a FileSystemException whose message names the decode
             // ("Failed to decode data using encoding 'utf-8'"), NOT
             // as a FormatException — so the binary-plist family
-            // arrives HERE and is split off by message, or every
-            // binary plist would be misdiagnosed as permissions.
+            // arrives HERE and is split off, or every binary plist
+            // would be misdiagnosed as permissions. The discriminator
+            // is STRUCTURAL (no OSError + the decode message), not
+            // lexical: renameSync interpolates the DESTINATION PATH
+            // into its message, so a checkout under a decode*/
+            // encoding*-named directory would fool a message-only
+            // test; OS-level failures always carry an OSError, the
+            // decode exception never does.
             final isDecodeFailure =
-                e.message.contains('decode') || e.message.contains('encoding');
+                e.osError == null && e.message.contains('Failed to decode');
             iosStampFailureCause = isDecodeFailure
                 ? 'ios/Runner/Info.plist is not readable as UTF-8 '
                     'text (a binary plist?)'
@@ -862,11 +868,11 @@ class CodePushReleaseSubCommand extends Command<int> {
             androidStampFailed = false;
           } on FileSystemException catch (e) {
             // Mirror of the iOS stamp guard above — including the
-            // empirical decode split: non-UTF-8 arrives as a
-            // FileSystemException naming the decode, not as a
-            // FormatException.
+            // structural decode split (no OSError + the decode
+            // message; see the iOS twin for the renameSync
+            // path-contamination trap a message-only test has).
             final isDecodeFailure =
-                e.message.contains('decode') || e.message.contains('encoding');
+                e.osError == null && e.message.contains('Failed to decode');
             _logger.warn(
               isDecodeFailure
                   ? 'Could not read $kDefaultAndroidCodePushYamlPath '
@@ -1786,7 +1792,8 @@ class CodePushReleaseSubCommand extends Command<int> {
           ? 'The previously saved bundle may no longer be intact.'
           : FileSystemEntity.typeSync(dest, followLinks: false) !=
                   FileSystemEntityType.notFound
-              ? 'Whatever occupied that path was left as-is.'
+              ? 'Whatever occupied that path was left as-is — remove '
+                  'it first, or every retry will fail the same way.'
               : 'No previously saved bundle remains at that path.';
       // Clean up FIRST and report what actually happened: the same
       // permissions problem that failed the rename plausibly fails

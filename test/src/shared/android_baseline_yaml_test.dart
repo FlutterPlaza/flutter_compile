@@ -27,11 +27,13 @@ void main() {
       expect(
         () => writeReleaseVersionToAndroidYaml('1.0.0', yamlPath: yaml.path),
         throwsA(
-          isA<FileSystemException>().having(
-            (e) => e.message,
-            'message',
-            anyOf(contains('decode'), contains('encoding')),
-          ),
+          isA<FileSystemException>()
+              .having(
+                (e) => e.message,
+                'message',
+                contains('Failed to decode'),
+              )
+              .having((e) => e.osError, 'osError', isNull),
         ),
       );
     });

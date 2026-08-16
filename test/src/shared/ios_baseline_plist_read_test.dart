@@ -75,11 +75,17 @@ void main() {
       expect(
         () => writeBaselineIdToIosInfoPlist('u-1', plistPath: plist.path),
         throwsA(
-          isA<FileSystemException>().having(
-            (e) => e.message,
-            'message',
-            anyOf(contains('decode'), contains('encoding')),
-          ),
+          isA<FileSystemException>()
+              .having(
+                (e) => e.message,
+                'message',
+                contains('Failed to decode'),
+              )
+              // No OSError is the STRUCTURAL half of the guard's
+              // discriminator: OS-level failures (rename included,
+              // whose message embeds the destination path) always
+              // carry one; the decode exception never does.
+              .having((e) => e.osError, 'osError', isNull),
         ),
       );
     });
