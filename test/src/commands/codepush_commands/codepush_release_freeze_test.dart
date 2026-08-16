@@ -1386,8 +1386,24 @@ void main() {
               OSError('No space left on device', 28),
             ),
           );
-          expect(msg, contains('disk is full'));
+          expect(msg, contains('no space'));
           expect(msg, isNot(contains('permissions')));
+        });
+        test(
+            'EDQUOT on both platforms → the disk/quota branch, not '
+            'neutral', () {
+          // 69 (macOS/BSD) and 122 (Linux) both mean over-quota.
+          for (final code in [69, 122]) {
+            final msg = cmd.iosStampCauseFor(
+              FileSystemException(
+                'Cannot write',
+                '.Info.plist.1.tmp',
+                OSError('Disc quota exceeded', code),
+              ),
+            );
+            expect(msg, contains('quota'));
+            expect(msg, isNot(contains('permissions')));
+          }
         });
         test('unknown OSError → neutral read-or-write', () {
           final msg = cmd.iosStampCauseFor(

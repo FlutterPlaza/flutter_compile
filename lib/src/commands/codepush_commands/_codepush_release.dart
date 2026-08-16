@@ -317,16 +317,24 @@ class CodePushReleaseSubCommand extends Command<int> {
       return 'ios/Runner/Info.plist is not readable as UTF-8 text '
           '(a binary plist?)';
     }
-    const eacces = 13, eperm = 1, enospc = 28, edquot = 69, erofs = 30;
+    // EACCES/EPERM/ENOSPC/EROFS are identical on macOS and Linux;
+    // EDQUOT is 69 on macOS/BSD but 122 on Linux (69 there is
+    // ESRMNT), so accept both — the stamp runs before `flutter build`
+    // and can hit a per-user quota in a Linux CI container.
+    const eacces = 13, eperm = 1, enospc = 28, erofs = 30;
+    const edquotDarwin = 69, edquotLinux = 122;
     final code = e.osError?.errorCode;
     if (code == eacces || code == eperm) {
       return 'the stamp needs a writable ios/Runner/ directory '
           '(not just a writable Info.plist), or the plist is '
           'unreadable — a permissions problem either way';
     }
-    if (code == enospc || code == edquot || code == erofs) {
-      return 'ios/Runner/ could not be written — the disk is full '
-          'or the checkout is on a read-only mount';
+    if (code == enospc ||
+        code == erofs ||
+        code == edquotDarwin ||
+        code == edquotLinux) {
+      return 'ios/Runner/ could not be written — no space, over a '
+          'disk quota, or on a read-only mount';
     }
     return 'ios/Runner/Info.plist could not be read, or the stamp '
         'could not be written to ios/Runner/';
@@ -939,14 +947,18 @@ class CodePushReleaseSubCommand extends Command<int> {
           } on FormatException catch (e) {
             // Defensive belt: today's SDK reports non-UTF-8 as the
             // FileSystemException above; keep this in case a future
-            // SDK surfaces the decode error directly.
-            iosStampFailureCause =
-                'ios/Runner/Info.plist is not readable as UTF-8 text '
-                '(a binary plist?)';
+            // SDK surfaces the decode error directly. Route the cause
+            // and the already-shipped check the SAME way so the belt
+            // can't re-introduce the over-assertion the sibling fixed
+            // (a binary plist is exactly where a pre-committed id is
+            // most likely present).
+            iosStampFailureCause = 'ios/Runner/Info.plist is not '
+                'readable as UTF-8 text (a binary plist?)';
+            final alreadyStamped = readBaselineIdFromSourceInfoPlist() != null;
             _logger.warn(
               'Could not read ios/Runner/Info.plist as UTF-8 text '
               '(a binary plist?): $e. '
-              'This build will not embed a baseline identity.',
+              '${alreadyStamped ? 'The id already committed to the plist will still ship; this build could not add or refresh one.' : 'This build will not embed a baseline identity.'}',
             );
             originalIosInfoPlist = null;
           }

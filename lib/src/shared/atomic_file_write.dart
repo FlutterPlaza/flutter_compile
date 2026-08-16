@@ -43,7 +43,11 @@ import 'dart:io';
 /// of the plist. (The next unprivileged run still succeeds: it needs
 /// nothing on the file, only a writable directory, so ownership just
 /// flips back. The throw above needs a read-only DIRECTORY or an
-/// unreadable file, not merely a root-owned one.)
+/// unreadable file, not merely a root-owned one.) And a HARD link at
+/// the target is severed: replacing the inode leaves any other link
+/// to the old one pointing at stale content — the two paths quietly
+/// stop being the same file. (iOS-only new exposure; the Android
+/// writer already renamed pre-PR.)
 ///
 /// Temps are dot-prefixed so a leftover never looks like the real
 /// file to anything; for targets under Android assets/ the dot

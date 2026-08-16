@@ -90,6 +90,33 @@ void main() {
         isNull,
       );
     });
+
+    test(
+      'reads the id from a BINARY source plist via the plutil fallback '
+      '— the branch that keeps the stamp-failure warning honest',
+      () {
+        final root = Directory.systemTemp.createTempSync('fcp_src3');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final plist = File('${root.path}/Info.plist')
+          ..writeAsStringSync(
+            '<dict>\n\t<key>FCPBaselineId</key>\n'
+            '\t<string>bin-src-id</string>\n</dict>\n',
+          );
+        final convert = Process.runSync(
+          'plutil',
+          ['-convert', 'binary1', plist.path],
+        );
+        expect(convert.exitCode, 0, reason: 'plutil must convert');
+        // XML regex misses the binary file; only the plutil fallback
+        // can find the id — the read-only-ios/Runner/ + pre-committed
+        // -binary-plist case round 13 was raised about.
+        expect(
+          readBaselineIdFromSourceInfoPlist(plistPath: plist.path),
+          'bin-src-id',
+        );
+      },
+      skip: !Platform.isMacOS ? 'plutil is macOS-only' : null,
+    );
   });
 
   group('writeBaselineIdToIosInfoPlist edge shapes', () {
