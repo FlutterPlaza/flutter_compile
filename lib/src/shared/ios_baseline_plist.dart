@@ -122,3 +122,42 @@ String? readBaselineIdFromBuiltAppPlist({
     return null;
   }
 }
+
+/// Reads `FCPBaselineId` from the SOURCE `ios/Runner/Info.plist`
+/// (XML, editable) — distinct from [readBaselineIdFromBuiltAppPlist],
+/// which reads the built (often binary) app bundle. Used to keep the
+/// stamp-failure warning honest: a source plist a developer
+/// pre-committed with an id still ships that id even when this build's
+/// own stamp step can't run. Best-effort; null on absent/blank/error.
+String? readBaselineIdFromSourceInfoPlist({
+  String plistPath = kDefaultIosInfoPlistPath,
+}) {
+  final plist = File(plistPath);
+  if (!plist.existsSync()) return null;
+  // XML first (the Flutter-template default), then plutil — a source
+  // plist a developer converted to binary still ships its id under
+  // Xcode, so the warn must not claim "will not embed" for one.
+  try {
+    final content = plist.readAsStringSync();
+    final match = RegExp(
+      r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
+    ).firstMatch(content);
+    final value = match?.group(1)?.trim();
+    if (value != null && value.isNotEmpty) return value;
+  } catch (_) {
+    // Binary plist (or non-UTF-8) — fall through to plutil.
+  }
+  try {
+    final result = Process.runSync(
+      'plutil',
+      ['-extract', 'FCPBaselineId', 'raw', '-o', '-', plist.path],
+    );
+    if (result.exitCode == 0) {
+      final value = (result.stdout as String).trim();
+      if (value.isNotEmpty) return value;
+    }
+  } catch (_) {
+    // plutil unavailable.
+  }
+  return null;
+}

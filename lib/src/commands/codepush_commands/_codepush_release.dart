@@ -276,9 +276,17 @@ class CodePushReleaseSubCommand extends Command<int> {
   }) {
     if (!shouldBuild || snapshotIsForeign) return null;
     if (stampedByThisBuild != null) return null;
-    if (explicitFlag == null || explicitFlag.isEmpty) return null;
-    final embedded = embeddedInBuiltApp?.trim();
-    if (embedded != null && embedded == explicitFlag) return null;
+    // Trim BOTH sides and treat blank as absent, matching
+    // resolveIosBaselineId — an empty embedded id must read as "no id"
+    // (not as a present-but-empty contradiction that would record ''
+    // as a real baseline_id), and a padded flag must not spuriously
+    // mismatch a clean embedded id.
+    final flag = explicitFlag?.trim();
+    if (flag == null || flag.isEmpty) return null;
+    final embeddedRaw = embeddedInBuiltApp?.trim();
+    final embedded =
+        (embeddedRaw == null || embeddedRaw.isEmpty) ? null : embeddedRaw;
+    if (embedded != null && embedded == flag) return null;
     return embedded == null
         ? '--baseline-id names an id this build did not embed: the '
             'stamp failed '
@@ -286,10 +294,22 @@ class CodePushReleaseSubCommand extends Command<int> {
             'so the built app carries no FCPBaselineId and a release '
             'recorded under the flag would never match a device that '
             'checks identity.'
-        : '--baseline-id ($explicitFlag) contradicts the id the built '
+        : '--baseline-id ($flag) contradicts the id the built '
             'app actually embeds ($embedded). Devices send the '
             'embedded id, so a release recorded under the flag would '
             'never be offered to them.';
+  }
+
+  /// The identity a --allow-missing-baseline run releases under when
+  /// [baselineIdContradiction] fired: the id the built bytes embed
+  /// (trimmed) when they carry one — strictly better than
+  /// identity-less, and exactly where "drop the flag" lands — else
+  /// null (proceed without identity, the outcome the opt-out names).
+  /// Pure and rowable so the choice of WHICH release is created is
+  /// pinned, not just whether a contradiction exists.
+  String? baselineIdUnderOptOut({required String? embeddedInBuiltApp}) {
+    final embedded = embeddedInBuiltApp?.trim();
+    return (embedded == null || embedded.isEmpty) ? null : embedded;
   }
 
   /// The directory-aware core the snapshot emitters share — the
@@ -879,11 +899,20 @@ class CodePushReleaseSubCommand extends Command<int> {
             iosStampFailureCause = isDecodeFailure
                 ? 'ios/Runner/Info.plist is not readable as UTF-8 '
                     'text (a binary plist?)'
-                : 'ios/Runner/Info.plist could not be read or '
-                    'written (permissions?)';
+                // The breaking change names the DIRECTORY: temp+rename
+                // needs a writable ios/Runner/, not just a writable
+                // Info.plist, so "chmod the plist" (already 0644) is a
+                // dead end. The refusal at baselineIdContradiction says
+                // the same; this cause feeds the no-flag exit below.
+                : 'the stamp needs a writable ios/Runner/ directory, '
+                    'not just a writable Info.plist (permissions?)';
+            // The source plist is untouched by a failed stamp, so a
+            // plist that already carries an id STILL ships it — don't
+            // assert "will not embed" when it might.
+            final alreadyStamped = readBaselineIdFromSourceInfoPlist() != null;
             _logger.warn(
               'Could not stamp ios/Runner/Info.plist: $e. '
-              'This build will not embed a baseline identity.',
+              '${alreadyStamped ? 'The id already committed to the plist will still ship; this build could not add or refresh one.' : 'This build will not embed a baseline identity.'}',
             );
             originalIosInfoPlist = null;
           } on FormatException catch (e) {
@@ -1242,20 +1271,16 @@ class CodePushReleaseSubCommand extends Command<int> {
           // the fallback lands exactly where dropping the flag
           // would. Only the nothing-embedded variant proceeds
           // identity-less, the outcome the opt-out names.
-          if (idFromBuiltApp != null) {
-            baselineId = idFromBuiltApp.trim();
-            _logger.warn(
-              '$contradiction Ignoring --baseline-id and releasing '
-              'under the id the built app embeds ($baselineId).',
-            );
-          } else {
-            _logger.warn(
-              '$contradiction Ignoring --baseline-id and proceeding '
-              'WITHOUT a baseline identity per '
-              '--allow-missing-baseline.',
-            );
-            baselineId = null;
-          }
+          baselineId =
+              baselineIdUnderOptOut(embeddedInBuiltApp: idFromBuiltApp);
+          _logger.warn(
+            baselineId != null
+                ? '$contradiction Ignoring --baseline-id and releasing '
+                    'under the id the built app embeds ($baselineId).'
+                : '$contradiction Ignoring --baseline-id and proceeding '
+                    'WITHOUT a baseline identity per '
+                    '--allow-missing-baseline.',
+          );
         } else {
           _logger.err(
             '$contradiction '

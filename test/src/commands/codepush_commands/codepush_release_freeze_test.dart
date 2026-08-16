@@ -1343,6 +1343,25 @@ void main() {
           expect(call(flag: null), isNull);
           expect(call(flag: ''), isNull);
         });
+        test('blank operands read as absent, both sides trimmed', () {
+          // An empty embedded id must NOT read as a present-but-empty
+          // contradiction (that path would record '' as a baseline_id).
+          expect(call(embedded: '   ', flag: 'abc'), contains('did not embed'));
+          // A padded flag matching a clean embedded id is NOT a
+          // contradiction.
+          expect(call(flag: '  abc  ', embedded: 'abc'), isNull);
+        });
+      });
+
+      group('baselineIdUnderOptOut (which id the opt-out releases under)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('embedded id wins when the bytes carry one', () {
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: ' ABC '), 'ABC');
+        });
+        test('null/blank embedded → identity-less', () {
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: null), isNull);
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: '  '), isNull);
+        });
       });
 
       test('a dangling symlink reads as a dead link, not as "not found"', () {

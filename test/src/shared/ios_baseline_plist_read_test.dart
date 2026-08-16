@@ -59,6 +59,39 @@ void main() {
     });
   });
 
+  group('readBaselineIdFromSourceInfoPlist', () {
+    test('reads an FCPBaselineId from an XML source plist', () {
+      final root = Directory.systemTemp.createTempSync('fcp_src');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final plist = File('${root.path}/Info.plist')
+        ..writeAsStringSync(
+          '<dict>\n\t<key>FCPBaselineId</key>\n'
+          '\t<string>src-id-1</string>\n</dict>\n',
+        );
+      expect(
+        readBaselineIdFromSourceInfoPlist(plistPath: plist.path),
+        'src-id-1',
+      );
+    });
+
+    test('absent file and a plist without the key both read null', () {
+      final root = Directory.systemTemp.createTempSync('fcp_src2');
+      addTearDown(() => root.deleteSync(recursive: true));
+      expect(
+        readBaselineIdFromSourceInfoPlist(
+          plistPath: '${root.path}/none.plist',
+        ),
+        isNull,
+      );
+      final bare = File('${root.path}/Info.plist')
+        ..writeAsStringSync('<dict>\n</dict>\n');
+      expect(
+        readBaselineIdFromSourceInfoPlist(plistPath: bare.path),
+        isNull,
+      );
+    });
+  });
+
   group('writeBaselineIdToIosInfoPlist edge shapes', () {
     test('a plist with no closing dict returns null, file untouched', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist9');
