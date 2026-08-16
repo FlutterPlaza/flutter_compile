@@ -22,7 +22,9 @@ import 'dart:io';
 ///    default mode, which would silently rewrite a 0600 or
 ///    group-writable file across a stamp/restore cycle (and where
 ///    git tracks the exec bit, dirty the repo the restore exists to
-///    keep clean).
+///    keep clean). EXCEPTION: an absent target has no mode to
+///    preserve — the recreated file lands at the umask default
+///    (deliberate: inventing a mode would be a worse guess).
 /// 4. Stale dot-prefixed temps from a killed earlier run are swept
 ///    best-effort first (single-writer assumption — two concurrent
 ///    builds in one project are unsupported anyway).

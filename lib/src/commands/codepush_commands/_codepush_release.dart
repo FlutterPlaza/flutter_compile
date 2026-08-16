@@ -221,13 +221,22 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// With --build, run() takes [snapshotPreBuildWarning] instead —
   /// a guess about what the build is about to create must never
   /// reject a run that would have succeeded.
-  String? snapshotArgError() {
+  String? snapshotArgError({required bool willBuild}) {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
     if (Directory(raw).existsSync()) {
-      return missingSnapshotCore(raw);
+      // A directory is a FACT, not a lexical guess — and outside
+      // build/ no build ever replaces one with a file, so spending
+      // the build first proves nothing. Under build/ a stale
+      // directory CAN be cleaned and rebuilt as a file, so that one
+      // case stays with the pre-build warning + post-build stat.
+      if (!willBuild || !lexicallyUnderBuildDir(raw)) {
+        return missingSnapshotCore(raw);
+      }
+      return null;
     }
+    if (willBuild) return null;
     return '${missingSnapshotCore(raw)} Check the --snapshot path — '
         'or, if you expected this run to produce the bytes to upload, '
         'pass --build.';
@@ -259,11 +268,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
     if (Directory(raw).existsSync()) {
-      // A directory is not "a file that does not exist yet", and no
-      // build turns a directory into a file — under build/ or not,
-      // this run is already known to fail at the post-build stat.
-      // Directory-aware text single-sourced with both stat emitters.
-      return '${missingSnapshotCore(raw)} This will fail after the '
+      // Only the under-build/ directory reaches here (outside build/
+      // is an up-front rejection in [snapshotArgError] — a directory
+      // is a fact, not a guess): the build MAY clean and rebuild the
+      // path as a file, so this stays a warning.
+      return '${missingSnapshotCore(raw)} If the build does not '
+          'replace it with a file, this release will fail after the '
           'build.';
     }
     if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
@@ -618,12 +628,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     // the build block's emission point), because the build may be
     // about to create it.
     final willBuild = argResults?['build'] as bool? ?? false;
-    if (!willBuild) {
-      final snapshotError = snapshotArgError();
-      if (snapshotError != null) {
-        _logger.err(snapshotError);
-        return ExitCode.usage.code;
-      }
+    final snapshotError = snapshotArgError(willBuild: willBuild);
+    if (snapshotError != null) {
+      _logger.err(snapshotError);
+      return ExitCode.usage.code;
     }
 
     // Resolve app ID. Trimmed at the boundary: padding would be
@@ -674,6 +682,12 @@ class CodePushReleaseSubCommand extends Command<int> {
         _injectedBuildService ?? CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
+    // Why the iOS stamp produced no identity — carried to the terminal
+    // identity error so its advice matches the ACTUAL cause (round-5
+    // M1: "missing → flutter create ." is wrong and destructive for a
+    // present-but-unusable plist).
+    String? iosStampFailureCause;
+    var iosPlistWasMissing = false;
     String? originalAndroidYaml;
     String? builtPlatform;
 
@@ -757,45 +771,47 @@ class CodePushReleaseSubCommand extends Command<int> {
         // not leave the app repo dirty.
         if (platform == 'ios') {
           final generatedBaselineId = generateBaselineId();
-          var iosStampFailed = false;
           try {
             originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
               generatedBaselineId,
             );
-            iosStampFailed = false;
           } on FileSystemException catch (e) {
             // Same guard as the restore in the finally below: a
             // permissions problem (e.g. a read-only ios/Runner/)
             // must read as "unstamped build", not as a tool crash —
             // and not as "not found" (the file exists, unwritable).
             // The unstamped outcome is fully supported downstream.
+            iosStampFailureCause =
+                'ios/Runner/Info.plist could not be written ($e)';
             _logger.warn(
               'Could not stamp ios/Runner/Info.plist: $e. '
               'This build will not embed a baseline identity.',
             );
             originalIosInfoPlist = null;
-            iosStampFailed = true;
           } on FormatException catch (e) {
             // A binary plist or a stray non-UTF-8 byte throws from
             // the READ — the same "exists but unusable" family.
+            iosStampFailureCause =
+                'ios/Runner/Info.plist is not readable as UTF-8 text '
+                '(a binary plist?)';
             _logger.warn(
               'Could not read ios/Runner/Info.plist as UTF-8 text '
               '(a binary plist?): $e. '
               'This build will not embed a baseline identity.',
             );
             originalIosInfoPlist = null;
-            iosStampFailed = true;
           }
-          if (originalIosInfoPlist == null && !iosStampFailed) {
+          if (originalIosInfoPlist == null && iosStampFailureCause == null) {
             // Null without a throw has TWO causes; "not found" for a
             // file the operator can see would send them hunting.
+            iosPlistWasMissing = !File(kDefaultIosInfoPlistPath).existsSync();
+            iosStampFailureCause = iosPlistWasMissing
+                ? 'ios/Runner/Info.plist is missing'
+                : 'ios/Runner/Info.plist has no closing </dict> — '
+                    'truncated, or not an XML plist';
             _logger.warn(
-              File(kDefaultIosInfoPlistPath).existsSync()
-                  ? 'Warning: ios/Runner/Info.plist has no closing '
-                      '</dict> — truncated, or not an XML plist. '
-                      'This build will not embed a baseline identity.'
-                  : 'Warning: ios/Runner/Info.plist not found. '
-                      'This build will not embed a baseline identity.',
+              'Warning: $iosStampFailureCause. '
+              'This build will not embed a baseline identity.',
             );
           } else if (originalIosInfoPlist != null) {
             baselineId = generatedBaselineId;
@@ -817,6 +833,17 @@ class CodePushReleaseSubCommand extends Command<int> {
             // Mirror of the iOS stamp guard above.
             _logger.warn(
               'Could not stamp $kDefaultAndroidCodePushYamlPath: $e. '
+              'This build will not embed a release version.',
+            );
+            originalAndroidYaml = null;
+            androidStampFailed = true;
+          } on FormatException catch (e) {
+            // Mirror of the iOS guard's OTHER half too: the yaml read
+            // uses the same UTF-8 decode, and one stray byte must not
+            // read as a tool crash.
+            _logger.warn(
+              'Could not read $kDefaultAndroidCodePushYamlPath as '
+              'UTF-8 text: $e. '
               'This build will not embed a release version.',
             );
             originalAndroidYaml = null;
@@ -1017,7 +1044,16 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     final snapshotFile = File(snapshotPath);
     if (!snapshotFile.existsSync()) {
-      _logger.err(missingSnapshotCore(snapshotPath));
+      // The core's directory text says "--snapshot names…"; for a
+      // detector-resolved path the operator never typed, keep the
+      // plain form.
+      final explicitSnapshot =
+          ((argResults?['snapshot'] as String?)?.trim().isNotEmpty ?? false);
+      _logger.err(
+        explicitSnapshot
+            ? missingSnapshotCore(snapshotPath)
+            : 'Snapshot file not found: $snapshotPath.',
+      );
       return ExitCode.software.code;
     }
 
@@ -1093,13 +1129,15 @@ class CodePushReleaseSubCommand extends Command<int> {
             "build's own binary, or drop --snapshot.",
           );
         } else if (shouldBuild) {
-          // The build ran but could not stamp: the source plist was
-          // missing (warned above). Telling the user to "re-run with
-          // --build" would send them in a circle.
+          // The build ran but could not stamp; the branch above
+          // recorded WHY. Telling the user to "re-run with --build"
+          // would send them in a circle, and "flutter create ."
+          // advice is destructive for a present-but-unusable plist —
+          // it is offered only when the plist is genuinely absent.
           _logger.err(
-            'The build could not stamp a baseline identity because '
-            'ios/Runner/Info.plist is missing. Restore the plist '
-            '("flutter create ." regenerates it) and re-run, or pass '
+            'The build could not stamp a baseline identity: '
+            '${iosStampFailureCause ?? 'ios/Runner/Info.plist is missing'}. '
+            '${iosPlistWasMissing || iosStampFailureCause == null ? 'Restore the plist ("flutter create ." regenerates it) and re-run, or pass ' : 'Fix that and re-run, or pass '}'
             '--baseline-id <uuid>.',
           );
         } else {

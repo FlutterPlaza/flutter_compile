@@ -1238,49 +1238,19 @@ void main() {
       expect(saved, isFalse);
     });
 
-    group('snapshotArgError (no---build --snapshot stat)', () {
-      test('a typo is an argument error, not a late failure', () {
+    group('snapshotArgError (--snapshot stat)', () {
+      test(
+          'a typo without --build is an argument error, not a late '
+          'failure', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         cmd.parsedArgs =
             cmd.argParser.parse(['--snapshot', '/definitely/not/here.bin']);
-        expect(cmd.snapshotArgError(), contains('Snapshot file not found'));
-      });
-
-      test('missingSnapshotCore: one text for BOTH emitters', () {
-        final cmd = ParsedArgsReleaseCommand(MockLogger());
-        final root = Directory.systemTemp.createTempSync('fcp_snapcore');
-        addTearDown(() => root.deleteSync(recursive: true));
-        // The post-build stat calls this directly — the --build path
-        // is where the bundle directory actually exists.
         expect(
-          cmd.missingSnapshotCore(root.path),
-          contains('names a directory'),
+          cmd.snapshotArgError(willBuild: false),
+          contains('Snapshot file not found'),
         );
-        expect(
-          cmd.missingSnapshotCore('${root.path}/gone.bin'),
-          contains('not found'),
-        );
-      });
-
-      test('an existing directory suppresses the foreign advisory', () {
-        final cmd = ParsedArgsReleaseCommand(MockLogger());
-        final root = Directory.systemTemp.createTempSync('fcp_snapdir2');
-        addTearDown(() => root.deleteSync(recursive: true));
-        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', root.path]);
-        // A directory is the bundle-instead-of-binary mistake; a
-        // "foreign bytes" advisory for it would mislead the operator
-        // who meant this build's own output.
-        expect(cmd.foreignSnapshotAdvisory(), isNull);
-      });
-
-      test('a directory gets its own message, not "not found"', () {
-        final cmd = ParsedArgsReleaseCommand(MockLogger());
-        final root = Directory.systemTemp.createTempSync('fcp_snapdir');
-        addTearDown(() => root.deleteSync(recursive: true));
-        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', root.path]);
-        final error = cmd.snapshotArgError()!;
-        expect(error, contains('names a directory'));
-        expect(error, isNot(contains('not found')));
+        // With --build the missing-FILE case defers to the warning.
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
       });
 
       test('an existing file passes; no flag is silent', () {
@@ -1289,10 +1259,31 @@ void main() {
         addTearDown(() => root.deleteSync(recursive: true));
         final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
-        expect(cmd.snapshotArgError(), isNull);
+        expect(cmd.snapshotArgError(willBuild: false), isNull);
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
         final bare = ParsedArgsReleaseCommand(MockLogger());
         bare.parsedArgs = bare.argParser.parse([]);
-        expect(bare.snapshotArgError(), isNull);
+        expect(bare.snapshotArgError(willBuild: false), isNull);
+      });
+
+      test(
+          'a directory is a FACT: rejected up front with or without '
+          '--build when outside build/', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdir');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final outside = Directory('${root.path}/exported/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', outside.path]);
+        final noBuild = cmd.snapshotArgError(willBuild: false)!;
+        expect(noBuild, contains('names a directory'));
+        expect(noBuild, isNot(contains('not found')));
+        // No build turns a directory outside build/ into a file:
+        // burning the build first proves nothing (round-5 M3).
+        expect(
+          cmd.snapshotArgError(willBuild: true),
+          contains('names a directory'),
+        );
       });
     });
 
@@ -1323,29 +1314,20 @@ void main() {
       });
 
       test(
-          'an existing directory warns as a DIRECTORY, both sides of '
-          'build/ — never as a file that does not exist', () {
+          'an existing directory UNDER build/ warns as a DIRECTORY — '
+          'never as a file that does not exist', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snapwarn5');
         addTearDown(() => root.deleteSync(recursive: true));
-        final outside = Directory('${root.path}/exported/Runner.app')
-          ..createSync(recursive: true);
-        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', outside.path]);
-        final warnOutside =
-            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
-        expect(warnOutside, contains('names a directory'));
-        expect(warnOutside, isNot(contains('does not exist')));
-
         final under = Directory('${root.path}/build/ios/Runner.app')
           ..createSync(recursive: true);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
-        // Under build/ the missing-FILE case defers to the build —
-        // but a DIRECTORY stays a directory through any build, so
-        // silence here would burn the whole build first.
-        expect(
-          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
-          contains('names a directory'),
-        );
+        // (An outside-build/ directory never reaches production
+        // emission — snapshotArgError rejects it up front as a fact.)
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('names a directory'));
+        expect(warn, isNot(contains('does not exist')));
       });
 
       test('the containment test is case-folded (NTFS, default APFS)', () {
@@ -1374,6 +1356,21 @@ void main() {
     });
 
     group('foreignSnapshotAdvisory (pre-build)', () {
+      test('an existing directory suppresses the foreign advisory', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advsupp');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final dir = Directory('${root.path}/build/ios/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', dir.path]);
+        // The bundle-instead-of-binary mistake must never draw a
+        // "foreign bytes" story beside the correct directory warning.
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
       test('no --snapshot: silent', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         cmd.parsedArgs = cmd.argParser.parse([]);
