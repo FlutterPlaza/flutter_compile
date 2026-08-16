@@ -1418,6 +1418,53 @@ void main() {
         });
       });
 
+      group('stampConsumedWarning (stamp vs built bytes)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('agreement (build consumed the stamp) → null', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: 'id-1',
+            ),
+            isNull,
+          );
+        });
+        test('built app embeds nothing → warns about the wrong plist', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: null,
+            ),
+            contains('embeds no FCPBaselineId'),
+          );
+        });
+        test('built app embeds a DIFFERENT id → warns, names both', () {
+          final msg = cmd.stampConsumedWarning(
+            stampedByThisBuild: 'id-1',
+            embeddedInBuiltApp: 'id-2',
+          )!;
+          expect(msg, contains('id-2'));
+          expect(msg, contains('id-1'));
+          expect(msg, contains('releasing under the embedded id'));
+        });
+        test('blank operands read as absent (trim both)', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: '  ',
+              embeddedInBuiltApp: 'x',
+            ),
+            isNull,
+          );
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: '  id-1  ',
+            ),
+            isNull,
+          );
+        });
+      });
+
       group('baselineIdUnderOptOut (which id the opt-out releases under)', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         test('embedded id wins when the bytes carry one', () {

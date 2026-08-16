@@ -246,6 +246,14 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       return null;
     }
+    // A dangling symlink is a FACT like a directory: missingSnapshotCore
+    // already names the exact fix (restore the target), so don't append
+    // the generic typo-hunt + pass-`--build` tail — the build won't
+    // restore a link outside build/ (snapshotPreBuildWarning says so).
+    if (FileSystemEntity.typeSync(raw, followLinks: false) ==
+        FileSystemEntityType.link) {
+      return missingSnapshotCore(raw);
+    }
     if (willBuild) return null;
     return '${missingSnapshotCore(raw)} Check the --snapshot path — '
         'or, if you expected this run to produce the bytes to upload, '
@@ -338,6 +346,33 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     return 'ios/Runner/Info.plist could not be read, or the stamp '
         'could not be written to ios/Runner/';
+  }
+
+  /// Warns when a SUCCESSFUL stamp was not consumed by the build —
+  /// the built app's embedded id (what devices present) differs from
+  /// or is absent versus the id this run stamped. Returns null when
+  /// they agree (the normal case), else the warning. Pure and rowable:
+  /// the stamp-vs-bytes check the flag-vs-bytes guard was missing.
+  /// The caller then prefers the embedded id (the truth on the wire).
+  String? stampConsumedWarning({
+    required String? stampedByThisBuild,
+    required String? embeddedInBuiltApp,
+  }) {
+    final stamped = stampedByThisBuild?.trim();
+    if (stamped == null || stamped.isEmpty) return null;
+    final embedded = embeddedInBuiltApp?.trim();
+    if (embedded == stamped) return null;
+    if (embedded == null || embedded.isEmpty) {
+      return 'The stamp wrote ios/Runner/Info.plist but the built app '
+          'embeds no FCPBaselineId — the build likely packaged a '
+          'different Info.plist (a flavored INFOPLIST_FILE?). Recording '
+          "this run's stamped id would create a release no device ever "
+          'matches; check the Info.plist your iOS target actually uses.';
+    }
+    return 'The built app embeds a different FCPBaselineId ($embedded) '
+        "than this run stamped ($stamped) — releasing under the "
+        'embedded id, which is what devices present. (Your iOS target '
+        'likely uses a plist other than ios/Runner/Info.plist.)';
   }
 
   /// The identity a --allow-missing-baseline run releases under when
@@ -825,6 +860,10 @@ class CodePushReleaseSubCommand extends Command<int> {
     // present-but-unusable plist).
     String? iosStampFailureCause;
     var iosPlistWasMissing = false;
+    // Set when the stamp SUCCEEDED but the built app did not embed it
+    // (a flavored INFOPLIST_FILE) and nothing else supplied an id — a
+    // distinct no-identity cause from a failed/missing stamp.
+    var iosStampNotConsumed = false;
     String? originalAndroidYaml;
     String? builtPlatform;
 
@@ -1039,10 +1078,26 @@ class CodePushReleaseSubCommand extends Command<int> {
             androidStampFailed = true;
           }
           if (originalAndroidYaml == null && !androidStampFailed) {
+            // A dangling symlink reads as absent (existsSync follows
+            // links) but "run fcp codepush init" is the wrong advice —
+            // the target is missing, not the config (the iOS twin got
+            // this split in round 14). Non-destructive either way, so
+            // Low, but the accurate cause saves a hunt.
+            final isDeadLink = FileSystemEntity.typeSync(
+                      kDefaultAndroidCodePushYamlPath,
+                      followLinks: false,
+                    ) ==
+                    FileSystemEntityType.link &&
+                FileSystemEntity.typeSync(kDefaultAndroidCodePushYamlPath) ==
+                    FileSystemEntityType.notFound;
             _logger.warn(
-              'Warning: $kDefaultAndroidCodePushYamlPath not found. '
-              'This build will not embed a release version. '
-              'Run "fcp codepush init" to set up Android.',
+              isDeadLink
+                  ? '$kDefaultAndroidCodePushYamlPath is a symbolic link '
+                      'whose target does not exist — restore the target. '
+                      'This build will not embed a release version.'
+                  : 'Warning: $kDefaultAndroidCodePushYamlPath not found. '
+                      'This build will not embed a release version. '
+                      'Run "fcp codepush init" to set up Android.',
             );
           } else if (originalAndroidYaml != null) {
             _logger.detail(
@@ -1283,6 +1338,31 @@ class CodePushReleaseSubCommand extends Command<int> {
         explicitFlag: argResults?['baseline-id'] as String?,
         fromBuiltApp: idFromBuiltApp,
       );
+      // "Stamp succeeded" only means writeBaselineIdToIosInfoPlist
+      // wrote ios/Runner/Info.plist — NOT that xcodebuild packaged it.
+      // A flavored target (INFOPLIST_FILE → ios/Runner/Info-Prod.plist)
+      // ships a different plist, so the built app's OWN id — what
+      // devices actually present — is authoritative over the stamp.
+      if (shouldBuild &&
+          !snapshotIsForeign &&
+          stampedByThisBuild != null &&
+          appDirForIdentity != null) {
+        final warn = stampConsumedWarning(
+          stampedByThisBuild: stampedByThisBuild,
+          embeddedInBuiltApp: idFromBuiltApp,
+        );
+        if (warn != null) {
+          _logger.warn(warn);
+          // The embedded id is what ships; prefer it over the stamp
+          // (null → the release honestly has no matchable identity).
+          baselineId = idFromBuiltApp?.trim();
+          // Flag the null case so the no-identity exit below tells the
+          // truth: the stamp SUCCEEDED but the build didn't consume it,
+          // which is a different cause than a failed/missing stamp
+          // (and "flutter create ." would be wrong, destructive advice).
+          iosStampNotConsumed = baselineId == null;
+        }
+      }
       final explicitBaselineIdFlag =
           (argResults?['baseline-id'] as String?)?.trim();
       if (shouldBuild &&
@@ -1367,6 +1447,22 @@ class CodePushReleaseSubCommand extends Command<int> {
             'FCPBaselineId. Pass --baseline-id <the id embedded in the '
             "app those bytes come from>, point --snapshot at this "
             "build's own binary, or drop --snapshot.",
+          );
+        } else if (iosStampNotConsumed) {
+          // The stamp SUCCEEDED but the built app didn't embed it (the
+          // M1 warning above said why: a flavored INFOPLIST_FILE). NOT
+          // a stamp failure — "flutter create ." would be wrong and
+          // destructive, and the plist is present. Point at the real
+          // fix: make the target consume ios/Runner/Info.plist, or
+          // stamp the plist the target actually uses.
+          _logger.err(
+            'No baseline identity: this build stamped '
+            'ios/Runner/Info.plist but the shipped app embeds no '
+            'FCPBaselineId, so no device would match a release recorded '
+            'under it. Point your iOS target at ios/Runner/Info.plist '
+            '(or commit an FCPBaselineId into the plist your target '
+            'actually uses), or pass --allow-missing-baseline to accept '
+            'a release matched by fallback rather than by identity.',
           );
         } else if (shouldBuild) {
           // The build ran but could not stamp; the branch above
@@ -1959,14 +2055,26 @@ class CodePushReleaseSubCommand extends Command<int> {
     final result = Process.runSync('cp', ['-R', source, tmpDest.path]);
     if (result.exitCode != 0) {
       final stderr = result.stderr.toString().trim();
+      // A partial copy is the classic ENOSPC/permissions shape, and
+      // the same problem that failed the cp plausibly fails the
+      // delete — so clean up FIRST and report what actually happened,
+      // never claiming a discard that a hundreds-of-MB partial .tmp
+      // is still sitting on disk contradicting (the swap-failure
+      // branch below does the same).
+      var tmpState = 'Any partial copy was discarded';
+      try {
+        if (tmpDest.existsSync()) {
+          tmpDest.deleteSync(recursive: true);
+        }
+      } on FileSystemException {
+        tmpState = 'The partial copy could NOT be discarded and is '
+            'still at ${tmpDest.path}';
+      }
       _logger.warn(
         'Could not copy the built app into $dest'
         '${stderr.isEmpty ? '' : ': $stderr'}. '
-        'Any previously saved bundle was left in place.',
+        '$tmpState. Any previously saved bundle was left in place.',
       );
-      if (tmpDest.existsSync()) {
-        tmpDest.deleteSync(recursive: true);
-      }
       return false;
     }
     try {
