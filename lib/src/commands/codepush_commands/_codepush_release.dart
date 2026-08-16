@@ -259,7 +259,8 @@ class CodePushReleaseSubCommand extends Command<int> {
   String missingSnapshotCore(String path) => Directory(path).existsSync()
       ? '--snapshot names a directory: $path. Pass the binary file '
           'inside it (for an iOS app bundle: '
-          '<bundle>/Frameworks/App.framework/App).'
+          '<bundle>/Frameworks/App.framework/App; for an Android '
+          'build: the libapp.so for your ABI).'
       : 'Snapshot file not found: $path.';
 
   /// Pre-build advisory for a --build run whose --snapshot does not
@@ -795,7 +796,13 @@ class CodePushReleaseSubCommand extends Command<int> {
             // The raw exception stays OUT of the cause: the exit
             // message splices the cause mid-sentence, and the warn
             // right below already prints the full exception once.
-            iosStampFailureCause = 'ios/Runner/Info.plist could not be written '
+            // "read or written": the stamp's READ throws the same
+            // exception type (unreadable plist, EIO, plist-is-a-
+            // directory), and naming only the write would send the
+            // operator fixing the wrong permission through another
+            // full build. The warn below carries the real errno.
+            iosStampFailureCause =
+                'ios/Runner/Info.plist could not be read or written '
                 '(permissions?)';
             _logger.warn(
               'Could not stamp ios/Runner/Info.plist: $e. '

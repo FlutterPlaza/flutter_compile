@@ -29,6 +29,16 @@ import 'dart:io';
 ///    best-effort first (single-writer assumption — two concurrent
 ///    builds in one project are unsupported anyway).
 ///
+/// COST of the temp+rename shape (the trade behind properties 1-3):
+/// replacement needs write+execute on the target's DIRECTORY and
+/// nothing on the file — the inverse of an in-place write. A
+/// writable file inside a read-only directory (e.g. ios/Runner/ at
+/// 0555 with a 0644 Info.plist), which the old writers could stamp,
+/// now throws at temp creation. Deliberate: an EACCES fallback to an
+/// in-place write would reopen property 2's truncate-on-ENOSPC hole.
+/// Callers already treat the throw as "unstamped build", never as a
+/// tool crash.
+///
 /// Temps are dot-prefixed so a leftover never looks like the real
 /// file to anything; for targets under Android assets/ the dot
 /// prefix additionally falls under AAPT's default
@@ -71,9 +81,14 @@ void atomicReplaceFileContents(String path, String content) {
   // No pure-Dart chmod exists; POSIX-only, and Windows ACLs are not
   // mode bits — the rename default is correct there. A missing chmod
   // binary (ProcessException) and a non-zero exit (mode-bit-less
-  // filesystem, SELinux denial) both degrade to the temp's default
-  // mode rather than fail a write that would succeed: the content is
-  // the load-bearing half of the contract.
+  // filesystem, SELinux denial) degrade rather than fail a write that
+  // would succeed: the content is the load-bearing half of the
+  // contract. Degrade landing spots: the named causes are systemic
+  // and fail BOTH calls → temp default mode; the faithful-mode
+  // chmod alone failing (asymmetric transient, e.g. fork EAGAIN)
+  // leaves the file at the already-applied 0600 clamp (owner-only —
+  // tighter than the target was, unreported by design); the clamp
+  // alone failing ends at the faithful mode, correct anyway.
   void chmodTemp(String octal) {
     if (Platform.isWindows) return;
     try {

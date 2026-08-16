@@ -1094,6 +1094,22 @@ void main() {
         ['--build', '--no-extendable-widgets'],
       );
       expect(cmd.buildOnlyFlagsWarning(), isNull);
+      // Grammar pinned (issue #67 L4), same sentence as the patch
+      // twin: singular 'is', plural 'are'.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'b-1'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('is iOS-only; ignoring on apk builds.'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'b-1', '--allow-missing-baseline'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('are iOS-only; ignoring on apk builds.'),
+      );
       cmd.parsedArgs = cmd.argParser.parse([]);
       expect(cmd.buildOnlyFlagsWarning(), isNull);
     });
