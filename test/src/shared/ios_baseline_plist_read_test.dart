@@ -43,6 +43,21 @@ void main() {
     });
   });
 
+  group('writeBaselineIdToIosInfoPlist edge shapes', () {
+    test('a plist with no closing dict returns null, file untouched', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist9');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final plist = File('${root.path}/Info.plist')
+        ..writeAsStringSync('not a plist at all');
+
+      expect(
+        writeBaselineIdToIosInfoPlist('u-1', plistPath: plist.path),
+        isNull,
+      );
+      expect(plist.readAsStringSync(), 'not a plist at all');
+    });
+  });
+
   group('restoreIosInfoPlist', () {
     test('round-trips through a temp file with no leftover', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist');
@@ -161,6 +176,27 @@ void main() {
       expect(plist.statSync().mode & 0xFFF, int.parse('600', radix: 8));
       expect(plist.readAsStringSync(), 'original');
     }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
+
+    test('a DANGLING temp symlink is swept too', () {
+      final root = Directory.systemTemp.createTempSync('fcp_plist10');
+      addTearDown(() => root.deleteSync(recursive: true));
+      final dir = Directory('${root.path}/ios/Runner')
+        ..createSync(recursive: true);
+      final plist = File('${dir.path}/Info.plist')
+        ..writeAsStringSync('stamped');
+      final staleLink = '${dir.path}/.Info.plist.88888.tmp';
+      Link(staleLink).createSync('${root.path}/gone.tmp');
+
+      restoreIosInfoPlist('original', plistPath: plist.path);
+
+      // File.existsSync is blind to a dangling link; the sweep must
+      // not be — the same reasoning as the saved-baseline temp
+      // occupant cleanup.
+      expect(
+        FileSystemEntity.typeSync(staleLink, followLinks: false),
+        FileSystemEntityType.notFound,
+      );
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
 
     test('a stale temp from a killed run is swept by the next write', () {
       final root = Directory.systemTemp.createTempSync('fcp_plist8');

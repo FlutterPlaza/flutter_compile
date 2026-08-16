@@ -226,17 +226,25 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
     if (Directory(raw).existsSync()) {
-      // The bundle-instead-of-binary mistake: "not found" would send
-      // the operator hunting a typo while the directory sits right
-      // there.
-      return '--snapshot names a directory: $raw. Pass the binary '
-          'file inside it (for an iOS app bundle: '
-          '<bundle>/Frameworks/App.framework/App).';
+      return missingSnapshotCore(raw);
     }
-    return 'Snapshot file not found: $raw. Check the --snapshot path — '
+    return '${missingSnapshotCore(raw)} Check the --snapshot path — '
         'or, if you expected this run to produce the bytes to upload, '
         'pass --build.';
   }
+
+  /// The directory-aware core BOTH snapshot emitters share — the
+  /// pre-build gate and the post-build stat — so the two cannot
+  /// drift: the bundle-instead-of-binary mistake must never read as
+  /// "not found" while the directory sits right there. On the
+  /// --build path a bundle built THIS run is only met by the late
+  /// emitter; a pre-existing one is also caught up front by
+  /// [snapshotPreBuildWarning]'s directory branch.
+  String missingSnapshotCore(String path) => Directory(path).existsSync()
+      ? '--snapshot names a directory: $path. Pass the binary file '
+          'inside it (for an iOS app bundle: '
+          '<bundle>/Frameworks/App.framework/App).'
+      : 'Snapshot file not found: $path.';
 
   /// Pre-build advisory for a --build run whose --snapshot does not
   /// exist yet: builds only write under build/, so a missing path
@@ -250,6 +258,14 @@ class CodePushReleaseSubCommand extends Command<int> {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
+    if (Directory(raw).existsSync()) {
+      // A directory is not "a file that does not exist yet", and no
+      // build turns a directory into a file — under build/ or not,
+      // this run is already known to fail at the post-build stat.
+      // Directory-aware text single-sourced with both stat emitters.
+      return '${missingSnapshotCore(raw)} This will fail after the '
+          'build.';
+    }
     if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
       return null;
     }
@@ -292,6 +308,13 @@ class CodePushReleaseSubCommand extends Command<int> {
   String? foreignSnapshotAdvisory({String? projectRootOverride}) {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
+    if (Directory(raw).existsSync()) {
+      // A directory is the bundle-instead-of-binary mistake, not
+      // foreign bytes — the post-build stat owns that message
+      // ([missingSnapshotCore]); a foreign-bytes advisory here would
+      // mislead the operator who meant this build's own output.
+      return null;
+    }
     if (!snapshotIsForeignTo(projectRootOverride: projectRootOverride)) {
       return null;
     }
@@ -674,7 +697,10 @@ class CodePushReleaseSubCommand extends Command<int> {
       // Third and fourth emission points (the iOS-only axis above is
       // the second): a probably-mistyped --snapshot, and the
       // foreign---snapshot record skips — both decided already, both
-      // worth saying before minutes of build.
+      // worth saying before minutes of build. The warning is
+      // deliberately NOT platform-gated (a missing file is a
+      // platform-neutral fact) while the advisory is iOS-only (the
+      // records it names are iOS records).
       final missingSnapshotWarning = snapshotPreBuildWarning();
       if (missingSnapshotWarning != null) {
         _logger.warn(missingSnapshotWarning);
@@ -749,11 +775,27 @@ class CodePushReleaseSubCommand extends Command<int> {
             );
             originalIosInfoPlist = null;
             iosStampFailed = true;
+          } on FormatException catch (e) {
+            // A binary plist or a stray non-UTF-8 byte throws from
+            // the READ — the same "exists but unusable" family.
+            _logger.warn(
+              'Could not read ios/Runner/Info.plist as UTF-8 text '
+              '(a binary plist?): $e. '
+              'This build will not embed a baseline identity.',
+            );
+            originalIosInfoPlist = null;
+            iosStampFailed = true;
           }
           if (originalIosInfoPlist == null && !iosStampFailed) {
+            // Null without a throw has TWO causes; "not found" for a
+            // file the operator can see would send them hunting.
             _logger.warn(
-              'Warning: ios/Runner/Info.plist not found. '
-              'This build will not embed a baseline identity.',
+              File(kDefaultIosInfoPlistPath).existsSync()
+                  ? 'Warning: ios/Runner/Info.plist has no closing '
+                      '</dict> — truncated, or not an XML plist. '
+                      'This build will not embed a baseline identity.'
+                  : 'Warning: ios/Runner/Info.plist not found. '
+                      'This build will not embed a baseline identity.',
             );
           } else if (originalIosInfoPlist != null) {
             baselineId = generatedBaselineId;
@@ -975,7 +1017,7 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     final snapshotFile = File(snapshotPath);
     if (!snapshotFile.existsSync()) {
-      _logger.err('Snapshot file not found: $snapshotPath');
+      _logger.err(missingSnapshotCore(snapshotPath));
       return ExitCode.software.code;
     }
 

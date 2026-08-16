@@ -47,9 +47,15 @@ void atomicReplaceFileContents(String path, String content) {
   final parent = File(target).parent;
   final base = target.split(RegExp(r'[/\\]')).last;
   try {
-    for (final stale in parent.listSync().whereType<File>()) {
-      final name = stale.uri.pathSegments.last;
-      if (name.startsWith('.$base.') && name.endsWith('.tmp')) {
+    for (final stale in parent.listSync(followLinks: false)) {
+      final name = stale.path.split(RegExp(r'[/\\]')).last;
+      if (!(name.startsWith('.$base.') && name.endsWith('.tmp'))) {
+        continue;
+      }
+      // Links swept as links (a dangling temp symlink is invisible
+      // to File.existsSync — the same blindness the saved-baseline
+      // temp cleanup covers); directories are not ours, skipped.
+      if (stale is Link || stale is File) {
         stale.deleteSync();
       }
     }
@@ -60,17 +66,34 @@ void atomicReplaceFileContents(String path, String content) {
   final mode =
       stat.type == FileSystemEntityType.notFound ? null : stat.mode & 0xFFF;
   final tempFile = File('${parent.path}/.$base.$pid.tmp');
+  // No pure-Dart chmod exists; POSIX-only, and Windows ACLs are not
+  // mode bits — the rename default is correct there. A missing chmod
+  // binary (ProcessException) and a non-zero exit (mode-bit-less
+  // filesystem, SELinux denial) both degrade to the temp's default
+  // mode rather than fail a write that would succeed: the content is
+  // the load-bearing half of the contract.
+  void chmodTemp(String octal) {
+    if (Platform.isWindows) return;
+    try {
+      Process.runSync('chmod', [octal, tempFile.path]);
+    } on ProcessException {
+      // Degrade, per above.
+    }
+  }
+
   try {
+    // Create empty and clamp to owner-only BEFORE the content lands:
+    // the temp sits in the target's own directory, and a 0600
+    // target's contents must not be world-readable even for the
+    // duration of the write. The faithful target mode is applied
+    // after the content, so a read-only (0444) target still restores.
+    tempFile.writeAsStringSync('');
+    if (mode != null) {
+      chmodTemp('600');
+    }
     tempFile.writeAsStringSync(content);
-    if (mode != null && !Platform.isWindows) {
-      // No pure-Dart chmod exists; POSIX-only, and Windows ACLs are
-      // not mode bits — the rename default is correct there.
-      try {
-        Process.runSync('chmod', [mode.toRadixString(8), tempFile.path]);
-      } on ProcessException {
-        // No chmod binary at all: degrade to the temp's default
-        // mode rather than failing a write that would succeed.
-      }
+    if (mode != null) {
+      chmodTemp(mode.toRadixString(8));
     }
     tempFile.renameSync(target);
   } on FileSystemException {

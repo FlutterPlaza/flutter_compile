@@ -1246,6 +1246,33 @@ void main() {
         expect(cmd.snapshotArgError(), contains('Snapshot file not found'));
       });
 
+      test('missingSnapshotCore: one text for BOTH emitters', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapcore');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // The post-build stat calls this directly — the --build path
+        // is where the bundle directory actually exists.
+        expect(
+          cmd.missingSnapshotCore(root.path),
+          contains('names a directory'),
+        );
+        expect(
+          cmd.missingSnapshotCore('${root.path}/gone.bin'),
+          contains('not found'),
+        );
+      });
+
+      test('an existing directory suppresses the foreign advisory', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdir2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', root.path]);
+        // A directory is the bundle-instead-of-binary mistake; a
+        // "foreign bytes" advisory for it would mislead the operator
+        // who meant this build's own output.
+        expect(cmd.foreignSnapshotAdvisory(), isNull);
+      });
+
       test('a directory gets its own message, not "not found"', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snapdir');
@@ -1292,6 +1319,32 @@ void main() {
         expect(
           cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
           isNull,
+        );
+      });
+
+      test(
+          'an existing directory warns as a DIRECTORY, both sides of '
+          'build/ — never as a file that does not exist', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final outside = Directory('${root.path}/exported/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', outside.path]);
+        final warnOutside =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warnOutside, contains('names a directory'));
+        expect(warnOutside, isNot(contains('does not exist')));
+
+        final under = Directory('${root.path}/build/ios/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
+        // Under build/ the missing-FILE case defers to the build —
+        // but a DIRECTORY stays a directory through any build, so
+        // silence here would burn the whole build first.
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          contains('names a directory'),
         );
       });
 
