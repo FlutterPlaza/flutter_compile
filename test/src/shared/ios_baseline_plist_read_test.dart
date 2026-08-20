@@ -438,6 +438,73 @@ void main() {
       expect(readBaselineIdFromBuiltAppPlist(appPath: appPath), isNull);
     });
 
+    // The null-cause seam (round-17 Low): one caller escalates a null
+    // to exit 64, so WHICH branch produced it must be reportable —
+    // and a successful read must stay silent.
+    test('onNullCause names the missing-bundle branch', () {
+      final causes = <String>[];
+      expect(
+        readBaselineIdFromBuiltAppPlist(
+          appPath: '${tmp.path}/nope.app',
+          onNullCause: causes.add,
+        ),
+        isNull,
+      );
+      expect(causes, hasLength(1));
+      expect(causes.single, contains('missing from the built bundle'));
+    });
+
+    test('onNullCause names the key-absent branch, exactly once', () {
+      final causes = <String>[];
+      final appPath = writePlist(
+        xmlPlist.replaceAll('FCPBaselineId', 'SomethingElse'),
+      );
+      expect(
+        readBaselineIdFromBuiltAppPlist(
+          appPath: appPath,
+          onNullCause: causes.add,
+        ),
+        isNull,
+      );
+      expect(causes, hasLength(1));
+      expect(causes.single, contains('absent (or blank)'));
+    });
+
+    test(
+        'onNullCause names the unreadable-as-XML branch (the '
+        'motivating binary-plist-without-plutil shape)', () {
+      final causes = <String>[];
+      // Non-UTF-8 garbage: plutil (where present) exits non-zero on
+      // it, and the XML fallback's readAsStringSync throws — the one
+      // branch whose cause previously had no row. Holds on macOS
+      // (plutil fails) and Linux CI (plutil absent) alike.
+      final app = Directory('${tmp.path}/Runner.app')..createSync();
+      File('${app.path}/Info.plist')
+          .writeAsBytesSync([0x62, 0x70, 0x6c, 0x69, 0x73, 0x74, 0xC0]);
+      expect(
+        readBaselineIdFromBuiltAppPlist(
+          appPath: app.path,
+          onNullCause: causes.add,
+        ),
+        isNull,
+      );
+      expect(causes, hasLength(1));
+      expect(causes.single, contains('could not be read as XML'));
+    });
+
+    test('onNullCause is never called on a successful read', () {
+      final causes = <String>[];
+      final appPath = writePlist(xmlPlist);
+      expect(
+        readBaselineIdFromBuiltAppPlist(
+          appPath: appPath,
+          onNullCause: causes.add,
+        ),
+        'd7eebb10-1234-4abc-9def-0123456789ab',
+      );
+      expect(causes, isEmpty);
+    });
+
     test(
       'reads the stamped id from a BINARY plist (the Xcode-built shape)',
       () {

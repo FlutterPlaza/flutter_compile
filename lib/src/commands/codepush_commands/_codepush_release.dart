@@ -246,15 +246,23 @@ class CodePushReleaseSubCommand extends Command<int> {
       }
       return null;
     }
-    // A dangling symlink is a FACT like a directory: missingSnapshotCore
-    // already names the exact fix (restore the target), so don't append
-    // the generic typo-hunt + pass-`--build` tail — the build won't
-    // restore a link outside build/ (snapshotPreBuildWarning says so).
+    // With --build, every missing NON-directory path defers to the
+    // post-build stat — including a dangling symlink. A dead link is
+    // a fact about the LINK, not about the run: the build can create
+    // the link's TARGET (a stable alias into build output resolves
+    // the moment the build writes it), so an up-front rejection here
+    // would fail a run that was about to succeed.
+    // [snapshotPreBuildWarning] carries the dead-link caution.
+    if (willBuild) return null;
+    // A dangling symlink without --build IS actionable up front:
+    // missingSnapshotCore already names the exact fix (restore the
+    // target), so don't append the generic typo-hunt + pass-`--build`
+    // tail — suggesting --build for a link is a guess about its
+    // target this branch can't make.
     if (FileSystemEntity.typeSync(raw, followLinks: false) ==
         FileSystemEntityType.link) {
       return missingSnapshotCore(raw);
     }
-    if (willBuild) return null;
     return '${missingSnapshotCore(raw)} Check the --snapshot path — '
         'or, if you expected this run to produce the bytes to upload, '
         'pass --build.';
@@ -440,9 +448,20 @@ class CodePushReleaseSubCommand extends Command<int> {
       return null;
     }
     // A dead link outside build/ deserves its accurate text up front
-    // too (the other two emitters get it via missingSnapshotCore).
+    // too (the other two emitters get it via missingSnapshotCore) —
+    // and the failure claim must match the link's TARGET: an alias
+    // whose target lies under build/ resolves the moment the build
+    // writes it, so certainty there would be false.
     if (FileSystemEntity.typeSync(raw, followLinks: false) ==
         FileSystemEntityType.link) {
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        return '${missingSnapshotCore(raw)} The link points into '
+            'build/ — if the build does not create its target, this '
+            'release will fail after the build.';
+      }
       return '${missingSnapshotCore(raw)} The build only writes under '
           'build/, so it will not restore this link — this release '
           'will fail after the build.';
@@ -473,6 +492,34 @@ class CodePushReleaseSubCommand extends Command<int> {
       return abs.toLowerCase().startsWith(buildDir.toLowerCase());
     } catch (_) {
       return true;
+    }
+  }
+
+  /// Whether a dangling --snapshot symlink's TARGET lies under this
+  /// project's build/ — i.e. whether the build may create it. Reads
+  /// the stored target (targetSync works on a dead link) and resolves
+  /// a relative one against the link's own directory, then reuses
+  /// [lexicallyUnderBuildDir]'s heuristic. Picks between two WARNING
+  /// texts only, so a wrong answer costs precision, never a run;
+  /// unreadable resolves to false — the certain-failure text — since
+  /// a link whose target can't even be read is not the build-output
+  /// alias case. Public for tests.
+  bool danglingLinkTargetsBuildDir(
+    String raw, {
+    String? projectRootOverride,
+  }) {
+    try {
+      final target = Link(raw).targetSync();
+      if (target.trim().isEmpty) return false;
+      final absoluteTarget = File(target).isAbsolute
+          ? target
+          : '${File(raw).absolute.parent.path}/$target';
+      return lexicallyUnderBuildDir(
+        absoluteTarget,
+        projectRootOverride: projectRootOverride,
+      );
+    } catch (_) {
+      return false;
     }
   }
 
@@ -515,6 +562,22 @@ class CodePushReleaseSubCommand extends Command<int> {
       // already named the will-fail risk for this exact path — one
       // mistake must not draw two warnings. Missing under build/
       // draws no pre-build warning, so the fail risk is named here.
+      // Carve-out within the carve-out: a dead link ALIASING build
+      // output gets only the conditional dead-link text from the
+      // warning (the build may well create its target), so the
+      // IDENTITY risk — which bites even when the target IS created,
+      // because the identity read is a literal-path read that does
+      // not resolve the alias — must be named here, pre-build.
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        return '$base The baseline-identity read uses the --snapshot '
+            'path as given and will not resolve this link, so this '
+            'release will fail after the build without an identity — '
+            "pass --baseline-id, or point --snapshot at this build's "
+            'own binary path directly.';
+      }
       return lexicallyUnderBuildDir(
         raw,
         projectRootOverride: projectRootOverride,
@@ -1330,8 +1393,17 @@ class CodePushReleaseSubCommand extends Command<int> {
       // explicit flag) is the identity of what actually serves.
       // Fourth record on the usedExplicitSnapshot rule, beside the
       // attestation, the saved app, and the archive.
+      // The null-cause detail matters HERE and nowhere else: this is
+      // the read the stamp-consumed check escalates to exit 64, so a
+      // false null (plutil failure, unreadable plist) must be
+      // diagnosable from --verbose instead of reading as a tool bug.
       final idFromBuiltApp = appDirForIdentity != null
-          ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
+          ? readBaselineIdFromBuiltAppPlist(
+              appPath: appDirForIdentity,
+              onNullCause: (cause) => _logger.detail(
+                'No FCPBaselineId read from the built app: $cause',
+              ),
+            )
           : null;
       baselineId = resolveIosBaselineId(
         stampedByBuild: snapshotIsForeign ? null : baselineId,
@@ -1343,6 +1415,8 @@ class CodePushReleaseSubCommand extends Command<int> {
       // A flavored target (INFOPLIST_FILE → ios/Runner/Info-Prod.plist)
       // ships a different plist, so the built app's OWN id — what
       // devices actually present — is authoritative over the stamp.
+      final explicitBaselineIdFlag =
+          (argResults?['baseline-id'] as String?)?.trim();
       if (shouldBuild &&
           !snapshotIsForeign &&
           stampedByThisBuild != null &&
@@ -1361,17 +1435,33 @@ class CodePushReleaseSubCommand extends Command<int> {
           // which is a different cause than a failed/missing stamp
           // (and "flutter create ." would be wrong, destructive advice).
           iosStampNotConsumed = baselineId == null;
+          // A passed flag must be accounted for on THIS row too: the
+          // embedded id supersedes it just as it superseded the stamp,
+          // and stampConsumedWarning's text names neither the flag nor
+          // its fate.
+          if (baselineId != null &&
+              explicitBaselineIdFlag != null &&
+              explicitBaselineIdFlag.isNotEmpty) {
+            _logger.detail(
+              '--baseline-id is superseded by the id the built app '
+              'embeds; ignoring the flag.',
+            );
+          }
         }
       }
-      final explicitBaselineIdFlag =
-          (argResults?['baseline-id'] as String?)?.trim();
       if (shouldBuild &&
           !snapshotIsForeign &&
           stampedByThisBuild != null &&
+          !iosStampNotConsumed &&
+          baselineId == stampedByThisBuild &&
           explicitBaselineIdFlag != null &&
           explicitBaselineIdFlag.isNotEmpty) {
         // The last flag read by nothing: correct (the built bytes
-        // carry the stamp) but no longer silent.
+        // carry the stamp) but no longer silent. Suppressed when the
+        // stamp was NOT what shipped — the embedded-id-differs row
+        // emits its own superseded-by-the-bytes detail above, and the
+        // nothing-embedded row is headed for the no-identity exit,
+        // where the flag gets its own clause.
         _logger.detail(
           '--baseline-id is superseded by the id this build stamped; '
           'ignoring the flag.',
@@ -1459,7 +1549,11 @@ class CodePushReleaseSubCommand extends Command<int> {
             'No baseline identity: this build stamped '
             'ios/Runner/Info.plist but the shipped app embeds no '
             'FCPBaselineId, so no device would match a release recorded '
-            'under it. Point your iOS target at ios/Runner/Info.plist '
+            'under it. '
+            // The flag the operator DID pass must not look silently
+            // ignored: it fails for the same reason the stamp does.
+            '${explicitBaselineIdFlag != null && explicitBaselineIdFlag.isNotEmpty ? '--baseline-id cannot substitute: the shipped bytes embed no id, so no device would send it. ' : ''}'
+            'Point your iOS target at ios/Runner/Info.plist '
             '(or commit an FCPBaselineId into the plist your target '
             'actually uses), or pass --allow-missing-baseline to accept '
             'a release matched by fallback rather than by identity.',
@@ -1632,10 +1726,14 @@ class CodePushReleaseSubCommand extends Command<int> {
         // Mirror corner (--allow-missing-baseline with a failed
         // stamp): the records are skipped for a different cause, and
         // that skip must be as visible as the foreign-snapshot one.
+        // "applies to the shipped bytes", not "was stamped": the
+        // not-consumed path DID stamp — the build just didn't ship it
+        // — and this message must not contradict that warning.
         _logger.info(
           'Skipping the saved baseline app and per-release archive: no '
-          'baseline identity was stamped (see the warning above), so a '
-          'saved bundle could not be replayed against this release.',
+          'baseline identity applies to the shipped bytes (see the '
+          'warning above), so a saved bundle could not be replayed '
+          'against this release.',
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {

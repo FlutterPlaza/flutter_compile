@@ -94,11 +94,24 @@ String? resolveIosBaselineId({
 /// The built plist is usually binary (Xcode converts it), so `plutil`
 /// is tried first; XML plists are parsed directly as a fallback so the
 /// helper also works where `plutil` doesn't exist.
+///
+/// A null return has several distinct causes (bundle plist missing,
+/// key absent/blank, binary plist with no working `plutil`), and one
+/// caller escalates null to an exit — [onNullCause] receives which
+/// branch produced the null so a false positive there is diagnosable
+/// instead of reading as a tool bug. Best-effort telemetry only:
+/// never called on a non-null return, at most once per call.
 String? readBaselineIdFromBuiltAppPlist({
   String appPath = kDefaultBuiltIosAppPath,
+  void Function(String cause)? onNullCause,
 }) {
   final plist = File('$appPath/Info.plist');
-  if (!plist.existsSync()) return null;
+  if (!plist.existsSync()) {
+    onNullCause?.call('Info.plist is missing from the built bundle '
+        '($appPath).');
+    return null;
+  }
+  String? plutilNote;
   try {
     final result = Process.runSync(
       'plutil',
@@ -107,9 +120,15 @@ String? readBaselineIdFromBuiltAppPlist({
     if (result.exitCode == 0) {
       final value = (result.stdout as String).trim();
       if (value.isNotEmpty) return value;
+      plutilNote = 'plutil extracted a blank FCPBaselineId';
+    } else {
+      // The usual "key absent" shape on macOS; the XML fallback
+      // below settles which.
+      plutilNote = 'plutil could not extract FCPBaselineId '
+          '(exit ${result.exitCode})';
     }
   } catch (_) {
-    // plutil unavailable — fall through to XML parsing.
+    plutilNote = 'plutil was unavailable';
   }
   try {
     final content = plist.readAsStringSync();
@@ -117,8 +136,15 @@ String? readBaselineIdFromBuiltAppPlist({
       r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
     ).firstMatch(content);
     final value = match?.group(1)?.trim();
-    return (value == null || value.isEmpty) ? null : value;
+    if (value == null || value.isEmpty) {
+      onNullCause?.call('FCPBaselineId is absent (or blank) in the '
+          'built Info.plist ($plutilNote).');
+      return null;
+    }
+    return value;
   } catch (_) {
+    onNullCause?.call('the built Info.plist could not be read as XML '
+        '(a binary plist?) and $plutilNote.');
     return null;
   }
 }

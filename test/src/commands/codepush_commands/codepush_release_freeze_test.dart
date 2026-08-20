@@ -1486,6 +1486,13 @@ void main() {
         final msg = cmd.snapshotArgError(willBuild: false)!;
         expect(msg, contains('symbolic link'));
         expect(msg, isNot(contains('not found:')));
+        // With --build the dead link defers to the post-build stat
+        // like any missing non-directory path: the build can create
+        // the link's TARGET (a stable alias into build output), so an
+        // up-front rejection would fail a run about to succeed
+        // (round-17 M1). The dead-link caution moves to
+        // snapshotPreBuildWarning.
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
       }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
 
       test(
@@ -1588,6 +1595,74 @@ void main() {
           isNull,
         );
       });
+
+      test(
+          'a dead link ALIASING build output warns conditionally — '
+          'the build may create its target, so certainty would be '
+          'false', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn6');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // The round-17 M1 CI shape: a stable alias outside build/
+        // pointing at a build output the build is about to create.
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('symbolic link'));
+        expect(warn, contains('if the build does not create its target'));
+        expect(warn, isNot(contains('will not restore this link')));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a dead link whose target is OUTSIDE build/ keeps the '
+          'certain-failure text', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn7');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/app.bin')
+          ..createSync('${root.path}/exported/never-built.bin');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('will not restore this link'));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+    });
+
+    group('danglingLinkTargetsBuildDir (dead-link warning split)', () {
+      test('a RELATIVE target resolves against the link\'s own dir', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_linktgt');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final intoBuild = Link('${root.path}/alias-in')
+          ..createSync('build/ios/App');
+        final outOfBuild = Link('${root.path}/alias-out')
+          ..createSync('exported/App');
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            intoBuild.path,
+            projectRootOverride: root.path,
+          ),
+          isTrue,
+        );
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            outOfBuild.path,
+            projectRootOverride: root.path,
+          ),
+          isFalse,
+        );
+        // Not a link at all → false (the certain text), never a throw.
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            '${root.path}/no-such-entry',
+            projectRootOverride: root.path,
+          ),
+          isFalse,
+        );
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
     });
 
     group('foreignSnapshotAdvisory (pre-build)', () {
@@ -1636,6 +1711,31 @@ void main() {
         expect(advisory, contains('If those bytes carry no readable'));
         expect(advisory, isNot(contains('FAIL after the build')));
       });
+
+      test(
+          'a dead link ALIASING build output names the identity risk '
+          'here — the dead-link warning is conditional for it, and '
+          'the identity read will not resolve the alias', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory6');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
+        expect(advisory, contains('will not resolve this link'));
+        expect(advisory, contains('--baseline-id'));
+        // With the flag passed the identity is settled and the
+        // standard flag clause wins, as for any foreign snapshot.
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', link.path, '--baseline-id', 'abc']);
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          contains('comes from --baseline-id'),
+        );
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
 
       test(
           "with an override, this build's own output under that root "
