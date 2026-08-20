@@ -65,8 +65,14 @@ void restoreAndroidYaml(
 /// Gradle packages wholesale — the helper's dot-prefixed temps fall
 /// under AAPT's default ignoreAssetsPattern, so a leftover (kill
 /// between write and rename) can never ship in the APK. The
-/// helper's symlink resolution also means a checkout that symlinks
-/// codepush.yaml to shared config keeps its wiring through the
-/// stamp/restore cycle, matching the iOS Info.plist writer.
+/// dot-prefix is what shields EVERY shape that lands the temp
+/// inside assets/ — the plain file, and a symlink whose target is
+/// itself under assets/ (a flavor-variant sibling). A symlink into
+/// shared config OUTSIDE assets/ lands the temp beside the resolved
+/// target instead — outside the packaged tree entirely, safer
+/// still. The resolution also means a
+/// checkout that symlinks codepush.yaml to shared config keeps its
+/// wiring through the stamp/restore cycle, matching the iOS
+/// Info.plist writer.
 void _atomicWrite(String path, String content) =>
     atomicReplaceFileContents(path, content);

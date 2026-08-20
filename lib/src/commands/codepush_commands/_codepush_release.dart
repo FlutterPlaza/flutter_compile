@@ -291,12 +291,18 @@ class CodePushReleaseSubCommand extends Command<int> {
         // the platform is resolved: an aliased path never yields a
         // baseline identity (the identity read does not resolve
         // links), so --build alone ends at a second exit 64 there.
+        // Both remedies must include --build: this emitter only fires
+        // WITHOUT it, so the link's target — and any direct path into
+        // build/ — does not exist yet, and "point at the binary" alone
+        // would just land at the not-found exit again.
         return '${missingSnapshotCore(raw)} The link points into '
-            'build/ — if you expected this run to produce those '
-            'bytes, pass --build so the build can create the target '
-            '(an iOS release will also need --baseline-id: the '
-            'identity read uses the --snapshot path as given and '
-            'does not resolve links).';
+            'build/ — the simplest fix is --build with --snapshot '
+            'pointing at the binary path under build/ directly (no '
+            'alias). Keeping the alias works too: pass --build so the '
+            'build can create the target, and for an iOS release add '
+            '--baseline-id or --allow-missing-baseline (the identity '
+            'read uses the --snapshot path as given and does not '
+            'resolve links).';
       }
       return missingSnapshotCore(raw);
     }
@@ -445,8 +451,9 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (Directory(path).existsSync()) {
       return '--snapshot names a directory: $path. Pass the binary file '
           'inside it (for an iOS app bundle: '
-          '<bundle>/Frameworks/App.framework/App; for an Android '
-          'build: the libapp.so for your ABI).';
+          '<bundle>/Frameworks/App.framework/App; for a macOS app '
+          'bundle: <bundle>/Contents/Frameworks/App.framework/App; '
+          'for an Android build: the libapp.so for your ABI).';
     }
     // existsSync follows links, so a dangling symlink reads as
     // absent while `ls` shows the entry sitting right there — name
@@ -609,6 +616,35 @@ class CodePushReleaseSubCommand extends Command<int> {
     } catch (_) {
       return false;
     }
+  }
+
+  /// What (if anything) the stamp-consumed block owes about an
+  /// explicitly passed --baseline-id, pure and rowable — the caller
+  /// emits the returned text as a warning. Null when the flag is
+  /// absent/blank, when it AGREES with the id the release is being
+  /// recorded under (the recorded id IS the flag's value — nothing
+  /// was ignored, and stampConsumedWarning already reported releasing
+  /// under the embedded id), or when the no-opt-out exit will name
+  /// the flag itself.
+  String? baselineIdFlagNotice({
+    required String? recordedId,
+    required String? explicitFlag,
+    required bool allowMissingBaseline,
+  }) {
+    final flag = explicitFlag?.trim();
+    if (flag == null || flag.isEmpty) return null;
+    if (recordedId != null) {
+      return recordedId == flag
+          ? null
+          : '--baseline-id is superseded by the id the built app '
+              'embeds; ignoring the flag.';
+    }
+    return allowMissingBaseline
+        ? '--baseline-id cannot substitute for the missing embedded '
+            'id and is ignored: devices send only an embedded id, and '
+            'per --allow-missing-baseline this release proceeds '
+            'without an identity.'
+        : null;
   }
 
   /// Recovery guidance for a failed post-build stamp restore. The
@@ -1572,30 +1608,22 @@ class CodePushReleaseSubCommand extends Command<int> {
           // which is a different cause than a failed/missing stamp
           // (and "flutter create ." would be wrong, destructive advice).
           iosStampNotConsumed = baselineId == null;
-          // A passed flag must be accounted for on THIS row too — at
-          // default verbosity (round-19 Low): the release is about to
-          // be recorded under an id the operator did not pass, and
-          // nothing else on this path names the flag.
-          if (baselineId != null &&
-              explicitBaselineIdFlag != null &&
-              explicitBaselineIdFlag.isNotEmpty) {
-            _logger.warn(
-              '--baseline-id is superseded by the id the built app '
-              'embeds; ignoring the flag.',
-            );
-          } else if (explicitBaselineIdFlag != null &&
-              explicitBaselineIdFlag.isNotEmpty &&
-              (argResults?['allow-missing-baseline'] as bool? ?? false)) {
-            // The nothing-embedded OPT-OUT path proceeds identity-less
-            // with no other emitter naming the flag (the non-opt-out
-            // twin exits with its own --baseline-id clause) — the last
-            // silent-flag case (round-21 Low).
-            _logger.warn(
-              '--baseline-id cannot substitute for the missing '
-              'embedded id and is ignored: devices send only an '
-              'embedded id, and per --allow-missing-baseline this '
-              'release proceeds without an identity.',
-            );
+          // A passed flag must be accounted for on THIS row — at
+          // default verbosity (round-19 Low) — but only when its fate
+          // needs explaining: an AGREEING flag (the round-23 M1 case,
+          // the flow the CHANGELOG itself prescribes for flavored
+          // targets) is not superseded — the release is recorded
+          // under the flag's own value — and reporting it as ignored
+          // sends the operator hunting a disagreement that does not
+          // exist. Pure and rowed in baselineIdFlagNotice.
+          final flagNotice = baselineIdFlagNotice(
+            recordedId: baselineId,
+            explicitFlag: explicitBaselineIdFlag,
+            allowMissingBaseline:
+                argResults?['allow-missing-baseline'] as bool? ?? false,
+          );
+          if (flagNotice != null) {
+            _logger.warn(flagNotice);
           }
         }
       }

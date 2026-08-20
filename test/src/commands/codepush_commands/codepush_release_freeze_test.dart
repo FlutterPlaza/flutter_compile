@@ -1465,6 +1465,78 @@ void main() {
         });
       });
 
+      group('baselineIdFlagNotice (what the stamp-consumed block owes '
+          'about a passed --baseline-id)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('an AGREEING flag is silent — the recorded id IS the '
+            'flag\'s value (round-23 M1)', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: 'Y',
+              allowMissingBaseline: false,
+            ),
+            isNull,
+          );
+          // Padded flag still agrees after the trim.
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: '  Y  ',
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+        });
+        test('a DIFFERING flag is reported as superseded', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: 'X',
+              allowMissingBaseline: false,
+            ),
+            contains('superseded by the id the built app embeds'),
+          );
+        });
+        test('nothing embedded + opt-out: the flag\'s fate is named; '
+            'without the opt-out the exit owns it (silent here)', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: 'X',
+              allowMissingBaseline: true,
+            ),
+            contains('cannot substitute'),
+          );
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: 'X',
+              allowMissingBaseline: false,
+            ),
+            isNull,
+          );
+        });
+        test('absent or blank flag: silent everywhere', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: null,
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: '   ',
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+        });
+      });
+
       group('baselineIdUnderOptOut (which id the opt-out releases under)', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         test('embedded id wins when the bytes carry one', () {
