@@ -223,7 +223,9 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// reject a run that would have succeeded — but an existing
   /// DIRECTORY is a fact, and outside build/ no build replaces one
   /// with a file, so that one case rejects even with --build
-  /// (under build/ it defers to the post-build stat).
+  /// (under build/ it defers to the post-build stat — EXCEPT an .app
+  /// bundle directory, which no build replaces with a file and which
+  /// therefore rejects up front on either side of build/).
   String? snapshotArgError({
     required bool willBuild,
     String? projectRootOverride,
@@ -236,8 +238,27 @@ class CodePushReleaseSubCommand extends Command<int> {
       // build/ no build ever replaces one with a file, so spending
       // the build first proves nothing. Under build/ a stale
       // directory CAN be cleaned and rebuilt as a file, so that one
-      // case stays with the pre-build warning + post-build stat.
+      // case stays with the pre-build warning + post-build stat —
+      // EXCEPT an app BUNDLE directory (.app): the build recreates a
+      // bundle as a DIRECTORY, never replaces it with a file, so the
+      // failure is certain either side of build/ and deferring only
+      // burns the build (round-19 Low).
+      // Lexically normalize before the suffix test so 'Runner.app/.'
+      // and 'Runner.app/./' still read as the bundle they name
+      // ('Runner.app/..' correctly stays non-bundle — it names the
+      // parent). Same idiom as [lexicallyUnderBuildDir].
+      String bundleProbe;
+      try {
+        bundleProbe = File(raw).absolute.uri.normalizePath().toFilePath();
+      } catch (_) {
+        bundleProbe = raw;
+      }
+      final bundleShaped = bundleProbe
+          .toLowerCase()
+          .replaceAll(RegExp(r'[/\\]+$'), '')
+          .endsWith('.app');
       if (!willBuild ||
+          bundleShaped ||
           !lexicallyUnderBuildDir(
             raw,
             projectRootOverride: projectRootOverride,
@@ -256,11 +277,20 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (willBuild) return null;
     // A dangling symlink without --build IS actionable up front:
     // missingSnapshotCore already names the exact fix (restore the
-    // target), so don't append the generic typo-hunt + pass-`--build`
-    // tail — suggesting --build for a link is a guess about its
-    // target this branch can't make.
+    // target). The --build hint is not a guess here — the link's
+    // target is readable (danglingLinkTargetsBuildDir), so say it
+    // exactly when a build would in fact create the target, and
+    // omit it when it wouldn't (round-19 Low).
     if (FileSystemEntity.typeSync(raw, followLinks: false) ==
         FileSystemEntityType.link) {
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        return '${missingSnapshotCore(raw)} The link points into '
+            'build/ — if you expected this run to produce those '
+            'bytes, pass --build so the build can create the target.';
+      }
       return missingSnapshotCore(raw);
     }
     return '${missingSnapshotCore(raw)} Check the --snapshot path — '
@@ -400,8 +430,10 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// drift: the bundle-instead-of-binary mistake must never read as
   /// "not found" while the directory sits right there. On the
   /// --build path a bundle built THIS run is only met by the late
-  /// emitter; a pre-existing one is also caught up front by
-  /// [snapshotPreBuildWarning]'s directory branch.
+  /// emitter; a pre-existing .app bundle is an up-front exit in
+  /// [snapshotArgError] (even under build/ — no build replaces a
+  /// bundle directory with a file), and only a non-bundle directory
+  /// under build/ still reaches [snapshotPreBuildWarning].
   String missingSnapshotCore(String path) {
     if (Directory(path).existsSync()) {
       return '--snapshot names a directory: $path. Pass the binary file '
@@ -434,15 +466,14 @@ class CodePushReleaseSubCommand extends Command<int> {
     if (raw == null || raw.trim().isEmpty) return null;
     if (File(raw).existsSync()) return null;
     if (Directory(raw).existsSync()) {
-      // Only the under-build/ directory reaches here (outside build/
-      // is an up-front rejection in [snapshotArgError] — a directory
-      // is a fact, not a guess): the build MAY clean and rebuild the
-      // path as a file, so this stays a warning.
+      // Only a NON-bundle directory under build/ reaches here
+      // (outside build/, and any .app bundle directory, are up-front
+      // rejections in [snapshotArgError] — a directory is a fact,
+      // not a guess): the build MAY clean and rebuild the path as a
+      // file, so this stays a warning.
       return '${missingSnapshotCore(raw)} If the build does not '
           'replace it with a file, this release will fail after the '
-          'build — and no Flutter build target replaces an app '
-          'BUNDLE directory with a file, so for a Runner.app path '
-          'the failure is certain.';
+          'build.';
     }
     if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
       return null;
@@ -523,6 +554,72 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Whether any component of [spelled] BELOW the project root is a
+  /// symbolic link — the file itself, or a parent directory (a shared
+  /// `assets/` dir is the common monorepo shape). Components at or
+  /// above the root are out of scope: they resolve identically for
+  /// the atomic writer and for `git checkout`, so they cannot make
+  /// the recovery guidance wrong (and macOS's `/tmp` link would
+  /// otherwise false-positive every temp-dir path). [stopAtDir]
+  /// defaults to the current directory; public for tests.
+  bool stampPathResolvesThroughLink(String spelled, {String? stopAtDir}) {
+    // Directory URIs carry a trailing separator, so this anchors a
+    // proper prefix walk (same idiom as [lexicallyUnderBuildDir]).
+    final anchor = Directory(stopAtDir ?? Directory.current.path)
+        .absolute
+        .uri
+        .normalizePath()
+        .toFilePath();
+    var p = File(spelled).absolute.uri.normalizePath().toFilePath();
+    while (p.toLowerCase().startsWith(anchor.toLowerCase())) {
+      if (FileSystemEntity.typeSync(p, followLinks: false) ==
+          FileSystemEntityType.link) {
+        return true;
+      }
+      final parent = File(p).parent.path;
+      if (parent == p) break;
+      p = parent;
+    }
+    return false;
+  }
+
+  /// Recovery guidance for a failed post-build stamp restore. The
+  /// atomic writer resolves the WHOLE path through symlinks and
+  /// renames at the PHYSICAL target, so when [spelled] resolves
+  /// through a link — the file itself, or a linked parent directory —
+  /// the stamped bytes live in the resolved file: `git checkout` of
+  /// the spelled path cannot reliably clean it (a tracked leaf link
+  /// restores only the link entry; a tracked parent link matches no
+  /// index entry at this pathspec), so the guidance must name the
+  /// physical file, or the operator is told the problem is fixed
+  /// while sibling projects keep reading the stamp. Filesystem-read
+  /// text selection; public for tests.
+  String restoreFailureGuidance({
+    required String spelled,
+    required String stampedValueDescription,
+    String? projectRootOverride,
+  }) {
+    if (stampPathResolvesThroughLink(
+      spelled,
+      stopAtDir: projectRootOverride,
+    )) {
+      String target;
+      try {
+        target = File(spelled).resolveSymbolicLinksSync();
+      } on FileSystemException {
+        target = "the link's target";
+      }
+      return '$spelled resolves through a symbolic link and the stamp '
+          'was written through it: $stampedValueDescription is in '
+          "$target, not at the spelled path's own entry. Clean THAT "
+          'file — `git checkout -- $spelled` cannot reliably restore '
+          'it, and sibling projects reading the shared file see the '
+          'stamp until it is cleaned.';
+    }
+    return 'The file still contains $stampedValueDescription — '
+        'restore it manually (e.g. git checkout -- $spelled).';
+  }
+
   /// Pre-build advisory for --build with a foreign --snapshot: the
   /// records on the [usedExplicitSnapshot] rule (identity stamp
   /// withheld, attestation, saved app, archive) are already decided
@@ -538,10 +635,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     final raw = argResults?['snapshot'] as String?;
     if (raw == null || raw.trim().isEmpty) return null;
     if (Directory(raw).existsSync()) {
-      // A directory is the bundle-instead-of-binary mistake, not
-      // foreign bytes — the post-build stat owns that message
-      // ([missingSnapshotCore]); a foreign-bytes advisory here would
-      // mislead the operator who meant this build's own output.
+      // An existing directory is the wrong-path-shape mistake, not
+      // foreign bytes: an .app bundle is an up-front exit in
+      // [snapshotArgError], an outside-build/ directory likewise, and
+      // a non-bundle directory under build/ gets the directory
+      // warning + post-build stat ([missingSnapshotCore]) — a
+      // foreign-bytes advisory beside any of those would mislead the
+      // operator who meant this build's own output.
       return null;
     }
     if (!snapshotIsForeignTo(projectRootOverride: projectRootOverride)) {
@@ -1229,9 +1329,8 @@ class CodePushReleaseSubCommand extends Command<int> {
             // and leave the stamped plist in the tree with no guidance.
             _logger.err(
               'Failed to restore ios/Runner/Info.plist after the '
-              'build: $e\nThe file still contains the stamped '
-              'FCPBaselineId — restore it manually (e.g. git checkout '
-              '-- ios/Runner/Info.plist).',
+              'build: $e\n'
+              '${restoreFailureGuidance(spelled: kDefaultIosInfoPlistPath, stampedValueDescription: 'the stamped FCPBaselineId')}',
             );
           }
         }
@@ -1244,9 +1343,8 @@ class CodePushReleaseSubCommand extends Command<int> {
             // tell the user the repo is dirty and how to fix it.
             _logger.err(
               'Failed to restore $kDefaultAndroidCodePushYamlPath after the '
-              'build: $e\nThe file still contains the stamped release '
-              'version — restore it manually (e.g. git checkout -- '
-              '$kDefaultAndroidCodePushYamlPath).',
+              'build: $e\n'
+              '${restoreFailureGuidance(spelled: kDefaultAndroidCodePushYamlPath, stampedValueDescription: 'the stamped release version')}',
             );
           }
         }
@@ -1429,20 +1527,26 @@ class CodePushReleaseSubCommand extends Command<int> {
           _logger.warn(warn);
           // The embedded id is what ships; prefer it over the stamp
           // (null → the release honestly has no matchable identity).
-          baselineId = idFromBuiltApp?.trim();
+          // Blank normalizes to absent, matching stampConsumedWarning's
+          // own blank-trim row — '' must never become a recorded
+          // baseline_id nor slip past the no-identity gate below.
+          final embeddedTrimmed = idFromBuiltApp?.trim();
+          baselineId = (embeddedTrimmed == null || embeddedTrimmed.isEmpty)
+              ? null
+              : embeddedTrimmed;
           // Flag the null case so the no-identity exit below tells the
           // truth: the stamp SUCCEEDED but the build didn't consume it,
           // which is a different cause than a failed/missing stamp
           // (and "flutter create ." would be wrong, destructive advice).
           iosStampNotConsumed = baselineId == null;
-          // A passed flag must be accounted for on THIS row too: the
-          // embedded id supersedes it just as it superseded the stamp,
-          // and stampConsumedWarning's text names neither the flag nor
-          // its fate.
+          // A passed flag must be accounted for on THIS row too — at
+          // default verbosity (round-19 Low): the release is about to
+          // be recorded under an id the operator did not pass, and
+          // nothing else on this path names the flag.
           if (baselineId != null &&
               explicitBaselineIdFlag != null &&
               explicitBaselineIdFlag.isNotEmpty) {
-            _logger.detail(
+            _logger.warn(
               '--baseline-id is superseded by the id the built app '
               'embeds; ignoring the flag.',
             );
@@ -1459,9 +1563,9 @@ class CodePushReleaseSubCommand extends Command<int> {
         // The last flag read by nothing: correct (the built bytes
         // carry the stamp) but no longer silent. Suppressed when the
         // stamp was NOT what shipped — the embedded-id-differs row
-        // emits its own superseded-by-the-bytes detail above, and the
-        // nothing-embedded row is headed for the no-identity exit,
-        // where the flag gets its own clause.
+        // emits its own superseded-by-the-bytes WARNING above, and
+        // the nothing-embedded row is headed for the no-identity
+        // exit, where the flag gets its own clause.
         _logger.detail(
           '--baseline-id is superseded by the id this build stamped; '
           'ignoring the flag.',

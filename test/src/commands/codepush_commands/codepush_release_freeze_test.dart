@@ -1486,6 +1486,9 @@ void main() {
         final msg = cmd.snapshotArgError(willBuild: false)!;
         expect(msg, contains('symbolic link'));
         expect(msg, isNot(contains('not found:')));
+        // Target outside build/: no --build hint — a build would not
+        // create it, so suggesting the flag would be a false lead.
+        expect(msg, isNot(contains('--build')));
         // With --build the dead link defers to the post-build stat
         // like any missing non-directory path: the build can create
         // the link's TARGET (a stable alias into build output), so an
@@ -1496,13 +1499,31 @@ void main() {
       }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
 
       test(
+          'a dead link INTO build/ without --build earns the exact '
+          'hint: a build would create its target (round-19 Low)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaplinkb');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final msg = cmd.snapshotArgError(
+          willBuild: false,
+          projectRootOverride: root.path,
+        )!;
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains('pass --build'));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
           'a stale directory UNDER build/ defers to the post-build '
           'stat when --build will run — and is still rejected '
           'without --build', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snapdirb');
         addTearDown(() => root.deleteSync(recursive: true));
-        final under = Directory('${root.path}/build/stale/Runner.app')
+        final under = Directory('${root.path}/build/stale/outdir')
           ..createSync(recursive: true);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
         // The carve-out: the build MAY clean build/ and rebuild the
@@ -1522,6 +1543,48 @@ void main() {
         expect(
           cmd.snapshotArgError(
             willBuild: false,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+      });
+
+      test(
+          'an .app BUNDLE directory is rejected up front even under '
+          'build/ with --build — no build replaces a bundle directory '
+          'with a file, so deferral would only burn the build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdirapp');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final bundle =
+            Directory('${root.path}/build/ios/iphoneos/Runner.app')
+              ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', bundle.path]);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+        // Trailing separator must not defeat the bundle-shape test.
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${bundle.path}/']);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+        // Nor an unnormalized spelling of the same bundle ('X/.', a
+        // script composing "$BUNDLE/."). 'X/..' names the parent and
+        // correctly stays non-bundle.
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${bundle.path}/.']);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
             projectRootOverride: root.path,
           ),
           contains('names a directory'),
@@ -1561,11 +1624,12 @@ void main() {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snapwarn5');
         addTearDown(() => root.deleteSync(recursive: true));
-        final under = Directory('${root.path}/build/ios/Runner.app')
+        // Non-bundle: an .app directory never reaches production
+        // emission any more (snapshotArgError rejects it up front,
+        // round-19 Low), and neither does an outside-build/ one.
+        final under = Directory('${root.path}/build/ios/outdir')
           ..createSync(recursive: true);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
-        // (An outside-build/ directory never reaches production
-        // emission — snapshotArgError rejects it up front as a fact.)
         final warn =
             cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
         expect(warn, contains('names a directory'));
@@ -1665,16 +1729,106 @@ void main() {
       }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
     });
 
+    group('restoreFailureGuidance (failed post-build stamp restore)', () {
+      test('a regular file keeps the git-checkout guidance', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/Info.plist')..writeAsStringSync('x');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: f.path,
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('git checkout -- ${f.path}'));
+        expect(msg, isNot(contains('symbolic link')));
+      });
+
+      test(
+          'a symlinked config names the PHYSICAL target the stamp is '
+          'in — git checkout of the link cannot clean it (round-19 '
+          'M1)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final shared = File('${root.path}/shared/config.plist')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('x');
+        final link = Link('${root.path}/Info.plist')
+          ..createSync(shared.path);
+        final msg = cmd.restoreFailureGuidance(
+          spelled: link.path,
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        // resolveSymbolicLinksSync returns the physical path (which
+        // may itself resolve /tmp → /private/tmp), so assert on the
+        // stable tail rather than the exact prefix.
+        expect(msg, contains('shared/config.plist'));
+        expect(msg, contains('cannot reliably restore'));
+        expect(msg, isNot(contains('e.g. git checkout')));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a regular file inside a LINKED parent dir is the same '
+          'shape — the writer resolves the whole path, so the '
+          'guidance must too (round-20 pre-push Medium)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid3');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // The monorepo shape: assets/ is a link to a shared dir, the
+        // yaml inside is a regular file.
+        final shared = File('${root.path}/shared-config/codepush.yaml')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('x');
+        Link('${root.path}/assets')
+            .createSync('${root.path}/shared-config');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: '${root.path}/assets/codepush.yaml',
+          stampedValueDescription: 'the stamped release version',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains('shared-config/codepush.yaml'));
+        expect(msg, isNot(contains('e.g. git checkout')));
+        expect(shared.existsSync(), isTrue);
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'links ABOVE the project root are out of scope — they '
+          'resolve identically for the writer and for git', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        // Directory.systemTemp on macOS is /tmp → /private/tmp: with
+        // the anchor at the temp project root, that outer link must
+        // NOT trip the predicate for a plain file.
+        final root = Directory.systemTemp.createTempSync('fcp_restguid4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/Info.plist')..writeAsStringSync('x');
+        expect(
+          cmd.stampPathResolvesThroughLink(
+            f.path,
+            stopAtDir: root.path,
+          ),
+          isFalse,
+        );
+      });
+    });
+
     group('foreignSnapshotAdvisory (pre-build)', () {
       test('an existing directory suppresses the foreign advisory', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_advsupp');
         addTearDown(() => root.deleteSync(recursive: true));
-        final dir = Directory('${root.path}/build/ios/Runner.app')
+        // Non-bundle: an .app directory exits up front in
+        // snapshotArgError and never reaches the advisory in
+        // production (round-19 L4); the shape that still can is a
+        // stale non-bundle dir under build/, and the wrong-path-shape
+        // mistake must never draw a "foreign bytes" story beside the
+        // directory warning.
+        final dir = Directory('${root.path}/build/ios/outdir')
           ..createSync(recursive: true);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', dir.path]);
-        // The bundle-instead-of-binary mistake must never draw a
-        // "foreign bytes" story beside the correct directory warning.
         expect(
           cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
           isNull,
