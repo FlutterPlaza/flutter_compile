@@ -1796,6 +1796,52 @@ void main() {
       }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
 
       test(
+          'an ELOOP path stays total: the loop link IS detected (walk '
+          'sees a link; typeSync maps lstat failures to notFound, it '
+          'never throws) and the unresolvable target degrades to the '
+          'placeholder', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        Link('${root.path}/loop').createSync('${root.path}/loop');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: '${root.path}/loop/Info.plist',
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains("the link's target"));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'the helper is TOTAL under a deleted cwd — the one real '
+          'throw source (Directory.current) — and degrades to the '
+          'softer text instead of throwing out of the finally\'s '
+          'catch handler (round-21 M1)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final keep = Directory.current;
+        final root = Directory.systemTemp.createTempSync('fcp_restguid6');
+        try {
+          final gone = Directory('${root.path}/gone')..createSync();
+          Directory.current = gone;
+          gone.deleteSync();
+          // No stopAtDir → the helper must consult Directory.current,
+          // which now throws (or, on platforms where getcwd still
+          // answers, walks a nonexistent tree) — either way the call
+          // must return the plain-file guidance, never throw.
+          final msg = cmd.restoreFailureGuidance(
+            spelled: 'ios/Runner/Info.plist',
+            stampedValueDescription: 'the stamped FCPBaselineId',
+          );
+          expect(msg, contains('e.g. git checkout'));
+          expect(msg, isNot(contains('symbolic link')));
+        } finally {
+          Directory.current = keep;
+          root.deleteSync(recursive: true);
+        }
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
           'links ABOVE the project root are out of scope — they '
           'resolve identically for the writer and for git', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());

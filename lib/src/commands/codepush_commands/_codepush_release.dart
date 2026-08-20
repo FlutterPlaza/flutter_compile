@@ -287,9 +287,16 @@ class CodePushReleaseSubCommand extends Command<int> {
         raw,
         projectRootOverride: projectRootOverride,
       )) {
+        // The iOS caveat rides along because this emitter runs before
+        // the platform is resolved: an aliased path never yields a
+        // baseline identity (the identity read does not resolve
+        // links), so --build alone ends at a second exit 64 there.
         return '${missingSnapshotCore(raw)} The link points into '
             'build/ — if you expected this run to produce those '
-            'bytes, pass --build so the build can create the target.';
+            'bytes, pass --build so the build can create the target '
+            '(an iOS release will also need --baseline-id: the '
+            'identity read uses the --snapshot path as given and '
+            'does not resolve links).';
       }
       return missingSnapshotCore(raw);
     }
@@ -563,24 +570,45 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// otherwise false-positive every temp-dir path). [stopAtDir]
   /// defaults to the current directory; public for tests.
   bool stampPathResolvesThroughLink(String spelled, {String? stopAtDir}) {
-    // Directory URIs carry a trailing separator, so this anchors a
-    // proper prefix walk (same idiom as [lexicallyUnderBuildDir]).
-    final anchor = Directory(stopAtDir ?? Directory.current.path)
-        .absolute
-        .uri
-        .normalizePath()
-        .toFilePath();
-    var p = File(spelled).absolute.uri.normalizePath().toFilePath();
-    while (p.toLowerCase().startsWith(anchor.toLowerCase())) {
-      if (FileSystemEntity.typeSync(p, followLinks: false) ==
-          FileSystemEntityType.link) {
-        return true;
+    // TOTAL by contract — this runs inside the build finally's catch
+    // handler, where a second throw would REPLACE the in-flight error
+    // with an unhandled exception and lose the guidance (round-17
+    // L2's exact failure). The known throw source is Directory.current
+    // under a deleted cwd (typeSync itself maps EVERY lstat failure —
+    // ELOOP, EACCES, ENAMETOOLONG included — to notFound and never
+    // throws; probed on this SDK). The catch is deliberately broader
+    // than that one source: a miss here costs the guidance itself, so
+    // any error falls back to false — the softer plain-git-checkout
+    // text — matching the sibling helpers' convention.
+    try {
+      // Directory URIs carry a trailing separator, so this anchors a
+      // proper prefix walk (same idiom as [lexicallyUnderBuildDir]).
+      // The case-folded compare here can only WIDEN the walk (check
+      // components above the intended anchor when an exotic stopAtDir
+      // differs from the path only by case on a case-sensitive
+      // filesystem) — in production both strings come from the same
+      // absolute() resolution, so their cases always agree and the
+      // fold is inert; it exists for the NTFS/default-APFS test
+      // inputs, like the sibling's.
+      final anchor = Directory(stopAtDir ?? Directory.current.path)
+          .absolute
+          .uri
+          .normalizePath()
+          .toFilePath();
+      var p = File(spelled).absolute.uri.normalizePath().toFilePath();
+      while (p.toLowerCase().startsWith(anchor.toLowerCase())) {
+        if (FileSystemEntity.typeSync(p, followLinks: false) ==
+            FileSystemEntityType.link) {
+          return true;
+        }
+        final parent = File(p).parent.path;
+        if (parent == p) break;
+        p = parent;
       }
-      final parent = File(p).parent.path;
-      if (parent == p) break;
-      p = parent;
+      return false;
+    } catch (_) {
+      return false;
     }
-    return false;
   }
 
   /// Recovery guidance for a failed post-build stamp restore. The
@@ -593,7 +621,12 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// index entry at this pathspec), so the guidance must name the
   /// physical file, or the operator is told the problem is fixed
   /// while sibling projects keep reading the stamp. Filesystem-read
-  /// text selection; public for tests.
+  /// text selection, TOTAL (never throws, because this runs inside
+  /// the finally's catch handler): the link-walk probe degrades to
+  /// the softer plain-git-checkout text on error, and the target
+  /// resolve degrades to the link text with a placeholder target —
+  /// still naming the actionable fact (a link is in the way).
+  /// Public for tests.
   String restoreFailureGuidance({
     required String spelled,
     required String stampedValueDescription,
@@ -1549,6 +1582,19 @@ class CodePushReleaseSubCommand extends Command<int> {
             _logger.warn(
               '--baseline-id is superseded by the id the built app '
               'embeds; ignoring the flag.',
+            );
+          } else if (explicitBaselineIdFlag != null &&
+              explicitBaselineIdFlag.isNotEmpty &&
+              (argResults?['allow-missing-baseline'] as bool? ?? false)) {
+            // The nothing-embedded OPT-OUT path proceeds identity-less
+            // with no other emitter naming the flag (the non-opt-out
+            // twin exits with its own --baseline-id clause) — the last
+            // silent-flag case (round-21 Low).
+            _logger.warn(
+              '--baseline-id cannot substitute for the missing '
+              'embedded id and is ignored: devices send only an '
+              'embedded id, and per --allow-missing-baseline this '
+              'release proceeds without an identity.',
             );
           }
         }
