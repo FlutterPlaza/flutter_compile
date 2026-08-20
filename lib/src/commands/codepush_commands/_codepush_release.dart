@@ -214,6 +214,573 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
   }
 
+  /// Existence check for an explicit --snapshot. Without --build,
+  /// nothing will create a missing path, so it is an argument
+  /// mistake that must cost an exit 64 here, never a late exit 70
+  /// after resolution work (blankness is [blankArgError]'s). With
+  /// --build, a missing FILE defers to [snapshotPreBuildWarning] —
+  /// a guess about what the build is about to create must never
+  /// reject a run that would have succeeded — but an existing
+  /// DIRECTORY is a fact, and outside build/ no build replaces one
+  /// with a file, so that one case rejects even with --build
+  /// (under build/ it defers to the post-build stat — EXCEPT an .app
+  /// bundle directory, which no build replaces with a file and which
+  /// therefore rejects up front on either side of build/).
+  String? snapshotArgError({
+    required bool willBuild,
+    String? projectRootOverride,
+  }) {
+    final raw = argResults?['snapshot'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    if (File(raw).existsSync()) return null;
+    if (Directory(raw).existsSync()) {
+      // A directory is a FACT, not a lexical guess — and outside
+      // build/ no build ever replaces one with a file, so spending
+      // the build first proves nothing. Under build/ a stale
+      // directory CAN be cleaned and rebuilt as a file, so that one
+      // case stays with the pre-build warning + post-build stat —
+      // EXCEPT an app BUNDLE directory (.app): the build recreates a
+      // bundle as a DIRECTORY, never replaces it with a file, so the
+      // failure is certain either side of build/ and deferring only
+      // burns the build (round-19 Low).
+      // Lexically normalize before the suffix test so 'Runner.app/.'
+      // and 'Runner.app/./' still read as the bundle they name
+      // ('Runner.app/..' correctly stays non-bundle — it names the
+      // parent). Same idiom as [lexicallyUnderBuildDir].
+      String bundleProbe;
+      try {
+        bundleProbe = File(raw).absolute.uri.normalizePath().toFilePath();
+      } catch (_) {
+        bundleProbe = raw;
+      }
+      final bundleShaped = bundleProbe
+          .toLowerCase()
+          .replaceAll(RegExp(r'[/\\]+$'), '')
+          .endsWith('.app');
+      if (!willBuild ||
+          bundleShaped ||
+          !lexicallyUnderBuildDir(
+            raw,
+            projectRootOverride: projectRootOverride,
+          )) {
+        return missingSnapshotCore(raw);
+      }
+      return null;
+    }
+    // With --build, every missing NON-directory path defers to the
+    // post-build stat — including a dangling symlink. A dead link is
+    // a fact about the LINK, not about the run: the build can create
+    // the link's TARGET (a stable alias into build output resolves
+    // the moment the build writes it), so an up-front rejection here
+    // would fail a run that was about to succeed.
+    // [snapshotPreBuildWarning] carries the dead-link caution.
+    if (willBuild) return null;
+    // A dangling symlink without --build IS actionable up front:
+    // missingSnapshotCore already names the exact fix (restore the
+    // target). The --build hint is not a guess here — the link's
+    // target is readable (danglingLinkTargetsBuildDir), so say it
+    // exactly when a build would in fact create the target, and
+    // omit it when it wouldn't (round-19 Low).
+    if (FileSystemEntity.typeSync(raw, followLinks: false) ==
+        FileSystemEntityType.link) {
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        // The iOS caveat rides along because this emitter runs before
+        // the platform is resolved: an aliased path never yields a
+        // baseline identity (the identity read does not resolve
+        // links), so --build alone ends at a second exit 64 there.
+        // Both remedies must include --build: this emitter only fires
+        // WITHOUT it, so the link's target — and any direct path into
+        // build/ — does not exist yet, and "point at the binary" alone
+        // would just land at the not-found exit again.
+        return '${missingSnapshotCore(raw)} The link points into '
+            'build/ — the simplest fix is --build with --snapshot '
+            'pointing at the binary path under build/ directly (no '
+            'alias). Keeping the alias works too: pass --build so the '
+            'build can create the target, and for an iOS release add '
+            '--baseline-id or --allow-missing-baseline (the identity '
+            'read uses the --snapshot path as given and does not '
+            'resolve links).';
+      }
+      return missingSnapshotCore(raw);
+    }
+    return '${missingSnapshotCore(raw)} Check the --snapshot path — '
+        'or, if you expected this run to produce the bytes to upload, '
+        'pass --build.';
+  }
+
+  /// The flag-vs-built-bytes identity decision, pure and rowable
+  /// (the same seam discipline as [snapshotArgError]: a rejection
+  /// deserves rows). Returns null when --baseline-id raises no
+  /// objection, else a statement of the contradiction — the CALLER
+  /// picks the remedy (refuse; or, under --allow-missing-baseline,
+  /// fall back to the embedded id when one exists, else proceed
+  /// identity-less). Fires only for a --build run
+  /// releasing that build's own bytes whose stamp FAILED: a
+  /// successful stamp supersedes the flag, and a foreign --snapshot's
+  /// identity belongs to the third-state branch. The compare is
+  /// EXACT, deliberately not case-folded: an accepted flag becomes
+  /// the recorded identity in ITS casing while devices present the
+  /// EMBEDDED casing verbatim and the server compares exactly — a
+  /// tolerant acceptance would record an id no device ever sends.
+  String? baselineIdContradiction({
+    required bool shouldBuild,
+    required bool snapshotIsForeign,
+    required String? stampedByThisBuild,
+    required String? explicitFlag,
+    required String? embeddedInBuiltApp,
+    String? stampFailureCause,
+  }) {
+    if (!shouldBuild || snapshotIsForeign) return null;
+    if (stampedByThisBuild != null) return null;
+    // Trim BOTH sides and treat blank as absent, matching
+    // resolveIosBaselineId — an empty embedded id must read as "no id"
+    // (not as a present-but-empty contradiction that would record ''
+    // as a real baseline_id), and a padded flag must not spuriously
+    // mismatch a clean embedded id.
+    final flag = explicitFlag?.trim();
+    if (flag == null || flag.isEmpty) return null;
+    final embeddedRaw = embeddedInBuiltApp?.trim();
+    final embedded =
+        (embeddedRaw == null || embeddedRaw.isEmpty) ? null : embeddedRaw;
+    if (embedded != null && embedded == flag) return null;
+    return embedded == null
+        ? '--baseline-id names an id this build did not embed: the '
+            'stamp failed '
+            '(${stampFailureCause ?? 'ios/Runner/Info.plist is missing'}), '
+            'so the built app carries no FCPBaselineId and a release '
+            'recorded under the flag would never match a device that '
+            'checks identity.'
+        : '--baseline-id ($flag) contradicts the id the built '
+            'app actually embeds ($embedded). Devices send the '
+            'embedded id, so a release recorded under the flag would '
+            'never be offered to them.';
+  }
+
+  /// Maps an iOS stamp-write/read [FileSystemException] to an
+  /// operator-facing cause, structurally (by `osError.errorCode`),
+  /// not lexically — same discipline as the decode split. Pure and
+  /// rowable so the exception-shape→text mapping has a seam:
+  /// - no OSError + a decode message → binary plist (the READ
+  ///   throwing on non-UTF-8, before any temp is created);
+  /// - EACCES/EPERM → the directory the temp+rename needs (or an
+  ///   unreadable plist — both are "fix a permission", and naming
+  ///   the directory is the one the flagship read-only-`ios/Runner/`
+  ///   case actually needs);
+  /// - ENOSPC/EDQUOT/EROFS → a full/read-only disk, NOT permissions;
+  /// - anything else → a neutral could-not-read-or-write.
+  String iosStampCauseFor(FileSystemException e) {
+    if (e.osError == null && e.message.contains('Failed to decode')) {
+      return 'ios/Runner/Info.plist is not readable as UTF-8 text '
+          '(a binary plist?)';
+    }
+    // EACCES/EPERM/ENOSPC/EROFS are identical on macOS and Linux;
+    // EDQUOT is 69 on macOS/BSD but 122 on Linux (69 there is
+    // ESRMNT), so accept both — the stamp runs before `flutter build`
+    // and can hit a per-user quota in a Linux CI container.
+    const eacces = 13, eperm = 1, enospc = 28, erofs = 30;
+    const edquotDarwin = 69, edquotLinux = 122;
+    final code = e.osError?.errorCode;
+    if (code == eacces || code == eperm) {
+      return 'the stamp needs a writable ios/Runner/ directory '
+          '(not just a writable Info.plist), or the plist is '
+          'unreadable — a permissions problem either way';
+    }
+    if (code == enospc ||
+        code == erofs ||
+        code == edquotDarwin ||
+        code == edquotLinux) {
+      return 'ios/Runner/ could not be written — no space, over a '
+          'disk quota, or on a read-only mount';
+    }
+    return 'ios/Runner/Info.plist could not be read, or the stamp '
+        'could not be written to ios/Runner/';
+  }
+
+  /// Warns when a SUCCESSFUL stamp was not consumed by the build —
+  /// the built app's embedded id (what devices present) differs from
+  /// or is absent versus the id this run stamped. Returns null when
+  /// they agree (the normal case), else the warning. Pure and rowable:
+  /// the stamp-vs-bytes check the flag-vs-bytes guard was missing.
+  /// The caller then prefers the embedded id (the truth on the wire).
+  String? stampConsumedWarning({
+    required String? stampedByThisBuild,
+    required String? embeddedInBuiltApp,
+  }) {
+    final stamped = stampedByThisBuild?.trim();
+    if (stamped == null || stamped.isEmpty) return null;
+    final embedded = embeddedInBuiltApp?.trim();
+    if (embedded == stamped) return null;
+    if (embedded == null || embedded.isEmpty) {
+      return 'The stamp wrote ios/Runner/Info.plist but the built app '
+          'embeds no FCPBaselineId — the build likely packaged a '
+          'different Info.plist (a flavored INFOPLIST_FILE?). Recording '
+          "this run's stamped id would create a release no device ever "
+          'matches; check the Info.plist your iOS target actually uses.';
+    }
+    return 'The built app embeds a different FCPBaselineId ($embedded) '
+        "than this run stamped ($stamped) — releasing under the "
+        'embedded id, which is what devices present. (Your iOS target '
+        'likely uses a plist other than ios/Runner/Info.plist.)';
+  }
+
+  /// The identity a --allow-missing-baseline run releases under when
+  /// [baselineIdContradiction] fired: the id the built bytes embed
+  /// (trimmed) when they carry one — strictly better than
+  /// identity-less, and exactly where "drop the flag" lands — else
+  /// null (proceed without identity, the outcome the opt-out names).
+  /// Pure and rowable so the choice of WHICH release is created is
+  /// pinned, not just whether a contradiction exists.
+  String? baselineIdUnderOptOut({required String? embeddedInBuiltApp}) {
+    final embedded = embeddedInBuiltApp?.trim();
+    return (embedded == null || embedded.isEmpty) ? null : embedded;
+  }
+
+  /// The directory-aware core the snapshot emitters share — the
+  /// pre-build gates and the post-build stat — so they cannot
+  /// drift: the bundle-instead-of-binary mistake must never read as
+  /// "not found" while the directory sits right there. On the
+  /// --build path a bundle built THIS run is only met by the late
+  /// emitter; a pre-existing .app bundle is an up-front exit in
+  /// [snapshotArgError] (even under build/ — no build replaces a
+  /// bundle directory with a file), and only a non-bundle directory
+  /// under build/ still reaches [snapshotPreBuildWarning].
+  String missingSnapshotCore(String path) {
+    if (Directory(path).existsSync()) {
+      return '--snapshot names a directory: $path. Pass the binary file '
+          'inside it (for an iOS app bundle: '
+          '<bundle>/Frameworks/App.framework/App; for a macOS app '
+          'bundle: <bundle>/Contents/Frameworks/App.framework/App; '
+          'for an Android build: the libapp.so for your ABI).';
+    }
+    // existsSync follows links, so a dangling symlink reads as
+    // absent while `ls` shows the entry sitting right there — name
+    // the real state instead of sending the operator typo-hunting.
+    if (FileSystemEntity.typeSync(path, followLinks: false) ==
+        FileSystemEntityType.link) {
+      return '--snapshot names a symbolic link whose target does not '
+          'exist: $path. Restore the target, or pass the real binary '
+          'path.';
+    }
+    return 'Snapshot file not found: $path.';
+  }
+
+  /// Pre-build advisory for a --build run whose --snapshot does not
+  /// exist yet: builds only write under build/, so a missing path
+  /// outside it is PROBABLY a typo that would otherwise surface only
+  /// after minutes of build. Warning only, by design: the
+  /// containment test is lexical and case-folded, and a symlinked
+  /// working directory (macOS logical $PWD vs physical getcwd) can
+  /// make it guess wrong — a warning tolerates a wrong guess; a
+  /// rejection must not.
+  String? snapshotPreBuildWarning({String? projectRootOverride}) {
+    final raw = argResults?['snapshot'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    if (File(raw).existsSync()) return null;
+    if (Directory(raw).existsSync()) {
+      // Only a NON-bundle directory under build/ reaches here
+      // (outside build/, and any .app bundle directory, are up-front
+      // rejections in [snapshotArgError] — a directory is a fact,
+      // not a guess): the build MAY clean and rebuild the path as a
+      // file, so this stays a warning.
+      return '${missingSnapshotCore(raw)} If the build does not '
+          'replace it with a file, this release will fail after the '
+          'build.';
+    }
+    if (lexicallyUnderBuildDir(raw, projectRootOverride: projectRootOverride)) {
+      return null;
+    }
+    // A dead link outside build/ deserves its accurate text up front
+    // too (the other two emitters get it via missingSnapshotCore) —
+    // and the failure claim must match the link's TARGET: an alias
+    // whose target lies under build/ resolves the moment the build
+    // writes it, so certainty there would be false.
+    if (FileSystemEntity.typeSync(raw, followLinks: false) ==
+        FileSystemEntityType.link) {
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        return '${missingSnapshotCore(raw)} The link points into '
+            'build/ — if the build does not create its target, this '
+            'release will fail after the build.';
+      }
+      return '${missingSnapshotCore(raw)} The build only writes under '
+          'build/, so it will not restore this link — this release '
+          'will fail after the build.';
+    }
+    return '--snapshot names a file that does not exist yet, and the '
+        'build only writes under build/ — if $raw is mistyped, this '
+        'release will fail after the build.';
+  }
+
+  /// Case-folded lexical test for "under this project's build/".
+  /// Heuristic by design — symlinked working directories and
+  /// case-sensitive filesystems can fool it in both directions —
+  /// so callers use it only to pick the SOFTER of two outcomes
+  /// (which warning text; whether an existing directory defers to
+  /// the post-build stat instead of rejecting up front — the
+  /// rejection itself rests on the directory FACT, and no flutter
+  /// build target replaces a directory outside build/ with a file);
+  /// undecidable resolves to true, the softer path. Public for
+  /// tests.
+  bool lexicallyUnderBuildDir(String raw, {String? projectRootOverride}) {
+    try {
+      final abs = File(raw).absolute.uri.normalizePath().toFilePath();
+      // Directory URIs carry a trailing separator, so this is a
+      // proper prefix test against build/ and not against build*.
+      final buildDir = Directory(
+        projectRootOverride == null ? 'build' : '$projectRootOverride/build',
+      ).absolute.uri.normalizePath().toFilePath();
+      return abs.toLowerCase().startsWith(buildDir.toLowerCase());
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /// Whether a dangling --snapshot symlink's TARGET lies under this
+  /// project's build/ — i.e. whether the build may create it. Reads
+  /// the stored target (targetSync works on a dead link) and resolves
+  /// a relative one against the link's own directory, then reuses
+  /// [lexicallyUnderBuildDir]'s heuristic. Picks between two WARNING
+  /// texts only, so a wrong answer costs precision, never a run;
+  /// unreadable resolves to false — the certain-failure text — since
+  /// a link whose target can't even be read is not the build-output
+  /// alias case. Public for tests.
+  bool danglingLinkTargetsBuildDir(
+    String raw, {
+    String? projectRootOverride,
+  }) {
+    try {
+      final target = Link(raw).targetSync();
+      if (target.trim().isEmpty) return false;
+      final absoluteTarget = File(target).isAbsolute
+          ? target
+          : '${File(raw).absolute.parent.path}/$target';
+      return lexicallyUnderBuildDir(
+        absoluteTarget,
+        projectRootOverride: projectRootOverride,
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Whether any component of [spelled] BELOW the project root is a
+  /// symbolic link — the file itself, or a parent directory (a shared
+  /// `assets/` dir is the common monorepo shape). Components at or
+  /// above the root are out of scope: they resolve identically for
+  /// the atomic writer and for `git checkout`, so they cannot make
+  /// the recovery guidance wrong (and macOS's `/tmp` link would
+  /// otherwise false-positive every temp-dir path). [stopAtDir]
+  /// defaults to the current directory; public for tests.
+  bool stampPathResolvesThroughLink(String spelled, {String? stopAtDir}) {
+    // TOTAL by contract — this runs inside the build finally's catch
+    // handler, where a second throw would REPLACE the in-flight error
+    // with an unhandled exception and lose the guidance (round-17
+    // L2's exact failure). The known throw source is Directory.current
+    // under a deleted cwd (typeSync itself maps EVERY lstat failure —
+    // ELOOP, EACCES, ENAMETOOLONG included — to notFound and never
+    // throws; probed on this SDK). The catch is deliberately broader
+    // than that one source: a miss here costs the guidance itself, so
+    // any error falls back to false — the softer plain-git-checkout
+    // text — matching the sibling helpers' convention.
+    try {
+      // Directory URIs carry a trailing separator, so this anchors a
+      // proper prefix walk (same idiom as [lexicallyUnderBuildDir]).
+      // The case-folded compare here can only WIDEN the walk (check
+      // components above the intended anchor when an exotic stopAtDir
+      // differs from the path only by case on a case-sensitive
+      // filesystem) — in production both strings come from the same
+      // absolute() resolution, so their cases always agree and the
+      // fold is inert; it exists for the NTFS/default-APFS test
+      // inputs, like the sibling's.
+      final anchor = Directory(stopAtDir ?? Directory.current.path)
+          .absolute
+          .uri
+          .normalizePath()
+          .toFilePath();
+      var p = File(spelled).absolute.uri.normalizePath().toFilePath();
+      while (p.toLowerCase().startsWith(anchor.toLowerCase())) {
+        if (FileSystemEntity.typeSync(p, followLinks: false) ==
+            FileSystemEntityType.link) {
+          return true;
+        }
+        final parent = File(p).parent.path;
+        if (parent == p) break;
+        p = parent;
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// What (if anything) the stamp-consumed block owes about an
+  /// explicitly passed --baseline-id, pure and rowable — the caller
+  /// emits the returned text as a warning. Null when the flag is
+  /// absent/blank, when it AGREES with the id the release is being
+  /// recorded under (the recorded id IS the flag's value — nothing
+  /// was ignored, and stampConsumedWarning already reported releasing
+  /// under the embedded id), or when the no-opt-out exit will name
+  /// the flag itself.
+  String? baselineIdFlagNotice({
+    required String? recordedId,
+    required String? explicitFlag,
+    required bool allowMissingBaseline,
+  }) {
+    final flag = explicitFlag?.trim();
+    if (flag == null || flag.isEmpty) return null;
+    if (recordedId != null) {
+      return recordedId == flag
+          ? null
+          : '--baseline-id is superseded by the id the built app '
+              'embeds; ignoring the flag.';
+    }
+    return allowMissingBaseline
+        ? '--baseline-id cannot substitute for the missing embedded '
+            'id and is ignored: devices send only an embedded id, and '
+            'per --allow-missing-baseline this release proceeds '
+            'without an identity.'
+        : null;
+  }
+
+  /// Recovery guidance for a failed post-build stamp restore. The
+  /// atomic writer resolves the WHOLE path through symlinks and
+  /// renames at the PHYSICAL target, so when [spelled] resolves
+  /// through a link — the file itself, or a linked parent directory —
+  /// the stamped bytes live in the resolved file: `git checkout` of
+  /// the spelled path cannot reliably clean it (a tracked leaf link
+  /// restores only the link entry; a tracked parent link matches no
+  /// index entry at this pathspec), so the guidance must name the
+  /// physical file, or the operator is told the problem is fixed
+  /// while sibling projects keep reading the stamp. Filesystem-read
+  /// text selection, TOTAL (never throws, because this runs inside
+  /// the finally's catch handler): the link-walk probe degrades to
+  /// the softer plain-git-checkout text on error, and the target
+  /// resolve degrades to the link text with a placeholder target —
+  /// still naming the actionable fact (a link is in the way).
+  /// Public for tests.
+  String restoreFailureGuidance({
+    required String spelled,
+    required String stampedValueDescription,
+    String? projectRootOverride,
+  }) {
+    if (stampPathResolvesThroughLink(
+      spelled,
+      stopAtDir: projectRootOverride,
+    )) {
+      String target;
+      try {
+        target = File(spelled).resolveSymbolicLinksSync();
+      } on FileSystemException {
+        target = "the link's target";
+      }
+      return '$spelled resolves through a symbolic link and the stamp '
+          'was written through it: $stampedValueDescription is in '
+          "$target, not at the spelled path's own entry. Clean THAT "
+          'file — `git checkout -- $spelled` cannot reliably restore '
+          'it, and sibling projects reading the shared file see the '
+          'stamp until it is cleaned.';
+    }
+    return 'The file still contains $stampedValueDescription — '
+        'restore it manually (e.g. git checkout -- $spelled).';
+  }
+
+  /// Pre-build advisory for --build with a foreign --snapshot: the
+  /// records on the [usedExplicitSnapshot] rule (identity stamp
+  /// withheld, attestation, saved app, archive) are already decided
+  /// — that belongs BEFORE the minutes are spent. Advisory only,
+  /// never a rejection: the records re-derive foreignness at their
+  /// own sites, and a pre-build lexical answer can differ from a
+  /// post-build physical one in symlinked corners. The FAIL clause
+  /// is stated as certainty ONLY when the snapshot bytes already
+  /// exist — only then is the pre-build plist read authoritative (a
+  /// foreign path the build itself creates gets its plist, and
+  /// possibly its id, only after the build).
+  String? foreignSnapshotAdvisory({String? projectRootOverride}) {
+    final raw = argResults?['snapshot'] as String?;
+    if (raw == null || raw.trim().isEmpty) return null;
+    if (Directory(raw).existsSync()) {
+      // An existing directory is the wrong-path-shape mistake, not
+      // foreign bytes: an .app bundle is an up-front exit in
+      // [snapshotArgError], an outside-build/ directory likewise, and
+      // a non-bundle directory under build/ gets the directory
+      // warning + post-build stat ([missingSnapshotCore]) — a
+      // foreign-bytes advisory beside any of those would mislead the
+      // operator who meant this build's own output.
+      return null;
+    }
+    if (!snapshotIsForeignTo(projectRootOverride: projectRootOverride)) {
+      return null;
+    }
+    const base = "--snapshot names bytes other than this build's "
+        'output: the interface attestation, the saved baseline app, '
+        'and the per-release archive will be skipped.';
+    final explicitId = (argResults?['baseline-id'] as String?)?.trim();
+    if (explicitId != null && explicitId.isNotEmpty) {
+      return '$base The baseline identity comes from --baseline-id.';
+    }
+    if (argResults?['allow-missing-baseline'] as bool? ?? false) {
+      return base;
+    }
+    if (!File(raw).existsSync()) {
+      // Missing AND outside build/: [snapshotPreBuildWarning] has
+      // already named the will-fail risk for this exact path — one
+      // mistake must not draw two warnings. Missing under build/
+      // draws no pre-build warning, so the fail risk is named here.
+      // Carve-out within the carve-out: a dead link ALIASING build
+      // output gets only the conditional dead-link text from the
+      // warning (the build may well create its target), so the
+      // IDENTITY risk — which bites even when the target IS created,
+      // because the identity read is a literal-path read that does
+      // not resolve the alias — must be named here, pre-build.
+      if (danglingLinkTargetsBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )) {
+        return '$base The baseline-identity read uses the --snapshot '
+            'path as given and will not resolve this link, so this '
+            'release will fail after the build without an identity — '
+            "pass --baseline-id, or point --snapshot at this build's "
+            'own binary path directly.';
+      }
+      return lexicallyUnderBuildDir(
+        raw,
+        projectRootOverride: projectRootOverride,
+      )
+          ? '$base If those bytes carry no readable FCPBaselineId, '
+              'this release will fail after the build — pass '
+              '--baseline-id to be safe.'
+          : base;
+    }
+    final appDir = builtIosAppDirFromBinaryPath(raw);
+    final bundleId = appDir == null
+        ? null
+        : readBaselineIdFromBuiltAppPlist(appPath: appDir);
+    if (bundleId != null) {
+      return "$base The baseline identity comes from the bundle's "
+          'own FCPBaselineId.';
+    }
+    // Certainty also requires bytes this build CANNOT rewrite: a
+    // stale id-less bundle under build/ may be regenerated by the
+    // build below with a stamped plist, and then resolve fine.
+    if (!lexicallyUnderBuildDir(
+      raw,
+      projectRootOverride: projectRootOverride,
+    )) {
+      return '$base No FCPBaselineId is readable from those bytes, '
+          'so this release will FAIL after the build — pass '
+          "--baseline-id, or point --snapshot at this build's own "
+          'binary.';
+    }
+    return '$base If those bytes carry no readable FCPBaselineId, '
+        'this release will fail after the build — pass '
+        '--baseline-id to be safe.';
+  }
+
   /// Build-only flags passed without --build are read by nothing —
   /// the patch command's rule, ported: an operator passing
   /// --no-extendable-widgets on a --snapshot release has good
@@ -250,7 +817,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       if (iosOnly.isEmpty) return null;
       return '${iosOnly.join(', ')} '
           '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
-          'a $resolvedPlatform build.';
+          '$resolvedPlatform builds.';
     }
     final ignored = <String>[
       ...iosBuildOnly,
@@ -458,6 +1025,19 @@ class CodePushReleaseSubCommand extends Command<int> {
       return ExitCode.usage.code;
     }
 
+    // --snapshot names pre-existing bytes. Without --build nothing
+    // will create a missing file, so a typo is an exit 64 HERE,
+    // never a late failure after resolution work; with --build the
+    // possibly-mistyped path draws a pre-build warning instead (at
+    // the build block's emission point), because the build may be
+    // about to create it.
+    final willBuild = argResults?['build'] as bool? ?? false;
+    final snapshotError = snapshotArgError(willBuild: willBuild);
+    if (snapshotError != null) {
+      _logger.err(snapshotError);
+      return ExitCode.usage.code;
+    }
+
     // Resolve app ID. Trimmed at the boundary: padding would be
     // invisible in the progress prose, encode as '+' on the wire,
     // and either fail AFTER the whole baseline upload or land the
@@ -501,11 +1081,21 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
 
     // If --build is set, build the app first.
-    final shouldBuild = argResults?['build'] as bool? ?? false;
+    final shouldBuild = willBuild;
     final buildService =
         _injectedBuildService ?? CodePushBuildService(logger: _logger);
     String? baselineId;
     String? originalIosInfoPlist;
+    // Why the iOS stamp produced no identity — carried to the terminal
+    // identity error so its advice matches the ACTUAL cause (round-5
+    // M1: "missing → flutter create ." is wrong and destructive for a
+    // present-but-unusable plist).
+    String? iosStampFailureCause;
+    var iosPlistWasMissing = false;
+    // Set when the stamp SUCCEEDED but the built app did not embed it
+    // (a flavored INFOPLIST_FILE) and nothing else supplied an id — a
+    // distinct no-identity cause from a failed/missing stamp.
+    var iosStampNotConsumed = false;
     String? originalAndroidYaml;
     String? builtPlatform;
 
@@ -525,6 +1115,23 @@ class CodePushReleaseSubCommand extends Command<int> {
           buildOnlyFlagsWarning(resolvedPlatform: builtPlatform);
       if (iosOnlyWarning != null) {
         _logger.warn(iosOnlyWarning);
+      }
+      // Third and fourth emission points (the iOS-only axis above is
+      // the second): a probably-mistyped --snapshot, and the
+      // foreign---snapshot record skips — both decided already, both
+      // worth saying before minutes of build. The warning is
+      // deliberately NOT platform-gated (a missing file is a
+      // platform-neutral fact) while the advisory is iOS-only (the
+      // records it names are iOS records).
+      final missingSnapshotWarning = snapshotPreBuildWarning();
+      if (missingSnapshotWarning != null) {
+        _logger.warn(missingSnapshotWarning);
+      }
+      if (platform == 'ios') {
+        final advisory = foreignSnapshotAdvisory();
+        if (advisory != null) {
+          _logger.warn(advisory);
+        }
       }
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
@@ -572,15 +1179,93 @@ class CodePushReleaseSubCommand extends Command<int> {
         // not leave the app repo dirty.
         if (platform == 'ios') {
           final generatedBaselineId = generateBaselineId();
-          originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
-            generatedBaselineId,
-          );
-          if (originalIosInfoPlist == null) {
+          try {
+            originalIosInfoPlist = writeBaselineIdToIosInfoPlist(
+              generatedBaselineId,
+            );
+          } on FileSystemException catch (e) {
+            // Same guard as the restore in the finally below: a
+            // permissions problem (e.g. a read-only ios/Runner/)
+            // must read as "unstamped build", not as a tool crash —
+            // and not as "not found" (the file exists, unwritable).
+            // The unstamped outcome is fully supported downstream.
+            // The raw exception stays OUT of the cause: the exit
+            // message splices the cause mid-sentence, and the warn
+            // right below already prints the full exception once.
+            // EMPIRICAL (pinned in ios_baseline_plist_read_test):
+            // dart:io's readAsStringSync reports a non-UTF-8 file as
+            // a FileSystemException whose message names the decode
+            // ("Failed to decode data using encoding 'utf-8'"), NOT
+            // as a FormatException — so the binary-plist family
+            // arrives HERE and is split off, or every binary plist
+            // would be misdiagnosed as permissions. The discriminator
+            // is STRUCTURAL (no OSError + the decode message), not
+            // lexical: renameSync interpolates the DESTINATION PATH
+            // into its message, so a checkout under a decode*/
+            // encoding*-named directory would fool a message-only
+            // test; OS-level failures always carry an OSError, the
+            // decode exception never does.
+            iosStampFailureCause = iosStampCauseFor(e);
+            // The source plist is untouched by a failed stamp, so a
+            // plist that already carries an id STILL ships it — don't
+            // assert "will not embed" when it might.
+            final alreadyStamped = readBaselineIdFromSourceInfoPlist() != null;
             _logger.warn(
-              'Warning: ios/Runner/Info.plist not found. '
+              'Could not stamp ios/Runner/Info.plist: $e. '
+              '${alreadyStamped ? 'The id already committed to the plist will still ship; this build could not add or refresh one.' : 'This build will not embed a baseline identity.'}',
+            );
+            originalIosInfoPlist = null;
+          } on FormatException catch (e) {
+            // Defensive belt: today's SDK reports non-UTF-8 as the
+            // FileSystemException above; keep this in case a future
+            // SDK surfaces the decode error directly. Route the cause
+            // and the already-shipped check the SAME way so the belt
+            // can't re-introduce the over-assertion the sibling fixed
+            // (a binary plist is exactly where a pre-committed id is
+            // most likely present).
+            iosStampFailureCause = 'ios/Runner/Info.plist is not '
+                'readable as UTF-8 text (a binary plist?)';
+            final alreadyStamped = readBaselineIdFromSourceInfoPlist() != null;
+            _logger.warn(
+              'Could not read ios/Runner/Info.plist as UTF-8 text '
+              '(a binary plist?): $e. '
+              '${alreadyStamped ? 'The id already committed to the plist will still ship; this build could not add or refresh one.' : 'This build will not embed a baseline identity.'}',
+            );
+            originalIosInfoPlist = null;
+          }
+          if (originalIosInfoPlist == null && iosStampFailureCause == null) {
+            // Null without a throw has THREE causes; "not found" for a
+            // file the operator can see would send them hunting, and a
+            // dangling symlink (existsSync follows links → false) is
+            // neither missing nor malformed and "flutter create ."
+            // won't fix it.
+            // A DEAD link only: a symlink (followLinks:false → link)
+            // whose target is absent (followLinks:true → notFound).
+            // A live link to a present-but-malformed target falls
+            // through to the malformed branch, which is the true cause.
+            final isDeadLink = FileSystemEntity.typeSync(
+                      kDefaultIosInfoPlistPath,
+                      followLinks: false,
+                    ) ==
+                    FileSystemEntityType.link &&
+                FileSystemEntity.typeSync(
+                      kDefaultIosInfoPlistPath,
+                    ) ==
+                    FileSystemEntityType.notFound;
+            iosPlistWasMissing =
+                !isDeadLink && !File(kDefaultIosInfoPlistPath).existsSync();
+            iosStampFailureCause = isDeadLink
+                ? 'ios/Runner/Info.plist is a symbolic link whose '
+                    'target does not exist — restore the target'
+                : iosPlistWasMissing
+                    ? 'ios/Runner/Info.plist is missing'
+                    : 'ios/Runner/Info.plist has no closing </dict> — '
+                        'truncated, or not an XML plist';
+            _logger.warn(
+              'Warning: $iosStampFailureCause. '
               'This build will not embed a baseline identity.',
             );
-          } else {
+          } else if (originalIosInfoPlist != null) {
             baselineId = generatedBaselineId;
             _logger.detail('Wrote FCPBaselineId=$baselineId to Info.plist');
           }
@@ -592,14 +1277,61 @@ class CodePushReleaseSubCommand extends Command<int> {
         // stays clean (same pattern as the iOS Info.plist stamp above).
         if ((platform == 'apk' || platform == 'appbundle') &&
             version.isNotEmpty) {
-          originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
-          if (originalAndroidYaml == null) {
+          var androidStampFailed = false;
+          try {
+            originalAndroidYaml = writeReleaseVersionToAndroidYaml(version);
+            androidStampFailed = false;
+          } on FileSystemException catch (e) {
+            // Mirror of the iOS stamp guard above — including the
+            // structural decode split (no OSError + the decode
+            // message; see the iOS twin for the renameSync
+            // path-contamination trap a message-only test has).
+            final isDecodeFailure =
+                e.osError == null && e.message.contains('Failed to decode');
             _logger.warn(
-              'Warning: $kDefaultAndroidCodePushYamlPath not found. '
-              'This build will not embed a release version. '
-              'Run "fcp codepush init" to set up Android.',
+              isDecodeFailure
+                  ? 'Could not read $kDefaultAndroidCodePushYamlPath '
+                      'as UTF-8 text: $e. '
+                      'This build will not embed a release version.'
+                  : 'Could not stamp $kDefaultAndroidCodePushYamlPath: '
+                      '$e. '
+                      'This build will not embed a release version.',
             );
-          } else {
+            originalAndroidYaml = null;
+            androidStampFailed = true;
+          } on FormatException catch (e) {
+            // Defensive belt — see the iOS twin.
+            _logger.warn(
+              'Could not read $kDefaultAndroidCodePushYamlPath as '
+              'UTF-8 text: $e. '
+              'This build will not embed a release version.',
+            );
+            originalAndroidYaml = null;
+            androidStampFailed = true;
+          }
+          if (originalAndroidYaml == null && !androidStampFailed) {
+            // A dangling symlink reads as absent (existsSync follows
+            // links) but "run fcp codepush init" is the wrong advice —
+            // the target is missing, not the config (the iOS twin got
+            // this split in round 14). Non-destructive either way, so
+            // Low, but the accurate cause saves a hunt.
+            final isDeadLink = FileSystemEntity.typeSync(
+                      kDefaultAndroidCodePushYamlPath,
+                      followLinks: false,
+                    ) ==
+                    FileSystemEntityType.link &&
+                FileSystemEntity.typeSync(kDefaultAndroidCodePushYamlPath) ==
+                    FileSystemEntityType.notFound;
+            _logger.warn(
+              isDeadLink
+                  ? '$kDefaultAndroidCodePushYamlPath is a symbolic link '
+                      'whose target does not exist — restore the target. '
+                      'This build will not embed a release version.'
+                  : 'Warning: $kDefaultAndroidCodePushYamlPath not found. '
+                      'This build will not embed a release version. '
+                      'Run "fcp codepush init" to set up Android.',
+            );
+          } else if (originalAndroidYaml != null) {
             _logger.detail(
               'Stamped release_version=$version into codepush.yaml',
             );
@@ -656,8 +1388,20 @@ class CodePushReleaseSubCommand extends Command<int> {
         }
       } finally {
         if (originalIosInfoPlist != null) {
-          restoreIosInfoPlist(originalIosInfoPlist);
-          _logger.detail('Restored ios/Runner/Info.plist');
+          try {
+            restoreIosInfoPlist(originalIosInfoPlist);
+            _logger.detail('Restored ios/Runner/Info.plist');
+          } on FileSystemException catch (e) {
+            // Mirror of the Android restore below: a throw escaping a
+            // finally would REPLACE any in-flight build error with an
+            // unhandled FileSystemException the runner does not catch,
+            // and leave the stamped plist in the tree with no guidance.
+            _logger.err(
+              'Failed to restore ios/Runner/Info.plist after the '
+              'build: $e\n'
+              '${restoreFailureGuidance(spelled: kDefaultIosInfoPlistPath, stampedValueDescription: 'the stamped FCPBaselineId')}',
+            );
+          }
         }
         if (originalAndroidYaml != null) {
           try {
@@ -668,9 +1412,8 @@ class CodePushReleaseSubCommand extends Command<int> {
             // tell the user the repo is dirty and how to fix it.
             _logger.err(
               'Failed to restore $kDefaultAndroidCodePushYamlPath after the '
-              'build: $e\nThe file still contains the stamped release '
-              'version — restore it manually (e.g. git checkout -- '
-              '$kDefaultAndroidCodePushYamlPath).',
+              'build: $e\n'
+              '${restoreFailureGuidance(spelled: kDefaultAndroidCodePushYamlPath, stampedValueDescription: 'the stamped release version')}',
             );
           }
         }
@@ -775,7 +1518,16 @@ class CodePushReleaseSubCommand extends Command<int> {
 
     final snapshotFile = File(snapshotPath);
     if (!snapshotFile.existsSync()) {
-      _logger.err('Snapshot file not found: $snapshotPath');
+      // The core's directory text says "--snapshot names…"; for a
+      // detector-resolved path the operator never typed, keep the
+      // plain form.
+      final explicitSnapshot =
+          ((argResults?['snapshot'] as String?)?.trim().isNotEmpty ?? false);
+      _logger.err(
+        explicitSnapshot
+            ? missingSnapshotCore(snapshotPath)
+            : 'Snapshot file not found: $snapshotPath.',
+      );
       return ExitCode.software.code;
     }
 
@@ -800,65 +1552,207 @@ class CodePushReleaseSubCommand extends Command<int> {
       // Captured BEFORE the reassignment: the third-state message
       // below asserts a stamp happened, which only this knows.
       final stampedByThisBuild = baselineId;
+      // The stamp is withheld when --snapshot names foreign bytes:
+      // the stamped UUID lives only in the locally-built app that
+      // was never shipped, and recording it would create the
+      // no-error-anywhere never-updates release this block's own
+      // comment warns about — the foreign bundle's own id (or the
+      // explicit flag) is the identity of what actually serves.
+      // Fourth record on the usedExplicitSnapshot rule, beside the
+      // attestation, the saved app, and the archive.
+      // The null-cause detail matters HERE and nowhere else: this is
+      // the read the stamp-consumed check escalates to exit 64, so a
+      // false null (plutil failure, unreadable plist) must be
+      // diagnosable from --verbose instead of reading as a tool bug.
+      final idFromBuiltApp = appDirForIdentity != null
+          ? readBaselineIdFromBuiltAppPlist(
+              appPath: appDirForIdentity,
+              onNullCause: (cause) => _logger.detail(
+                'No FCPBaselineId read from the built app: $cause',
+              ),
+            )
+          : null;
       baselineId = resolveIosBaselineId(
-        // The stamp is withheld when --snapshot names foreign bytes:
-        // the stamped UUID lives only in the locally-built app that
-        // was never shipped, and recording it would create the
-        // no-error-anywhere never-updates release this block's own
-        // comment warns about — the foreign bundle's own id (or the
-        // explicit flag) is the identity of what actually serves.
-        // Fourth record on the usedExplicitSnapshot rule, beside the
-        // attestation, the saved app, and the archive.
         stampedByBuild: snapshotIsForeign ? null : baselineId,
         explicitFlag: argResults?['baseline-id'] as String?,
-        fromBuiltApp: appDirForIdentity != null
-            ? readBaselineIdFromBuiltAppPlist(appPath: appDirForIdentity)
-            : null,
+        fromBuiltApp: idFromBuiltApp,
       );
+      // "Stamp succeeded" only means writeBaselineIdToIosInfoPlist
+      // wrote ios/Runner/Info.plist — NOT that xcodebuild packaged it.
+      // A flavored target (INFOPLIST_FILE → ios/Runner/Info-Prod.plist)
+      // ships a different plist, so the built app's OWN id — what
+      // devices actually present — is authoritative over the stamp.
       final explicitBaselineIdFlag =
           (argResults?['baseline-id'] as String?)?.trim();
       if (shouldBuild &&
           !snapshotIsForeign &&
           stampedByThisBuild != null &&
+          appDirForIdentity != null) {
+        final warn = stampConsumedWarning(
+          stampedByThisBuild: stampedByThisBuild,
+          embeddedInBuiltApp: idFromBuiltApp,
+        );
+        if (warn != null) {
+          _logger.warn(warn);
+          // The embedded id is what ships; prefer it over the stamp
+          // (null → the release honestly has no matchable identity).
+          // Blank normalizes to absent, matching stampConsumedWarning's
+          // own blank-trim row — '' must never become a recorded
+          // baseline_id nor slip past the no-identity gate below.
+          final embeddedTrimmed = idFromBuiltApp?.trim();
+          baselineId = (embeddedTrimmed == null || embeddedTrimmed.isEmpty)
+              ? null
+              : embeddedTrimmed;
+          // Flag the null case so the no-identity exit below tells the
+          // truth: the stamp SUCCEEDED but the build didn't consume it,
+          // which is a different cause than a failed/missing stamp
+          // (and "flutter create ." would be wrong, destructive advice).
+          iosStampNotConsumed = baselineId == null;
+          // A passed flag must be accounted for on THIS row — at
+          // default verbosity (round-19 Low) — but only when its fate
+          // needs explaining: an AGREEING flag (the round-23 M1 case,
+          // the flow the CHANGELOG itself prescribes for flavored
+          // targets) is not superseded — the release is recorded
+          // under the flag's own value — and reporting it as ignored
+          // sends the operator hunting a disagreement that does not
+          // exist. Pure and rowed in baselineIdFlagNotice.
+          final flagNotice = baselineIdFlagNotice(
+            recordedId: baselineId,
+            explicitFlag: explicitBaselineIdFlag,
+            allowMissingBaseline:
+                argResults?['allow-missing-baseline'] as bool? ?? false,
+          );
+          if (flagNotice != null) {
+            _logger.warn(flagNotice);
+          }
+        }
+      }
+      if (shouldBuild &&
+          !snapshotIsForeign &&
+          stampedByThisBuild != null &&
+          !iosStampNotConsumed &&
+          baselineId == stampedByThisBuild &&
           explicitBaselineIdFlag != null &&
           explicitBaselineIdFlag.isNotEmpty) {
         // The last flag read by nothing: correct (the built bytes
-        // carry the stamp) but no longer silent.
+        // carry the stamp) but no longer silent. Suppressed when the
+        // stamp was NOT what shipped — the embedded-id-differs row
+        // emits its own superseded-by-the-bytes WARNING above, and
+        // the nothing-embedded row is headed for the no-identity
+        // exit, where the flag gets its own clause.
         _logger.detail(
           '--baseline-id is superseded by the id this build stamped; '
           'ignoring the flag.',
         );
       }
+      // The flag's contract is "the id embedded in the app you are
+      // releasing". On a --build run releasing THIS build's bytes,
+      // that is checkable — and a flag the bytes contradict must not
+      // become the release's identity: recording an id the shipped
+      // app does not carry makes three records (server row, saved
+      // bundle, archive) agree on a lie, and a device that DOES send
+      // an embedded id can then never match the release (hard 204).
+      // Reachable exactly when the stamp failed (e.g. the read-only
+      // ios/Runner/ this feature's CHANGELOG documents) and the
+      // operator followed the old "pass --baseline-id" advice.
+      final contradiction = baselineIdContradiction(
+        shouldBuild: shouldBuild,
+        snapshotIsForeign: snapshotIsForeign,
+        stampedByThisBuild: stampedByThisBuild,
+        explicitFlag: explicitBaselineIdFlag,
+        embeddedInBuiltApp: idFromBuiltApp,
+        stampFailureCause: iosStampFailureCause,
+      );
+      if (contradiction != null) {
+        if (argResults?['allow-missing-baseline'] as bool? ?? false) {
+          // The opt-out drops the contradicting FLAG, not the truth:
+          // when the built bytes carry an id, releasing under THAT id
+          // is strictly better than identity-less (the refusal's own
+          // remedy is "drop the flag to use the embedded id") — so
+          // the fallback lands exactly where dropping the flag
+          // would. Only the nothing-embedded variant proceeds
+          // identity-less, the outcome the opt-out names.
+          baselineId =
+              baselineIdUnderOptOut(embeddedInBuiltApp: idFromBuiltApp);
+          _logger.warn(
+            baselineId != null
+                ? '$contradiction Ignoring --baseline-id and releasing '
+                    'under the id the built app embeds ($baselineId).'
+                : '$contradiction Ignoring --baseline-id and proceeding '
+                    'WITHOUT a baseline identity per '
+                    '--allow-missing-baseline.',
+          );
+        } else {
+          _logger.err(
+            '$contradiction '
+            '${idFromBuiltApp == null ? 'Fix the stamp (writable ios/Runner/), pre-stamp Info.plist with this exact id, or drop the flag and pass --allow-missing-baseline.' : 'Drop the flag to use the embedded id, or fix the plist to carry the intended one.'}',
+          );
+          return ExitCode.usage.code;
+        }
+      }
       if (baselineId != null) {
         _logger.detail('Using baseline id: $baselineId');
       } else if (!(argResults?['allow-missing-baseline'] as bool? ?? false)) {
-        if (shouldBuild && snapshotIsForeign && stampedByThisBuild != null) {
-          // Third state (a foreign --snapshot on a run that BUILT
-          // and STAMPED — without --build the sibling branch below
+        if (shouldBuild && snapshotIsForeign) {
+          // Third state (a foreign --snapshot on a run that BUILT —
+          // stamped or not: the stamp is withheld for foreign bytes
+          // either way, so a failed stamp changes nothing about this
+          // outcome, and routing it to the plist branch would tell
+          // the user to fix the plist, burn a second build, and land
+          // right back here; the pre-build advisory already named
+          // the real cause. Without --build the sibling branch below
           // is correct and --allow-missing-baseline is the
-          // legitimate escape; a build whose stamp failed falls to
-          // the plist branch, which names that cause):
-          // this run DID stamp, but the stamp belongs to an app that
-          // never shipped, and the snapshot carries no readable id.
+          // legitimate escape):
+          // the snapshot carries no readable id, and any id this run
+          // stamped belongs to an app that never shipped.
           // --allow-missing-baseline is deliberately not suggested —
           // it produces the never-updated release warned about above.
           _logger.err(
             'No baseline identity: --snapshot names bytes other than '
-            "this run's build output, so the build's stamped id does "
-            'not apply, and the snapshot carries no readable '
+            "this run's build output, so "
+            '${stampedByThisBuild != null ? "the build's stamped id does not apply" : "a stamped id would not apply even if the build had produced one (this build's stamp also failed: ${iosStampFailureCause ?? 'see the warning above'})"}'
+            ', and the snapshot carries no readable '
             'FCPBaselineId. Pass --baseline-id <the id embedded in the '
             "app those bytes come from>, point --snapshot at this "
             "build's own binary, or drop --snapshot.",
           );
-        } else if (shouldBuild) {
-          // The build ran but could not stamp: the source plist was
-          // missing (warned above). Telling the user to "re-run with
-          // --build" would send them in a circle.
+        } else if (iosStampNotConsumed) {
+          // The stamp SUCCEEDED but the built app didn't embed it (the
+          // M1 warning above said why: a flavored INFOPLIST_FILE). NOT
+          // a stamp failure — "flutter create ." would be wrong and
+          // destructive, and the plist is present. Point at the real
+          // fix: make the target consume ios/Runner/Info.plist, or
+          // stamp the plist the target actually uses.
           _logger.err(
-            'The build could not stamp a baseline identity because '
-            'ios/Runner/Info.plist is missing. Restore the plist '
-            '("flutter create ." regenerates it) and re-run, or pass '
-            '--baseline-id <uuid>.',
+            'No baseline identity: this build stamped '
+            'ios/Runner/Info.plist but the shipped app embeds no '
+            'FCPBaselineId, so no device would match a release recorded '
+            'under it. '
+            // The flag the operator DID pass must not look silently
+            // ignored: it fails for the same reason the stamp does.
+            '${explicitBaselineIdFlag != null && explicitBaselineIdFlag.isNotEmpty ? '--baseline-id cannot substitute: the shipped bytes embed no id, so no device would send it. ' : ''}'
+            'Point your iOS target at ios/Runner/Info.plist '
+            '(or commit an FCPBaselineId into the plist your target '
+            'actually uses), or pass --allow-missing-baseline to accept '
+            'a release matched by fallback rather than by identity.',
+          );
+        } else if (shouldBuild) {
+          // The build ran but could not stamp; the branch above
+          // recorded WHY. Telling the user to "re-run with --build"
+          // would send them in a circle, and "flutter create ."
+          // advice is destructive for a present-but-unusable plist —
+          // it is offered only when the plist is genuinely absent.
+          // --baseline-id is deliberately NOT suggested here: this
+          // branch means the built bytes embed nothing (a pre-stamped
+          // plist would have resolved via fromBuiltApp and never
+          // reached it), so the flag would name an id the app does
+          // not carry — the exact release the guard above refuses.
+          _logger.err(
+            'The build could not stamp a baseline identity: '
+            '${iosStampFailureCause ?? 'ios/Runner/Info.plist is missing'}. '
+            '${iosPlistWasMissing || iosStampFailureCause == null ? 'Restore the plist ("flutter create ." regenerates it) and re-run, or pass ' : 'Fix that and re-run, or pass '}'
+            '--allow-missing-baseline if you accept a release matched '
+            'by fallback rather than by identity.',
           );
         } else {
           _logger.err(
@@ -970,8 +1864,7 @@ class CodePushReleaseSubCommand extends Command<int> {
       // degrade to the unarchived-but-released path, never throw into
       // the outer catch (exit 70 reads as failure and invites the CI
       // retry that duplicates the release).
-      final rawRelease = result['release'];
-      final release = rawRelease is Map<String, dynamic> ? rawRelease : null;
+      final release = CodePushClient.asJsonMap(result['release']);
       progress.complete('Release $version uploaded');
 
       if (release != null) {
@@ -1011,10 +1904,14 @@ class CodePushReleaseSubCommand extends Command<int> {
         // Mirror corner (--allow-missing-baseline with a failed
         // stamp): the records are skipped for a different cause, and
         // that skip must be as visible as the foreign-snapshot one.
+        // "applies to the shipped bytes", not "was stamped": the
+        // not-consumed path DID stamp — the build just didn't ship it
+        // — and this message must not contradict that warning.
         _logger.info(
           'Skipping the saved baseline app and per-release archive: no '
-          'baseline identity was stamped (see the warning above), so a '
-          'saved bundle could not be replayed against this release.',
+          'baseline identity applies to the shipped bytes (see the '
+          'warning above), so a saved bundle could not be replayed '
+          'against this release.',
         );
       }
       if (builtPlatform == 'ios' && baselineId != null && !snapshotIsForeign) {
@@ -1046,7 +1943,7 @@ class CodePushReleaseSubCommand extends Command<int> {
           // save failure (the false) and the no-release-id corner.
           _logger.info(
             'Skipping the per-release archive: '
-            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (no built Runner.app, or the copy failed — see any warning above)'}'
+            '${saved ? 'the server returned no release id' : 'the baseline app was not saved this run (no built Runner.app, or the copy or swap failed — see any warning above)'}'
             ' — archiving would record a bundle that did not produce '
             'this release.',
           );
@@ -1418,25 +2315,86 @@ class CodePushReleaseSubCommand extends Command<int> {
     final tmpDest = Directory('$dest.tmp');
     if (tmpDest.existsSync()) {
       tmpDest.deleteSync(recursive: true);
+    } else {
+      // A plain file or dangling symlink at the temp path (some
+      // earlier mishap) is invisible to Directory.existsSync and
+      // would otherwise make cp fail on EVERY subsequent run.
+      final occupant =
+          FileSystemEntity.typeSync(tmpDest.path, followLinks: false);
+      if (occupant == FileSystemEntityType.link) {
+        Link(tmpDest.path).deleteSync();
+      } else if (occupant != FileSystemEntityType.notFound) {
+        File(tmpDest.path).deleteSync();
+      }
     }
     destDir.parent.createSync(recursive: true);
     final result = Process.runSync('cp', ['-R', source, tmpDest.path]);
     if (result.exitCode != 0) {
       final stderr = result.stderr.toString().trim();
+      // A partial copy is the classic ENOSPC/permissions shape, and
+      // the same problem that failed the cp plausibly fails the
+      // delete — so clean up FIRST and report what actually happened,
+      // never claiming a discard that a hundreds-of-MB partial .tmp
+      // is still sitting on disk contradicting (the swap-failure
+      // branch below does the same).
+      var tmpState = 'Any partial copy was discarded';
+      try {
+        if (tmpDest.existsSync()) {
+          tmpDest.deleteSync(recursive: true);
+        }
+      } on FileSystemException {
+        tmpState = 'The partial copy could NOT be discarded and is '
+            'still at ${tmpDest.path}';
+      }
       _logger.warn(
         'Could not copy the built app into $dest'
         '${stderr.isEmpty ? '' : ': $stderr'}. '
-        'Any previously saved bundle was left in place.',
+        '$tmpState. Any previously saved bundle was left in place.',
       );
-      if (tmpDest.existsSync()) {
-        tmpDest.deleteSync(recursive: true);
-      }
       return false;
     }
-    if (destDir.existsSync()) {
-      destDir.deleteSync(recursive: true);
+    try {
+      if (destDir.existsSync()) {
+        destDir.deleteSync(recursive: true);
+      }
+      tmpDest.renameSync(dest);
+    } on FileSystemException catch (e) {
+      // The copy landed but the swap did not (dest occupied by a
+      // plain file or dangling symlink, permissions). Discard the
+      // full-size temp the cp-failure branch already discards —
+      // without this, a failed rename parks a hundreds-of-MB bundle
+      // under build/ until the next run's cleanup. The dest report
+      // is derived, not assumed: unlike the cp branch, the old
+      // bundle here may be gone (delete succeeded, rename did not).
+      // followLinks: false so a dangling symlink still reads as an
+      // occupant (it blocks every retry until removed by hand).
+      final destState = Directory(dest).existsSync()
+          ? 'The previously saved bundle may no longer be intact.'
+          : FileSystemEntity.typeSync(dest, followLinks: false) !=
+                  FileSystemEntityType.notFound
+              ? 'Whatever occupied that path was left as-is — remove '
+                  'it first, or every retry will fail the same way.'
+              : 'No previously saved bundle remains at that path.';
+      // Clean up FIRST and report what actually happened: the same
+      // permissions problem that failed the rename plausibly fails
+      // the delete, and claiming a hundreds-of-MB copy was
+      // discarded while it sits on disk would be a lie.
+      var tmpState = 'The fresh copy was discarded';
+      try {
+        if (tmpDest.existsSync()) {
+          tmpDest.deleteSync(recursive: true);
+        }
+      } on FileSystemException {
+        tmpState = 'The fresh copy could NOT be discarded and is '
+            'still at ${tmpDest.path}';
+      }
+      _logger.warn(
+        'Copied the built app but could not swap it into $dest: $e. '
+        '$tmpState — re-run the release to retry the save. '
+        '$destState',
+      );
+      return false;
     }
-    tmpDest.renameSync(dest);
 
     _logger.info('');
     _logger.success('Saved baseline app: $dest');

@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:flutter_compile/src/shared/atomic_file_write.dart';
+
 import 'package:uuid/uuid.dart';
 
 const String kDefaultIosInfoPlistPath = 'ios/Runner/Info.plist';
@@ -33,7 +35,7 @@ String? writeBaselineIdToIosInfoPlist(
         '${content.substring(idx + '</dict>'.length)}';
   }
 
-  plistFile.writeAsStringSync(content);
+  _atomicPlistWrite(plistPath, content);
   return originalContent;
 }
 
@@ -41,8 +43,14 @@ void restoreIosInfoPlist(
   String originalContent, {
   String plistPath = kDefaultIosInfoPlistPath,
 }) {
-  File(plistPath).writeAsStringSync(originalContent);
+  _atomicPlistWrite(plistPath, originalContent);
 }
+
+/// Both plist halves write through [atomicReplaceFileContents]; the
+/// mechanism (link-resolving, atomic, mode-preserving, stale-temp
+/// sweeping) and its rationale live on that helper.
+void _atomicPlistWrite(String plistPath, String content) =>
+    atomicReplaceFileContents(plistPath, content);
 
 const String kDefaultBuiltIosAppPath = 'build/ios/iphoneos/Runner.app';
 
@@ -86,11 +94,85 @@ String? resolveIosBaselineId({
 /// The built plist is usually binary (Xcode converts it), so `plutil`
 /// is tried first; XML plists are parsed directly as a fallback so the
 /// helper also works where `plutil` doesn't exist.
+///
+/// A null return has several distinct causes (bundle plist missing,
+/// key absent/blank, binary plist with no working `plutil`), and one
+/// caller escalates null to an exit — [onNullCause] receives which
+/// branch produced the null so a false positive there is diagnosable
+/// instead of reading as a tool bug. Best-effort telemetry only:
+/// never called on a non-null return, at most once per call.
 String? readBaselineIdFromBuiltAppPlist({
   String appPath = kDefaultBuiltIosAppPath,
+  void Function(String cause)? onNullCause,
 }) {
   final plist = File('$appPath/Info.plist');
+  if (!plist.existsSync()) {
+    onNullCause?.call('Info.plist is missing from the built bundle '
+        '($appPath).');
+    return null;
+  }
+  String? plutilNote;
+  try {
+    final result = Process.runSync(
+      'plutil',
+      ['-extract', 'FCPBaselineId', 'raw', '-o', '-', plist.path],
+    );
+    if (result.exitCode == 0) {
+      final value = (result.stdout as String).trim();
+      if (value.isNotEmpty) return value;
+      plutilNote = 'plutil extracted a blank FCPBaselineId';
+    } else {
+      // The usual "key absent" shape on macOS; the XML fallback
+      // below settles which.
+      plutilNote = 'plutil could not extract FCPBaselineId '
+          '(exit ${result.exitCode})';
+    }
+  } catch (_) {
+    plutilNote = 'plutil was unavailable';
+  }
+  try {
+    final content = plist.readAsStringSync();
+    final match = RegExp(
+      r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
+    ).firstMatch(content);
+    final value = match?.group(1)?.trim();
+    if (value == null || value.isEmpty) {
+      onNullCause?.call('FCPBaselineId is absent (or blank) in the '
+          'built Info.plist ($plutilNote).');
+      return null;
+    }
+    return value;
+  } catch (_) {
+    onNullCause?.call('the built Info.plist could not be read as XML '
+        '(a binary plist?) and $plutilNote.');
+    return null;
+  }
+}
+
+/// Reads `FCPBaselineId` from the SOURCE `ios/Runner/Info.plist`
+/// (XML, editable) — distinct from [readBaselineIdFromBuiltAppPlist],
+/// which reads the built (often binary) app bundle. Used to keep the
+/// stamp-failure warning honest: a source plist a developer
+/// pre-committed with an id still ships that id even when this build's
+/// own stamp step can't run. Best-effort; null on absent/blank/error.
+String? readBaselineIdFromSourceInfoPlist({
+  String plistPath = kDefaultIosInfoPlistPath,
+}) {
+  final plist = File(plistPath);
   if (!plist.existsSync()) return null;
+  // XML first (the Flutter-template default), then plutil — a source
+  // plist a developer converted to binary still ships its id under
+  // Xcode, so the warn must not claim "will not embed" for one.
+  try {
+    final content = plist.readAsStringSync();
+    final match = RegExp(
+      r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
+    ).firstMatch(content);
+    final value = match?.group(1)?.trim();
+    if (value != null && value.isNotEmpty) return value;
+  } catch (_) {
+    // Binary plist (or non-UTF-8) — fall through to plutil.
+  }
   try {
     final result = Process.runSync(
       'plutil',
@@ -101,16 +183,7 @@ String? readBaselineIdFromBuiltAppPlist({
       if (value.isNotEmpty) return value;
     }
   } catch (_) {
-    // plutil unavailable — fall through to XML parsing.
+    // plutil unavailable.
   }
-  try {
-    final content = plist.readAsStringSync();
-    final match = RegExp(
-      r'<key>FCPBaselineId</key>\s*<string>([^<]+)</string>',
-    ).firstMatch(content);
-    final value = match?.group(1)?.trim();
-    return (value == null || value.isEmpty) ? null : value;
-  } catch (_) {
-    return null;
-  }
+  return null;
 }

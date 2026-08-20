@@ -15,6 +15,29 @@ void main() {
       tempDir.deleteSync(recursive: true);
     });
 
+    test(
+        'a non-UTF-8 yaml throws FileSystemException naming the '
+        'decode — shared premise with the iOS twin', () {
+      // See ios_baseline_plist_read_test.dart: readAsStringSync
+      // reports non-UTF-8 as a decode-naming FileSystemException,
+      // and run()'s guard splits its warning on that message.
+      final yaml = File('${tempDir.path}/codepush.yaml')
+        ..writeAsBytesSync([0x65, 0x6E, 0xFF, 0xFE]);
+
+      expect(
+        () => writeReleaseVersionToAndroidYaml('1.0.0', yamlPath: yaml.path),
+        throwsA(
+          isA<FileSystemException>()
+              .having(
+                (e) => e.message,
+                'message',
+                contains('Failed to decode'),
+              )
+              .having((e) => e.osError, 'osError', isNull),
+        ),
+      );
+    });
+
     String nestedYamlPath() {
       // Forward-slash joins on purpose, mirroring the shape of
       // kDefaultAndroidCodePushYamlPath: the temp-name computation
@@ -73,6 +96,34 @@ void main() {
       );
       expect(File(yamlPath).existsSync(), isFalse);
     });
+
+    test('a symlinked codepush.yaml keeps its link through the cycle', () {
+      final yamlPath = nestedYamlPath();
+      final shared = File('${tempDir.path}/shared/codepush.yaml')
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('app_id: "a"\n');
+      Link(yamlPath).createSync(shared.path);
+
+      final original = writeReleaseVersionToAndroidYaml(
+        '1.2.3+4',
+        yamlPath: yamlPath,
+      )!;
+      // The write resolves the link and renames AT the shared
+      // target — same mechanism as the iOS Info.plist writer, so
+      // the two cannot disagree about symlinked configs again.
+      expect(
+        FileSystemEntity.typeSync(yamlPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+      expect(shared.readAsStringSync(), contains('release_version'));
+
+      restoreAndroidYaml(original, yamlPath: yamlPath);
+      expect(
+        FileSystemEntity.typeSync(yamlPath, followLinks: false),
+        FileSystemEntityType.link,
+      );
+      expect(shared.readAsStringSync(), 'app_id: "a"\n');
+    }, skip: Platform.isWindows ? 'file symlinks need privileges' : false);
 
     test('restoreAndroidYaml round-trips the original content', () {
       final yamlPath = nestedYamlPath();

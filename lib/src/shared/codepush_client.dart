@@ -669,7 +669,22 @@ class CodePushClient {
   Future<Map<String, dynamic>> _parseResponse(
       HttpClientResponse response) async {
     final body = await response.transform(utf8.decoder).join();
-    final statusCode = response.statusCode;
+    return parseResponseBody(
+      response.statusCode,
+      body,
+      contentType: response.headers.contentType?.mimeType ?? '',
+    );
+  }
+
+  /// The pure body→map step of response parsing. Public for tests:
+  /// the invariants here — every branch carries the real int HTTP
+  /// status, and a body's own status_code key can never override it
+  /// — are what let every caller read status_code `as int`.
+  static Map<String, dynamic> parseResponseBody(
+    int statusCode,
+    String body, {
+    String contentType = '',
+  }) {
     if (body.isEmpty) {
       return {'status_code': statusCode};
     }
@@ -681,10 +696,8 @@ class CodePushClient {
     // cryptic `Unexpected character (at line 2, character 1)` to
     // the user instead of the actual HTTP status. Fall back to a
     // readable excerpt of the raw body when the response isn't JSON.
-    final contentType =
-        response.headers.contentType?.mimeType.toLowerCase() ?? '';
-    final looksLikeJson =
-        contentType.contains('json') || body.trimLeft().startsWith('{');
+    final looksLikeJson = contentType.toLowerCase().contains('json') ||
+        body.trimLeft().startsWith('{');
     if (!looksLikeJson) {
       // Trim and excerpt so a 60 KB HTML page doesn't drown the
       // user's terminal.
@@ -702,7 +715,11 @@ class CodePushClient {
     try {
       final parsed = json.decode(body);
       if (parsed is Map<String, dynamic>) {
-        return {'status_code': statusCode, ...parsed};
+        // Spread FIRST: every caller trusts status_code to be the
+        // real HTTP status (and reads it `as int`), so a body that
+        // carries its own status_code key — an ordinary REST
+        // envelope shape — must never override it.
+        return {...parsed, 'status_code': statusCode};
       }
       return {'status_code': statusCode, 'data': parsed};
     } on FormatException catch (e) {
@@ -715,6 +732,13 @@ class CodePushClient {
       };
     }
   }
+
+  /// The post-201 shape rule as a function: a response value that is
+  /// not a JSON object reads as null, so callers degrade to their
+  /// visible skipped-record paths instead of throwing after the
+  /// server row exists. Public for tests.
+  static Map<String, dynamic>? asJsonMap(Object? value) =>
+      value is Map<String, dynamic> ? value : null;
 
   void close({bool force = false}) => _http.close(force: force);
 }

@@ -427,7 +427,7 @@ class CodePushPatchSubCommand extends Command<int> {
       if (iosOnly.isEmpty) return null;
       return '${iosOnly.join(', ')} '
           '${iosOnly.length == 1 ? 'is' : 'are'} iOS-only; ignoring on '
-          'a $resolvedPlatform build.';
+          '$resolvedPlatform builds.';
     }
     final ignored = <String>[
       ...iosOnly,
@@ -1385,8 +1385,7 @@ class CodePushPatchSubCommand extends Command<int> {
         }
 
         // Post-201: tolerate any shape, as on the release path.
-        final rawPatch = result['patch'];
-        final patch = rawPatch is Map<String, dynamic> ? rawPatch : null;
+        final patch = CodePushClient.asJsonMap(result['patch']);
         progress.complete('Patch uploaded');
 
         if (patch != null) {
@@ -1402,8 +1401,9 @@ class CodePushPatchSubCommand extends Command<int> {
         // block whenever it grandfathers an unsigned patch (app has no
         // public key on file). Tell the user loudly, once, how to flip on
         // mandatory verification.
+        // Post-201: tolerate any shape, like every read beside it.
         final enforcement =
-            result['signature_enforcement'] as Map<String, dynamic>?;
+            CodePushClient.asJsonMap(result['signature_enforcement']);
         if (enforcement != null) {
           _logger
             ..info('')

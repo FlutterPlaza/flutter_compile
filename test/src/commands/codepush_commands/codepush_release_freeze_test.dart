@@ -1094,6 +1094,22 @@ void main() {
         ['--build', '--no-extendable-widgets'],
       );
       expect(cmd.buildOnlyFlagsWarning(), isNull);
+      // Grammar pinned (issue #67 L4), same sentence as the patch
+      // twin: singular 'is', plural 'are'.
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'b-1'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('is iOS-only; ignoring on apk builds.'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--baseline-id', 'b-1', '--allow-missing-baseline'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('are iOS-only; ignoring on apk builds.'),
+      );
       cmd.parsedArgs = cmd.argParser.parse([]);
       expect(cmd.buildOnlyFlagsWarning(), isNull);
     });
@@ -1237,6 +1253,1000 @@ void main() {
       // story.
       expect(saved, isFalse);
     });
+
+    group('snapshotArgError (--snapshot stat)', () {
+      test(
+          'a typo without --build is an argument error, not a late '
+          'failure', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '/definitely/not/here.bin']);
+        expect(
+          cmd.snapshotArgError(willBuild: false),
+          contains('Snapshot file not found'),
+        );
+        // With --build the missing-FILE case defers to the warning.
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
+      });
+
+      test('an existing file passes; no flag is silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaparg');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        expect(cmd.snapshotArgError(willBuild: false), isNull);
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
+        final bare = ParsedArgsReleaseCommand(MockLogger());
+        bare.parsedArgs = bare.argParser.parse([]);
+        expect(bare.snapshotArgError(willBuild: false), isNull);
+      });
+
+      test(
+          'a directory is a FACT: rejected up front with or without '
+          '--build when outside build/', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdir');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final outside = Directory('${root.path}/exported/Runner.app')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', outside.path]);
+        final noBuild = cmd.snapshotArgError(willBuild: false)!;
+        expect(noBuild, contains('names a directory'));
+        expect(noBuild, isNot(contains('not found')));
+        // No build turns a directory outside build/ into a file:
+        // burning the build first proves nothing (round-5 M3).
+        expect(
+          cmd.snapshotArgError(willBuild: true),
+          contains('names a directory'),
+        );
+      });
+
+      group('baselineIdContradiction (flag vs built bytes)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        String? call({
+          bool shouldBuild = true,
+          bool foreign = false,
+          String? stamped,
+          String? flag = 'abc',
+          String? embedded,
+        }) =>
+            cmd.baselineIdContradiction(
+              shouldBuild: shouldBuild,
+              snapshotIsForeign: foreign,
+              stampedByThisBuild: stamped,
+              explicitFlag: flag,
+              embeddedInBuiltApp: embedded,
+              stampFailureCause: 'cause-x',
+            );
+
+        test(
+            'a MATCHING flag is accepted — the pre-stamped read-only '
+            'checkout flow the CHANGELOG recommends', () {
+          expect(call(embedded: 'abc'), isNull);
+        });
+        test(
+            'a case-different flag is REFUSED — reverting == to a '
+            'fold records an id no device presents', () {
+          expect(call(embedded: 'ABC'), contains('contradicts'));
+        });
+        test('a flag nothing embeds is refused, naming the stamp cause', () {
+          expect(call(), contains('did not embed'));
+          expect(call(), contains('cause-x'));
+        });
+        test(
+            'out of scope: foreign snapshot, stamped run, no build, '
+            'no flag', () {
+          expect(call(foreign: true), isNull);
+          expect(call(stamped: 'abc', embedded: null), isNull);
+          expect(call(shouldBuild: false), isNull);
+          expect(call(flag: null), isNull);
+          expect(call(flag: ''), isNull);
+        });
+        test('blank operands read as absent, both sides trimmed', () {
+          // An empty embedded id must NOT read as a present-but-empty
+          // contradiction (that path would record '' as a baseline_id).
+          expect(call(embedded: '   ', flag: 'abc'), contains('did not embed'));
+          // A padded flag matching a clean embedded id is NOT a
+          // contradiction.
+          expect(call(flag: '  abc  ', embedded: 'abc'), isNull);
+        });
+      });
+
+      group('iosStampCauseFor (exception shape → operator cause)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('non-UTF-8 read (no OSError + decode message) → binary plist', () {
+          expect(
+            cmd.iosStampCauseFor(
+              const FileSystemException(
+                "Failed to decode data using encoding 'utf-8'",
+                'ios/Runner/Info.plist',
+              ),
+            ),
+            contains('binary plist'),
+          );
+        });
+        test('EACCES → the directory, not just the file', () {
+          expect(
+            cmd.iosStampCauseFor(
+              const FileSystemException(
+                'Cannot create file',
+                '.Info.plist.1.tmp',
+                OSError('Permission denied', 13),
+              ),
+            ),
+            contains('writable ios/Runner/ directory'),
+          );
+        });
+        test('ENOSPC → disk, NOT permissions', () {
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot write',
+              '.Info.plist.1.tmp',
+              OSError('No space left on device', 28),
+            ),
+          );
+          expect(msg, contains('no space'));
+          expect(msg, isNot(contains('permissions')));
+        });
+        test(
+            'EDQUOT on both platforms → the disk/quota branch, not '
+            'neutral', () {
+          // 69 (macOS/BSD) and 122 (Linux) both mean over-quota.
+          for (final code in [69, 122]) {
+            final msg = cmd.iosStampCauseFor(
+              FileSystemException(
+                'Cannot write',
+                '.Info.plist.1.tmp',
+                OSError('Disc quota exceeded', code),
+              ),
+            );
+            expect(msg, contains('quota'));
+            expect(msg, isNot(contains('permissions')));
+          }
+        });
+        test('unknown OSError → neutral read-or-write', () {
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot write',
+              '.Info.plist.1.tmp',
+              OSError('I/O error', 5),
+            ),
+          );
+          expect(msg, contains('could not be read'));
+          expect(msg, isNot(contains('permissions')));
+        });
+      });
+
+      group('stampConsumedWarning (stamp vs built bytes)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('agreement (build consumed the stamp) → null', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: 'id-1',
+            ),
+            isNull,
+          );
+        });
+        test('built app embeds nothing → warns about the wrong plist', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: null,
+            ),
+            contains('embeds no FCPBaselineId'),
+          );
+        });
+        test('built app embeds a DIFFERENT id → warns, names both', () {
+          final msg = cmd.stampConsumedWarning(
+            stampedByThisBuild: 'id-1',
+            embeddedInBuiltApp: 'id-2',
+          )!;
+          expect(msg, contains('id-2'));
+          expect(msg, contains('id-1'));
+          expect(msg, contains('releasing under the embedded id'));
+        });
+        test('blank operands read as absent (trim both)', () {
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: '  ',
+              embeddedInBuiltApp: 'x',
+            ),
+            isNull,
+          );
+          expect(
+            cmd.stampConsumedWarning(
+              stampedByThisBuild: 'id-1',
+              embeddedInBuiltApp: '  id-1  ',
+            ),
+            isNull,
+          );
+        });
+      });
+
+      group('baselineIdFlagNotice (what the stamp-consumed block owes '
+          'about a passed --baseline-id)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('an AGREEING flag is silent — the recorded id IS the '
+            'flag\'s value (round-23 M1)', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: 'Y',
+              allowMissingBaseline: false,
+            ),
+            isNull,
+          );
+          // Padded flag still agrees after the trim.
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: '  Y  ',
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+        });
+        test('a DIFFERING flag is reported as superseded', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: 'X',
+              allowMissingBaseline: false,
+            ),
+            contains('superseded by the id the built app embeds'),
+          );
+        });
+        test('nothing embedded + opt-out: the flag\'s fate is named; '
+            'without the opt-out the exit owns it (silent here)', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: 'X',
+              allowMissingBaseline: true,
+            ),
+            contains('cannot substitute'),
+          );
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: 'X',
+              allowMissingBaseline: false,
+            ),
+            isNull,
+          );
+        });
+        test('absent or blank flag: silent everywhere', () {
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: 'Y',
+              explicitFlag: null,
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+          expect(
+            cmd.baselineIdFlagNotice(
+              recordedId: null,
+              explicitFlag: '   ',
+              allowMissingBaseline: true,
+            ),
+            isNull,
+          );
+        });
+      });
+
+      group('baselineIdUnderOptOut (which id the opt-out releases under)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        test('embedded id wins when the bytes carry one', () {
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: ' ABC '), 'ABC');
+        });
+        test('null/blank embedded → identity-less', () {
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: null), isNull);
+          expect(cmd.baselineIdUnderOptOut(embeddedInBuiltApp: '  '), isNull);
+        });
+      });
+
+      test('a dangling symlink reads as a dead link, not as "not found"', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaplink');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/app.bin')
+          ..createSync('${root.path}/never-built.bin');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final msg = cmd.snapshotArgError(willBuild: false)!;
+        expect(msg, contains('symbolic link'));
+        expect(msg, isNot(contains('not found:')));
+        // Target outside build/: no --build hint — a build would not
+        // create it, so suggesting the flag would be a false lead.
+        expect(msg, isNot(contains('--build')));
+        // With --build the dead link defers to the post-build stat
+        // like any missing non-directory path: the build can create
+        // the link's TARGET (a stable alias into build output), so an
+        // up-front rejection would fail a run about to succeed
+        // (round-17 M1). The dead-link caution moves to
+        // snapshotPreBuildWarning.
+        expect(cmd.snapshotArgError(willBuild: true), isNull);
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a dead link INTO build/ without --build earns the exact '
+          'hint: a build would create its target (round-19 Low)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snaplinkb');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final msg = cmd.snapshotArgError(
+          willBuild: false,
+          projectRootOverride: root.path,
+        )!;
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains('pass --build'));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a stale directory UNDER build/ defers to the post-build '
+          'stat when --build will run — and is still rejected '
+          'without --build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdirb');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final under = Directory('${root.path}/build/stale/outdir')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
+        // The carve-out: the build MAY clean build/ and rebuild the
+        // path as a file, so an up-front rejection here would be the
+        // false-reject the heuristic must never cause. Deferral, not
+        // approval — the post-build stat still fails the run if the
+        // directory survives.
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          isNull,
+        );
+        // Without --build nothing can replace it: directory fact,
+        // rejected with the directory text either side of build/.
+        expect(
+          cmd.snapshotArgError(
+            willBuild: false,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+      });
+
+      test(
+          'an .app BUNDLE directory is rejected up front even under '
+          'build/ with --build — no build replaces a bundle directory '
+          'with a file, so deferral would only burn the build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapdirapp');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final bundle =
+            Directory('${root.path}/build/ios/iphoneos/Runner.app')
+              ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', bundle.path]);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+        // Trailing separator must not defeat the bundle-shape test.
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${bundle.path}/']);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+        // Nor an unnormalized spelling of the same bundle ('X/.', a
+        // script composing "$BUNDLE/."). 'X/..' names the parent and
+        // correctly stays non-bundle.
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${bundle.path}/.']);
+        expect(
+          cmd.snapshotArgError(
+            willBuild: true,
+            projectRootOverride: root.path,
+          ),
+          contains('names a directory'),
+        );
+      });
+    });
+
+    group('snapshotPreBuildWarning (--build --snapshot)', () {
+      test('a missing path OUTSIDE build/ warns — never rejects', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '${root.path}/nope.bin']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          contains('will fail after the build'),
+        );
+      });
+
+      test('a missing path UNDER build/ is silent — the build may create it',
+          () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/build/future/App']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test(
+          'an existing directory UNDER build/ warns as a DIRECTORY — '
+          'never as a file that does not exist', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // Non-bundle: an .app directory never reaches production
+        // emission any more (snapshotArgError rejects it up front,
+        // round-19 Low), and neither does an outside-build/ one.
+        final under = Directory('${root.path}/build/ios/outdir')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', under.path]);
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('names a directory'));
+        expect(warn, isNot(contains('does not exist')));
+      });
+
+      test('the containment test is case-folded (NTFS, default APFS)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn3');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/Build/future/App']);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test('an existing file is silent wherever it lives', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        expect(
+          cmd.snapshotPreBuildWarning(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test(
+          'a dead link ALIASING build output warns conditionally — '
+          'the build may create its target, so certainty would be '
+          'false', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn6');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // The round-17 M1 CI shape: a stable alias outside build/
+        // pointing at a build output the build is about to create.
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('symbolic link'));
+        expect(warn, contains('if the build does not create its target'));
+        expect(warn, isNot(contains('will not restore this link')));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a dead link whose target is OUTSIDE build/ keeps the '
+          'certain-failure text', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_snapwarn7');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/app.bin')
+          ..createSync('${root.path}/exported/never-built.bin');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final warn =
+            cmd.snapshotPreBuildWarning(projectRootOverride: root.path)!;
+        expect(warn, contains('will not restore this link'));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+    });
+
+    group('danglingLinkTargetsBuildDir (dead-link warning split)', () {
+      test('a RELATIVE target resolves against the link\'s own dir', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_linktgt');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final intoBuild = Link('${root.path}/alias-in')
+          ..createSync('build/ios/App');
+        final outOfBuild = Link('${root.path}/alias-out')
+          ..createSync('exported/App');
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            intoBuild.path,
+            projectRootOverride: root.path,
+          ),
+          isTrue,
+        );
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            outOfBuild.path,
+            projectRootOverride: root.path,
+          ),
+          isFalse,
+        );
+        // Not a link at all → false (the certain text), never a throw.
+        expect(
+          cmd.danglingLinkTargetsBuildDir(
+            '${root.path}/no-such-entry',
+            projectRootOverride: root.path,
+          ),
+          isFalse,
+        );
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+    });
+
+    group('restoreFailureGuidance (failed post-build stamp restore)', () {
+      test('a regular file keeps the git-checkout guidance', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/Info.plist')..writeAsStringSync('x');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: f.path,
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('git checkout -- ${f.path}'));
+        expect(msg, isNot(contains('symbolic link')));
+      });
+
+      test(
+          'a symlinked config names the PHYSICAL target the stamp is '
+          'in — git checkout of the link cannot clean it (round-19 '
+          'M1)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final shared = File('${root.path}/shared/config.plist')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('x');
+        final link = Link('${root.path}/Info.plist')
+          ..createSync(shared.path);
+        final msg = cmd.restoreFailureGuidance(
+          spelled: link.path,
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        // resolveSymbolicLinksSync returns the physical path (which
+        // may itself resolve /tmp → /private/tmp), so assert on the
+        // stable tail rather than the exact prefix.
+        expect(msg, contains('shared/config.plist'));
+        expect(msg, contains('cannot reliably restore'));
+        expect(msg, isNot(contains('e.g. git checkout')));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'a regular file inside a LINKED parent dir is the same '
+          'shape — the writer resolves the whole path, so the '
+          'guidance must too (round-20 pre-push Medium)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid3');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // The monorepo shape: assets/ is a link to a shared dir, the
+        // yaml inside is a regular file.
+        final shared = File('${root.path}/shared-config/codepush.yaml')
+          ..createSync(recursive: true)
+          ..writeAsStringSync('x');
+        Link('${root.path}/assets')
+            .createSync('${root.path}/shared-config');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: '${root.path}/assets/codepush.yaml',
+          stampedValueDescription: 'the stamped release version',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains('shared-config/codepush.yaml'));
+        expect(msg, isNot(contains('e.g. git checkout')));
+        expect(shared.existsSync(), isTrue);
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'an ELOOP path stays total: the loop link IS detected (walk '
+          'sees a link; typeSync maps lstat failures to notFound, it '
+          'never throws) and the unresolvable target degrades to the '
+          'placeholder', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_restguid5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        Link('${root.path}/loop').createSync('${root.path}/loop');
+        final msg = cmd.restoreFailureGuidance(
+          spelled: '${root.path}/loop/Info.plist',
+          stampedValueDescription: 'the stamped FCPBaselineId',
+          projectRootOverride: root.path,
+        );
+        expect(msg, contains('symbolic link'));
+        expect(msg, contains("the link's target"));
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'the helper is TOTAL under a deleted cwd — the one real '
+          'throw source (Directory.current) — and degrades to the '
+          'softer text instead of throwing out of the finally\'s '
+          'catch handler (round-21 M1)', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final keep = Directory.current;
+        final root = Directory.systemTemp.createTempSync('fcp_restguid6');
+        try {
+          final gone = Directory('${root.path}/gone')..createSync();
+          Directory.current = gone;
+          gone.deleteSync();
+          // No stopAtDir → the helper must consult Directory.current,
+          // which now throws (or, on platforms where getcwd still
+          // answers, walks a nonexistent tree) — either way the call
+          // must return the plain-file guidance, never throw.
+          final msg = cmd.restoreFailureGuidance(
+            spelled: 'ios/Runner/Info.plist',
+            stampedValueDescription: 'the stamped FCPBaselineId',
+          );
+          expect(msg, contains('e.g. git checkout'));
+          expect(msg, isNot(contains('symbolic link')));
+        } finally {
+          Directory.current = keep;
+          root.deleteSync(recursive: true);
+        }
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          'links ABOVE the project root are out of scope — they '
+          'resolve identically for the writer and for git', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        // Directory.systemTemp on macOS is /tmp → /private/tmp: with
+        // the anchor at the temp project root, that outer link must
+        // NOT trip the predicate for a plain file.
+        final root = Directory.systemTemp.createTempSync('fcp_restguid4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/Info.plist')..writeAsStringSync('x');
+        expect(
+          cmd.stampPathResolvesThroughLink(
+            f.path,
+            stopAtDir: root.path,
+          ),
+          isFalse,
+        );
+      });
+    });
+
+    group('foreignSnapshotAdvisory (pre-build)', () {
+      test('an existing directory suppresses the foreign advisory', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advsupp');
+        addTearDown(() => root.deleteSync(recursive: true));
+        // Non-bundle: an .app directory exits up front in
+        // snapshotArgError and never reaches the advisory in
+        // production (round-19 L4); the shape that still can is a
+        // stale non-bundle dir under build/, and the wrong-path-shape
+        // mistake must never draw a "foreign bytes" story beside the
+        // directory warning.
+        final dir = Directory('${root.path}/build/ios/outdir')
+          ..createSync(recursive: true);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', dir.path]);
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test('no --snapshot: silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse([]);
+        expect(cmd.foreignSnapshotAdvisory(), isNull);
+      });
+
+      test(
+          'missing foreign bytes OUTSIDE build/: base only — the '
+          'pre-build warning already owns the fail risk', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs =
+            cmd.argParser.parse(['--snapshot', '/elsewhere/app.bin']);
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory.toLowerCase(), isNot(contains('fail')));
+      });
+
+      test(
+          'missing foreign bytes UNDER build/ keep the conditional '
+          'clause — no pre-build warning fires there', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory4');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', '${root.path}/build/other/app.bin']);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
+        expect(advisory, contains('If those bytes carry no readable'));
+        expect(advisory, isNot(contains('FAIL after the build')));
+      });
+
+      test(
+          'a dead link ALIASING build output names the identity risk '
+          'here — the dead-link warning is conditional for it, and '
+          'the identity read will not resolve the alias', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory6');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final link = Link('${root.path}/snapshot-alias')
+          ..createSync('${root.path}/build/ios/iphoneos/Runner.app/'
+              'Frameworks/App.framework/App');
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', link.path]);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
+        expect(advisory, contains('will not resolve this link'));
+        expect(advisory, contains('--baseline-id'));
+        // With the flag passed the identity is settled and the
+        // standard flag clause wins, as for any foreign snapshot.
+        cmd.parsedArgs = cmd.argParser
+            .parse(['--snapshot', link.path, '--baseline-id', 'abc']);
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          contains('comes from --baseline-id'),
+        );
+      }, skip: Platform.isWindows ? 'POSIX symlink semantics' : false);
+
+      test(
+          "with an override, this build's own output under that root "
+          'is not foreign: silent', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory5');
+        addTearDown(() => root.deleteSync(recursive: true));
+        cmd.parsedArgs = cmd.argParser.parse([
+          '--snapshot',
+          '${root.path}/$kDefaultBuiltIosAppPath'
+              '/Frameworks/App.framework/App',
+        ]);
+        expect(
+          cmd.foreignSnapshotAdvisory(projectRootOverride: root.path),
+          isNull,
+        );
+      });
+
+      test(
+          'foreign bytes that EXIST with no readable identity: certain '
+          'failure, said before the build', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/app.bin')..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('FAIL after the build'));
+      });
+
+      test(
+          'an id-less bundle UNDER build/ stays conditional — this '
+          'build may rewrite it, stamp included', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        final root = Directory.systemTemp.createTempSync('fcp_advisory2');
+        addTearDown(() => root.deleteSync(recursive: true));
+        final f = File('${root.path}/build/stale/app.bin')
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([1]);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', f.path]);
+        final advisory =
+            cmd.foreignSnapshotAdvisory(projectRootOverride: root.path)!;
+        expect(advisory, contains('will fail after the build'));
+        expect(advisory, isNot(contains('FAIL after the build')));
+      });
+
+      test('--baseline-id settles the identity: no fail clause', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--snapshot', '/elsewhere/app.bin', '--baseline-id', 'u-1'],
+        );
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory, contains('comes from --baseline-id'));
+        expect(advisory.toLowerCase(), isNot(contains('fail')));
+      });
+
+      test('--allow-missing-baseline: skips named, nothing demanded', () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          ['--snapshot', '/elsewhere/app.bin', '--allow-missing-baseline'],
+        );
+        final advisory = cmd.foreignSnapshotAdvisory()!;
+        expect(advisory, contains('will be skipped'));
+        expect(advisory.toLowerCase(), isNot(contains('baseline identity')));
+      });
+
+      test("this build's own output path is not foreign: silent", () {
+        final cmd = ParsedArgsReleaseCommand(MockLogger());
+        cmd.parsedArgs = cmd.argParser.parse(
+          [
+            '--snapshot',
+            '$kDefaultBuiltIosAppPath/Frameworks/App.framework/App',
+          ],
+        );
+        expect(cmd.foreignSnapshotAdvisory(), isNull);
+      });
+    });
+
+    group('saveIosBaselineApp copy-then-swap', () {
+      late Directory root;
+      late String dest;
+      late ParsedArgsReleaseCommand cmd;
+      late MockLogger logger;
+
+      setUp(() {
+        logger = MockLogger();
+        when(() => logger.warn(any())).thenReturn(null);
+        when(() => logger.detail(any())).thenReturn(null);
+        when(() => logger.info(any())).thenReturn(null);
+        when(() => logger.success(any())).thenReturn(null);
+        cmd = ParsedArgsReleaseCommand(logger);
+        root = Directory.systemTemp.createTempSync('fcp_swap');
+        dest = '${root.path}/build/codepush/baseline/Runner.app';
+        Directory('${root.path}/$kDefaultBuiltIosAppPath')
+            .createSync(recursive: true);
+        File('${root.path}/$kDefaultBuiltIosAppPath/marker.txt')
+            .writeAsStringSync('new');
+      });
+
+      tearDown(() => root.deleteSync(recursive: true));
+
+      test('a pre-existing saved bundle is replaced by the fresh one', () {
+        Directory(dest).createSync(recursive: true);
+        File('$dest/marker.txt').writeAsStringSync('old');
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+      });
+
+      test(
+          'a failed copy leaves the previous bundle intact — the reason '
+          'the swap exists', () {
+        Directory(dest).createSync(recursive: true);
+        File('$dest/marker.txt').writeAsStringSync('old');
+        // Make a SOURCE file unreadable so cp fails mid-copy — the
+        // realistic failure shape — before any delete. This row goes
+        // red if anyone reverts the save to delete-first. (Assumes a
+        // non-root test process, as on this repo's CI runners: root
+        // reads through mode 000 and cp would succeed.)
+        final locked = File('${root.path}/$kDefaultBuiltIosAppPath/locked.txt')
+          ..writeAsStringSync('x');
+        Process.runSync('chmod', ['000', locked.path]);
+        addTearDown(() => Process.runSync('chmod', ['644', locked.path]));
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'old');
+        verify(
+          () => logger.warn(any(that: contains('left in place'))),
+        ).called(1);
+      });
+
+      test(
+          'a plain file occupying the temp path is cleared and the '
+          'save lands — it must not block every subsequent run', () {
+        File('$dest.tmp')
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([1]);
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(
+          FileSystemEntity.typeSync('$dest.tmp', followLinks: false),
+          FileSystemEntityType.notFound,
+        );
+      });
+
+      test('a stale temp from a killed run is cleared and the save lands', () {
+        Directory('$dest.tmp').createSync(recursive: true);
+        File('$dest.tmp/stale.txt').writeAsStringSync('stale');
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isTrue);
+        expect(File('$dest/marker.txt').readAsStringSync(), 'new');
+        expect(File('$dest/stale.txt').existsSync(), isFalse);
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+      });
+
+      test(
+          'a swap blocked by a plain file at dest discards the copy and '
+          'reports, leaving the blocker as-is', () {
+        File(dest)
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([7]);
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        expect(File(dest).existsSync(), isTrue);
+        expect(Directory('$dest.tmp').existsSync(), isFalse);
+        verify(
+          () => logger.warn(
+            any(
+              that: allOf(
+                contains('could not swap'),
+                contains('left as-is'),
+              ),
+            ),
+          ),
+        ).called(1);
+      });
+
+      test(
+          'a swap failure whose cleanup ALSO fails reports the copy as '
+          'still on disk — never claims a discard that did not happen', () {
+        // rename blocked by a plain file at dest (the proven ENOTDIR
+        // trigger above); the tmp delete then fails because cp -R
+        // preserved a mode-555 subdirectory from the SOURCE app —
+        // deleting its contents needs write on that directory.
+        // (Assumes a non-root test process; root writes through 555.)
+        File(dest)
+          ..parent.createSync(recursive: true)
+          ..writeAsBytesSync([7]);
+        final lockedDir =
+            Directory('${root.path}/$kDefaultBuiltIosAppPath/locked')
+              ..createSync(recursive: true);
+        File('${lockedDir.path}/inner.txt').writeAsStringSync('x');
+        Process.runSync('chmod', ['555', lockedDir.path]);
+        // Registered AFTER the root-delete tearDown, so it runs FIRST
+        // (LIFO): both the source's and the stranded tmp copy's 555
+        // dirs must be writable again or the root sweep itself fails.
+        addTearDown(() {
+          Process.runSync('chmod', ['755', lockedDir.path]);
+          Process.runSync('chmod', ['-R', 'u+w', root.path]);
+        });
+        final saved = cmd.saveIosBaselineApp(
+          baselineId: 'b-1',
+          projectRootOverride: root.path,
+        );
+        expect(saved, isFalse);
+        verify(
+          () => logger.warn(
+            any(
+              that: allOf(
+                contains('could not swap'),
+                contains('could NOT be discarded'),
+              ),
+            ),
+          ),
+        ).called(1);
+        // The report told the truth: the copy really is still there.
+        expect(Directory('$dest.tmp').existsSync(), isTrue);
+      });
+    },
+        skip:
+            Platform.isWindows ? 'exercises POSIX cp/rename semantics' : false);
 
     test('dartDefineValues (release): filter applied at this command', () {
       final cmd = ParsedArgsReleaseCommand(MockLogger());

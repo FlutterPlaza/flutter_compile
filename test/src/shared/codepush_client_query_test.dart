@@ -66,6 +66,70 @@ void main() {
     });
   });
 
+  group('CodePushClient.parseResponseBody', () {
+    test('a body-supplied status_code can never override the HTTP one', () {
+      // The spread comes FIRST for exactly this reason: an ordinary
+      // REST envelope body would otherwise replace the real status
+      // and feed a String to callers reading `as int` — after the
+      // row exists on the server.
+      final result = CodePushClient.parseResponseBody(
+        201,
+        '{"status_code": "418", "release": {"id": "r-1"}}',
+        contentType: 'application/json',
+      );
+      expect(result['status_code'], 201);
+      expect(result['release'], {'id': 'r-1'});
+    });
+
+    test('every branch carries the int HTTP status', () {
+      expect(CodePushClient.parseResponseBody(204, '')['status_code'], 204);
+      expect(
+        CodePushClient.parseResponseBody(
+          502,
+          '<html>bad gateway</html>',
+          contentType: 'text/html',
+        )['status_code'],
+        502,
+      );
+      expect(
+        CodePushClient.parseResponseBody(
+          200,
+          '[1, 2]',
+          contentType: 'application/json',
+        )['status_code'],
+        200,
+      );
+      // The non-object payload is preserved under 'data' — pin the
+      // key, not just the status wrapper.
+      expect(
+        CodePushClient.parseResponseBody(
+          200,
+          '[1, 2]',
+          contentType: 'application/json',
+        )['data'],
+        [1, 2],
+      );
+      expect(
+        CodePushClient.parseResponseBody(
+          200,
+          '{broken',
+          contentType: 'application/json',
+        )['status_code'],
+        200,
+      );
+    });
+  });
+
+  group('CodePushClient.asJsonMap', () {
+    test('non-object shapes read as null, never throw', () {
+      expect(CodePushClient.asJsonMap({'id': 'r-1'}), {'id': 'r-1'});
+      expect(CodePushClient.asJsonMap('r-1'), isNull);
+      expect(CodePushClient.asJsonMap(['r-1']), isNull);
+      expect(CodePushClient.asJsonMap(null), isNull);
+      expect(CodePushClient.asJsonMap(42), isNull);
+    });
+  });
+
   group('CodePushClient.releaseFromListing', () {
     test('the requested id is the premise — a mismatch is null', () {
       // A server that ignored the release_id filter (unparseable id

@@ -482,6 +482,20 @@ void main() {
         cmd.buildOnlyFlagsWarning(resolvedPlatform: 'ios'),
         isNull,
       );
+      // Grammar pinned (issue #67 L4), same sentence as the release
+      // twin: singular 'is', plural 'are' — the two commands' texts
+      // were just made to agree and must not drift apart again.
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('is iOS-only; ignoring on apk builds.'),
+      );
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--build', '--swap-mode', '--package-prefix', 'package:x/'],
+      );
+      expect(
+        cmd.buildOnlyFlagsWarning(resolvedPlatform: 'apk'),
+        endsWith('are iOS-only; ignoring on apk builds.'),
+      );
       // With --build they are read; nothing warns.
       cmd.parsedArgs = cmd.argParser.parse(
         ['--build', '--patch-entry-file', 'lib/x.dart'],
