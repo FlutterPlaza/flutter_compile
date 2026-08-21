@@ -238,15 +238,16 @@ void main() {
     });
 
     group('withIosReleaseGenSnapshotOptions', () {
-      const flag = CodePushBuildService.kIosReleaseGenSnapshotOptions;
+      const flags = CodePushBuildService.kIosReleaseGenSnapshotOptions;
+      final flagList = flags.join(',');
 
-      test('appends the gen_snapshot argument when absent', () {
+      test('appends every gen_snapshot option when absent', () {
         final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
           ['--dart-define=FOO=bar'],
         );
         expect(args, [
           '--dart-define=FOO=bar',
-          '--extra-gen-snapshot-options=$flag',
+          '--extra-gen-snapshot-options=$flagList',
         ]);
       });
 
@@ -255,7 +256,7 @@ void main() {
           ['--extra-gen-snapshot-options=--dwarf-stack-traces'],
         );
         expect(args, [
-          '--extra-gen-snapshot-options=--dwarf-stack-traces,$flag',
+          '--extra-gen-snapshot-options=--dwarf-stack-traces,$flagList',
         ]);
         // flutter build accepts one comma-separated list; a duplicate
         // argument occurrence must never be produced.
@@ -265,18 +266,27 @@ void main() {
         );
       });
 
-      test('does not duplicate an already-present option', () {
+      test('does not duplicate options already present', () {
         final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
-          ['--extra-gen-snapshot-options=$flag'],
+          ['--extra-gen-snapshot-options=$flagList'],
         );
-        expect(args, ['--extra-gen-snapshot-options=$flag']);
+        expect(args, ['--extra-gen-snapshot-options=$flagList']);
+      });
+
+      test('appends only the options missing from a partial list', () {
+        // Only the first required option is present; the rest must be
+        // added without disturbing the existing one.
+        final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
+          ['--extra-gen-snapshot-options=${flags.first}'],
+        );
+        expect(args, ['--extra-gen-snapshot-options=$flagList']);
       });
 
       test('normalizes an empty existing option list', () {
         final args = CodePushBuildService.withIosReleaseGenSnapshotOptions(
           ['--extra-gen-snapshot-options='],
         );
-        expect(args, ['--extra-gen-snapshot-options=$flag']);
+        expect(args, ['--extra-gen-snapshot-options=$flagList']);
       });
 
       test('does not mutate its input', () {

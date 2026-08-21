@@ -1121,16 +1121,20 @@ class CodePushBuildService {
   /// code is not reliably callable from a delivered patch, which fails
   /// at run time. Applied by `fcp codepush release --build` on iOS only;
   /// patch builds are unaffected (their build output is not shipped).
-  static const String kIosReleaseGenSnapshotOptions = '--no_use_register_cc';
+  static const List<String> kIosReleaseGenSnapshotOptions = <String>[
+    '--no_use_register_cc',
+    '--no_dedup_instructions',
+  ];
 
-  /// Return [extraArgs] with `--extra-gen-snapshot-options` carrying
-  /// [kIosReleaseGenSnapshotOptions].
+  /// Return [extraArgs] with `--extra-gen-snapshot-options` carrying every
+  /// option in [kIosReleaseGenSnapshotOptions].
   ///
-  /// Appends the argument when absent; merges into an existing
+  /// Appends any option that is absent; merges into an existing
   /// `--extra-gen-snapshot-options=<list>` occurrence otherwise, since
   /// `flutter build` expects a single comma-separated list and a second
-  /// occurrence would replace the first. Kept as a separate pure
-  /// function so tests can pin the exact argv shape.
+  /// occurrence would replace the first. Idempotent — an option already
+  /// present is not duplicated. Kept as a separate pure function so tests
+  /// can pin the exact argv shape.
   static List<String> withIosReleaseGenSnapshotOptions(
     List<String> extraArgs,
   ) {
@@ -1138,12 +1142,15 @@ class CodePushBuildService {
     final merged = [...extraArgs];
     final index = merged.indexWhere((arg) => arg.startsWith(prefix));
     if (index < 0) {
-      return merged..add('$prefix$kIosReleaseGenSnapshotOptions');
+      final joined = kIosReleaseGenSnapshotOptions.join(',');
+      return merged..add('$prefix$joined');
     }
     final existing = merged[index].substring(prefix.length);
     final options = existing.split(',').where((o) => o.isNotEmpty).toList();
-    if (!options.contains(kIosReleaseGenSnapshotOptions)) {
-      options.add(kIosReleaseGenSnapshotOptions);
+    for (final option in kIosReleaseGenSnapshotOptions) {
+      if (!options.contains(option)) {
+        options.add(option);
+      }
     }
     merged[index] = '$prefix${options.join(',')}';
     return merged;
