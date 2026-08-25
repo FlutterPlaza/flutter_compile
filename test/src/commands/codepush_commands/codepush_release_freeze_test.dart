@@ -1465,10 +1465,12 @@ void main() {
         });
       });
 
-      group('baselineIdFlagNotice (what the stamp-consumed block owes '
+      group(
+          'baselineIdFlagNotice (what the stamp-consumed block owes '
           'about a passed --baseline-id)', () {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
-        test('an AGREEING flag is silent — the recorded id IS the '
+        test(
+            'an AGREEING flag is silent — the recorded id IS the '
             'flag\'s value (round-23 M1)', () {
           expect(
             cmd.baselineIdFlagNotice(
@@ -1498,7 +1500,8 @@ void main() {
             contains('superseded by the id the built app embeds'),
           );
         });
-        test('nothing embedded + opt-out: the flag\'s fate is named; '
+        test(
+            'nothing embedded + opt-out: the flag\'s fate is named; '
             'without the opt-out the exit owns it (silent here)', () {
           expect(
             cmd.baselineIdFlagNotice(
@@ -1628,9 +1631,8 @@ void main() {
         final cmd = ParsedArgsReleaseCommand(MockLogger());
         final root = Directory.systemTemp.createTempSync('fcp_snapdirapp');
         addTearDown(() => root.deleteSync(recursive: true));
-        final bundle =
-            Directory('${root.path}/build/ios/iphoneos/Runner.app')
-              ..createSync(recursive: true);
+        final bundle = Directory('${root.path}/build/ios/iphoneos/Runner.app')
+          ..createSync(recursive: true);
         cmd.parsedArgs = cmd.argParser.parse(['--snapshot', bundle.path]);
         expect(
           cmd.snapshotArgError(
@@ -1640,8 +1642,7 @@ void main() {
           contains('names a directory'),
         );
         // Trailing separator must not defeat the bundle-shape test.
-        cmd.parsedArgs =
-            cmd.argParser.parse(['--snapshot', '${bundle.path}/']);
+        cmd.parsedArgs = cmd.argParser.parse(['--snapshot', '${bundle.path}/']);
         expect(
           cmd.snapshotArgError(
             willBuild: true,
@@ -1826,8 +1827,7 @@ void main() {
         final shared = File('${root.path}/shared/config.plist')
           ..createSync(recursive: true)
           ..writeAsStringSync('x');
-        final link = Link('${root.path}/Info.plist')
-          ..createSync(shared.path);
+        final link = Link('${root.path}/Info.plist')..createSync(shared.path);
         final msg = cmd.restoreFailureGuidance(
           spelled: link.path,
           stampedValueDescription: 'the stamped FCPBaselineId',
@@ -1854,8 +1854,7 @@ void main() {
         final shared = File('${root.path}/shared-config/codepush.yaml')
           ..createSync(recursive: true)
           ..writeAsStringSync('x');
-        Link('${root.path}/assets')
-            .createSync('${root.path}/shared-config');
+        Link('${root.path}/assets').createSync('${root.path}/shared-config');
         final msg = cmd.restoreFailureGuidance(
           spelled: '${root.path}/assets/codepush.yaml',
           stampedValueDescription: 'the stamped release version',

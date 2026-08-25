@@ -1448,7 +1448,13 @@ class CodePushBuildService {
         continue;
       }
       final packageUri = entry['packageUri'];
-      final libSegment = packageUri is String ? packageUri : 'lib/';
+      // Spec-legal empty packageUri means "import root == rootUri";
+      // './' resolves to the base directory, whereas forcing '/' onto
+      // an empty segment would be an ABSOLUTE-path reference that
+      // resolves to the filesystem root — a '/' prefix would then
+      // hijack every closure path into this package.
+      var libSegment = packageUri is String ? packageUri : 'lib/';
+      if (libSegment.isEmpty) libSegment = './';
       final Uri? parsedRoot = Uri.tryParse(
         rootUri.endsWith('/') ? rootUri : '$rootUri/',
       );
@@ -1466,6 +1472,11 @@ class CodePushBuildService {
         // literal prefix and the symlink-resolved one, or symlinked
         // layouts (macOS /tmp, monorepo path deps) silently drop every
         // file of the package from the freeze.
+        // Defense-in-depth for any degenerate resolution: a root ('/')
+        // prefix would match every absolute path.
+        if (_normalizePath(libPath, windows: windowsPaths) == '/') {
+          continue;
+        }
         final candidates = prefixes.putIfAbsent(name, () => <String>{});
         candidates.add(_normalizePath(libPath, windows: windowsPaths));
         var resolved = _tryResolve(libPath);

@@ -842,6 +842,31 @@ void _interfaceFreeze() {
       expect(uris, ['package:sdk_pkg/src/core.dart']);
     });
 
+    test('empty packageUri maps from the package root, never from /', () {
+      Directory('${tmp.path}/rootpkg/src').createSync(recursive: true);
+      File('${tmp.path}/rootpkg/top.dart').writeAsStringSync('int t = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "rootpkg", "rootUri": "../../rootpkg", "packageUri": ""}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/rootpkg/top.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart', // NOT rootpkg's
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      // Maps only the package's own file; a '/' prefix would have
+      // hijacked the second path as package:rootpkg/... too.
+      expect(uris, ['package:rootpkg/top.dart']);
+    });
+
     test('writer appends dependency libraries to the callable section', () {
       File('${tmp.path}/app/lib/main.dart').writeAsStringSync('void main() {}');
       final specDir = Directory('${tmp.path}/app/specs')..createSync();
