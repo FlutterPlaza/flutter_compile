@@ -755,7 +755,8 @@ void _interfaceFreeze() {
 
     tearDown(() => tmp.deleteSync(recursive: true));
 
-    test('maps closure files of dependency packages, excluding parts, '
+    test(
+        'maps closure files of dependency packages, excluding parts, '
         'the app package, and flutter', () {
       final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
         closurePaths: {
@@ -777,8 +778,7 @@ void _interfaceFreeze() {
       ]);
     });
 
-    test('missing package_config yields empty (freeze keeps prior scope)',
-        () {
+    test('missing package_config yields empty (freeze keeps prior scope)', () {
       final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
         closurePaths: {'${tmp.path}/deps/sdk_pkg/lib/src/core.dart'},
         projectRoot: '${tmp.path}/nonexistent',
@@ -796,6 +796,50 @@ void _interfaceFreeze() {
         packageName: 'demo',
       );
       expect(uris, isEmpty);
+    });
+
+    test('matches depfile paths whose symlinks the front-end resolved', () {
+      // Simulate a symlinked package root: config points at the symlink,
+      // the closure carries the RESOLVED path (what the front-end writes).
+      final real = Directory('${tmp.path}/real_pkg/lib')
+        ..createSync(recursive: true);
+      File('${real.path}/r.dart').writeAsStringSync('int r = 1;');
+      Link('${tmp.path}/link_pkg').createSync('${tmp.path}/real_pkg');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "linked", "rootUri": "../../link_pkg", "packageUri": "lib/"}
+  ]
+}
+''');
+      final resolvedLib =
+          Directory('${tmp.path}/real_pkg/lib').resolveSymbolicLinksSync();
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {'$resolvedLib/r.dart'},
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, ['package:linked/r.dart']);
+    });
+
+    test('windows-shaped closure paths match and read consistently', () {
+      // Matching and file reads must both use the normalized form.
+      final winRoot = tmp.path; // posix host; exercise the normalizer only
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${winRoot.replaceAll('/', r'\')}'
+              r'\deps\sdk_pkg\lib\src\core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+        windowsPaths: true,
+      );
+      // Prefix computed with windows separators normalized the same way —
+      // the read goes through the normalized (forward-slash) path, which on
+      // this posix host is the real file, so the entry maps.
+      expect(uris, ['package:sdk_pkg/src/core.dart']);
     });
 
     test('writer appends dependency libraries to the callable section', () {

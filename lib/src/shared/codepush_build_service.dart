@@ -1430,8 +1430,9 @@ class CodePushBuildService {
     if (decoded is! Map<String, Object?>) return const [];
     final packages = decoded['packages'];
     if (packages is! List) return const [];
-    // Package name -> normalized absolute lib/ path prefix.
-    final prefixes = <String, String>{};
+    // Package name -> normalized absolute lib/ path prefix candidates
+    // (literal + symlink-resolved).
+    final prefixes = <String, Set<String>>{};
     // Relative rootUris resolve against the config file's directory
     // per the package_config spec.
     final configDirUri = Directory(
@@ -1458,10 +1459,18 @@ class CodePushBuildService {
         libUri = configDirUri.resolveUri(parsedRoot).resolve(
               libSegment.endsWith('/') ? libSegment : '$libSegment/',
             );
-        prefixes[name] = _normalizePath(
-          libUri.toFilePath(windows: windows),
-          windows: windowsPaths,
-        );
+        final libPath = libUri.toFilePath(windows: windows);
+        // The front-end may write resolved (symlink-free) paths into the
+        // depfile (the same reason appLibrariesFromClosure carries a
+        // _tryResolve fallback for the project root) — register BOTH the
+        // literal prefix and the symlink-resolved one, or symlinked
+        // layouts (macOS /tmp, monorepo path deps) silently drop every
+        // file of the package from the freeze.
+        final candidates = prefixes.putIfAbsent(name, () => <String>{});
+        candidates.add(_normalizePath(libPath, windows: windowsPaths));
+        var resolved = _tryResolve(libPath);
+        if (!resolved.endsWith('/')) resolved = '$resolved/';
+        candidates.add(_normalizePath(resolved, windows: windowsPaths));
       } on Object {
         continue;
       }
@@ -1472,34 +1481,46 @@ class CodePushBuildService {
     for (final rawPath in closurePaths) {
       final path = _normalizePath(rawPath, windows: windowsPaths);
       if (!path.endsWith('.dart')) continue;
+      String? matchedPackage;
+      String? matchedPrefix;
       for (final packageEntry in prefixes.entries) {
-        if (!path.startsWith(packageEntry.value)) continue;
-        final rel = path.substring(packageEntry.value.length);
-        if (rel.split('/').any((seg) => seg.startsWith('.'))) break;
-        if (!safe.hasMatch(rel)) {
-          onSkip?.call(path, 'unsupported characters in path');
-          break;
+        for (final prefix in packageEntry.value) {
+          if (path.startsWith(prefix)) {
+            matchedPackage = packageEntry.key;
+            matchedPrefix = prefix;
+            break;
+          }
         }
-        String content;
-        try {
-          content = utf8.decode(
-            File(rawPath).readAsBytesSync(),
-            allowMalformed: true,
-          );
-        } on FileSystemException {
-          onSkip?.call(
-            path,
-            File(rawPath).existsSync()
-                ? 'unreadable'
-                : 'missing on disk — moved during the build, or an '
-                    'unreadable parent directory?',
-          );
-          break;
-        }
-        if (!dartSourceIsPart(content)) {
-          uris.add('package:${packageEntry.key}/$rel');
-        }
-        break;
+        if (matchedPackage != null) break;
+      }
+      if (matchedPackage == null) continue;
+      final rel = path.substring(matchedPrefix!.length);
+      if (rel.split('/').any((seg) => seg.startsWith('.'))) continue;
+      if (!safe.hasMatch(rel)) {
+        onSkip?.call(path, 'unsupported characters in path');
+        continue;
+      }
+      String content;
+      try {
+        // Read via the NORMALIZED path — same contract as
+        // appLibrariesFromClosure: matching and reading must agree even
+        // for windowsPaths-normalized inputs.
+        content = utf8.decode(
+          File(path).readAsBytesSync(),
+          allowMalformed: true,
+        );
+      } on FileSystemException {
+        onSkip?.call(
+          path,
+          File(path).existsSync()
+              ? 'unreadable'
+              : 'missing on disk — moved during the build, or an '
+                  'unreadable parent directory?',
+        );
+        continue;
+      }
+      if (!dartSourceIsPart(content)) {
+        uris.add('package:$matchedPackage/$rel');
       }
     }
     final sorted = uris.toList()..sort();
