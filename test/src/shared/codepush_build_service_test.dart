@@ -716,6 +716,224 @@ void _interfaceFreeze() {
     });
   });
 
+  group('dependencyPackageLibrariesFromClosure', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('dep_freeze_test');
+      // App package layout + package_config referencing one relative
+      // (path) dep, one absolute file: (pub-cache style) dep, the app
+      // itself, and flutter (excluded).
+      Directory('${tmp.path}/app/.dart_tool').createSync(recursive: true);
+      Directory('${tmp.path}/app/lib').createSync(recursive: true);
+      Directory('${tmp.path}/deps/sdk_pkg/lib/src').createSync(recursive: true);
+      Directory('${tmp.path}/cache/hosted_pkg/lib').createSync(recursive: true);
+      Directory('${tmp.path}/flutter/lib').createSync(recursive: true);
+      File('${tmp.path}/deps/sdk_pkg/lib/sdk_pkg.dart')
+          .writeAsStringSync("export 'src/core.dart';");
+      File('${tmp.path}/deps/sdk_pkg/lib/src/core.dart')
+          .writeAsStringSync('class Core {}');
+      File('${tmp.path}/deps/sdk_pkg/lib/src/core.g.dart')
+          .writeAsStringSync("part of 'core.dart';");
+      File('${tmp.path}/cache/hosted_pkg/lib/hosted.dart')
+          .writeAsStringSync('int h = 1;');
+      File('${tmp.path}/flutter/lib/widgets.dart')
+          .writeAsStringSync('class W {}');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "demo", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "sdk_pkg", "rootUri": "../../deps/sdk_pkg", "packageUri": "lib/"},
+    {"name": "hosted_pkg", "rootUri": "file://${tmp.path}/cache/hosted_pkg", "packageUri": "lib/"},
+    {"name": "flutter", "rootUri": "../../flutter", "packageUri": "lib/"}
+  ]
+}
+''');
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test(
+        'maps closure files of dependency packages, excluding parts, '
+        'the app package, and flutter', () {
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/app/lib/main.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/sdk_pkg.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.g.dart',
+          '${tmp.path}/cache/hosted_pkg/lib/hosted.dart',
+          '${tmp.path}/flutter/lib/widgets.dart',
+          '/unrelated/lib/z.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, [
+        'package:hosted_pkg/hosted.dart',
+        'package:sdk_pkg/sdk_pkg.dart',
+        'package:sdk_pkg/src/core.dart',
+      ]);
+    });
+
+    test('missing package_config yields empty (freeze keeps prior scope)', () {
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {'${tmp.path}/deps/sdk_pkg/lib/src/core.dart'},
+        projectRoot: '${tmp.path}/nonexistent',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
+    test('malformed package_config yields empty rather than throwing', () {
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('not json');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {'${tmp.path}/deps/sdk_pkg/lib/src/core.dart'},
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
+    test('matches depfile paths whose symlinks the front-end resolved', () {
+      // Simulate a symlinked package root: config points at the symlink,
+      // the closure carries the RESOLVED path (what the front-end writes).
+      final real = Directory('${tmp.path}/real_pkg/lib')
+        ..createSync(recursive: true);
+      File('${real.path}/r.dart').writeAsStringSync('int r = 1;');
+      Link('${tmp.path}/link_pkg').createSync('${tmp.path}/real_pkg');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "linked", "rootUri": "../../link_pkg", "packageUri": "lib/"}
+  ]
+}
+''');
+      final resolvedLib =
+          Directory('${tmp.path}/real_pkg/lib').resolveSymbolicLinksSync();
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {'$resolvedLib/r.dart'},
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, ['package:linked/r.dart']);
+    });
+
+    test('windows-shaped closure paths match and read consistently', () {
+      // Matching and file reads must both use the normalized form.
+      final winRoot = tmp.path; // posix host; exercise the normalizer only
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${winRoot.replaceAll('/', r'\')}'
+              r'\deps\sdk_pkg\lib\src\core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+        windowsPaths: true,
+      );
+      // Prefix computed with windows separators normalized the same way —
+      // the read goes through the normalized (forward-slash) path, which on
+      // this posix host is the real file, so the entry maps.
+      expect(uris, ['package:sdk_pkg/src/core.dart']);
+    });
+
+    test('empty packageUri maps from the package root, never from /', () {
+      Directory('${tmp.path}/rootpkg/src').createSync(recursive: true);
+      File('${tmp.path}/rootpkg/top.dart').writeAsStringSync('int t = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "rootpkg", "rootUri": "../../rootpkg", "packageUri": ""}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/rootpkg/top.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart', // NOT rootpkg's
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      // Maps only the package's own file; a '/' prefix would have
+      // hijacked the second path as package:rootpkg/... too.
+      expect(uris, ['package:rootpkg/top.dart']);
+    });
+
+    test('absolute packageUri is rejected, never resolved from root', () {
+      Directory('${tmp.path}/etc').createSync(recursive: true);
+      File('${tmp.path}/etc/evil.dart').writeAsStringSync('int e = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "badpkg", "rootUri": "../../deps/sdk_pkg", "packageUri": "/etc/"}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '/etc/evil.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
+    test('dot-dot packageUri escaping the package root is rejected', () {
+      File('${tmp.path}/outside.dart').writeAsStringSync('int o = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "escapee", "rootUri": "../../deps/sdk_pkg", "packageUri": "../../"}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/outside.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
+    test('writer appends dependency libraries to the callable section', () {
+      File('${tmp.path}/app/lib/main.dart').writeAsStringSync('void main() {}');
+      final specDir = Directory('${tmp.path}/app/specs')..createSync();
+      final result = CodePushBuildService(
+        logger: Logger(),
+      ).writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/app/lib/main.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+        specDirPath: specDir.path,
+      );
+      expect(result, isNotNull);
+      final yaml = File(result!.specPath).readAsStringSync();
+      expect(yaml, contains("- library: 'package:demo/main.dart'"));
+      expect(yaml, contains("- library: 'package:sdk_pkg/src/core.dart'"));
+      expect(result.appCount, 1);
+    });
+  });
+
   group('appLibrariesFromClosure', () {
     late Directory tmp;
 

@@ -1305,9 +1305,12 @@ class CodePushBuildService {
   /// branches never enter the freeze, so they can never fail the build.
   /// Part files are excluded ([dartSourceIsPart]); URIs with characters
   /// outside the import-safe set are skipped and reported via [onSkip].
-  /// Known scope limit: only the main package's own `lib/` is frozen —
-  /// path/git dependency packages are not, so their shapes are still
-  /// specialized like any unfrozen library.
+  /// Scope: this maps the main package's own `lib/` only; dependency
+  /// packages are mapped separately by
+  /// [dependencyPackageLibrariesFromClosure] and both feed the freeze
+  /// (an unfrozen library's shapes are specialized, its library
+  /// dictionary is emptied in release builds, and patches cannot
+  /// reach its members).
   static List<String> appLibrariesFromClosure({
     required Set<String> closurePaths,
     required String projectRoot,
@@ -1377,6 +1380,185 @@ class CodePushBuildService {
     } on FileSystemException {
       return path;
     }
+  }
+
+  /// Packages excluded from [dependencyPackageLibrariesFromClosure]:
+  /// `flutter` stays under the curated candidate list
+  /// ([kIosInterfaceFreezeFlutterCandidates]) so only its stable
+  /// barrels are frozen, and the rest are tooling/SDK-shim packages a
+  /// patch has no business reaching.
+  static const Set<String> kIosFreezeExcludedDependencyPackages = {
+    'flutter',
+    'flutter_test',
+    'flutter_localizations',
+    'flutter_web_plugins',
+    'sky_engine',
+  };
+
+  /// Map the compile closure's source paths to the library URIs of the
+  /// app's DEPENDENCY packages (path, git, and hosted), translating
+  /// on-disk prefixes into `package:` URIs via the project's
+  /// `.dart_tool/package_config.json`. Complements
+  /// [appLibrariesFromClosure] (which covers only the main package) so
+  /// a release freezes every package the app actually compiles: an
+  /// unfrozen package library keeps no public dictionary in release
+  /// builds, so code delivered later that merely IMPORTS it can
+  /// resolve nothing through it. Same filters as the app mapping:
+  /// dead files never appear (closure-driven), part files are
+  /// excluded, unsafe URIs are skipped and reported via [onSkip].
+  /// The main package ([packageName]) and
+  /// [kIosFreezeExcludedDependencyPackages] are excluded. Returns an
+  /// empty list when the package config is absent or unreadable — the
+  /// freeze then simply keeps its previous (main-package + framework)
+  /// scope rather than failing the build.
+  static List<String> dependencyPackageLibrariesFromClosure({
+    required Set<String> closurePaths,
+    required String projectRoot,
+    required String packageName,
+    void Function(String path, String reason)? onSkip,
+    bool? windowsPaths,
+  }) {
+    final windows = windowsPaths ?? Platform.isWindows;
+    final configFile = File('$projectRoot/.dart_tool/package_config.json');
+    if (!configFile.existsSync()) return const [];
+    Object? decoded;
+    try {
+      decoded = jsonDecode(configFile.readAsStringSync());
+    } on Object {
+      return const [];
+    }
+    if (decoded is! Map<String, Object?>) return const [];
+    final packages = decoded['packages'];
+    if (packages is! List) return const [];
+    // Package name -> normalized absolute lib/ path prefix candidates
+    // (literal + symlink-resolved).
+    final prefixes = <String, Set<String>>{};
+    // Relative rootUris resolve against the config file's directory
+    // per the package_config spec.
+    final configDirUri = Directory(
+      '$projectRoot/.dart_tool',
+    ).absolute.uri;
+    for (final entry in packages) {
+      if (entry is! Map) continue;
+      final name = entry['name'];
+      final rootUri = entry['rootUri'];
+      if (name is! String || rootUri is! String) continue;
+      if (name == packageName ||
+          kIosFreezeExcludedDependencyPackages.contains(name)) {
+        continue;
+      }
+      final packageUri = entry['packageUri'];
+      // Spec-legal empty packageUri means "import root == rootUri";
+      // './' resolves to the base directory, whereas forcing '/' onto
+      // an empty segment would be an ABSOLUTE-path reference that
+      // resolves to the filesystem root — a '/' prefix would then
+      // hijack every closure path into this package.
+      var libSegment = packageUri is String ? packageUri : 'lib/';
+      if (libSegment.isEmpty) libSegment = './';
+      // Reject the INPUT class, not one bad output: a path-absolute or
+      // scheme-carrying packageUri (spec-illegal; only relative values
+      // are produced by pub) would resolve by DISCARDING the package
+      // root entirely (RFC 3986 §5.3) and register a prefix from the
+      // filesystem root — the fabricate-instead-of-degrade hijack.
+      if (libSegment.startsWith('/') ||
+          libSegment.startsWith(r'\') ||
+          libSegment.contains(':')) {
+        continue;
+      }
+      final Uri? parsedRoot = Uri.tryParse(
+        rootUri.endsWith('/') ? rootUri : '$rootUri/',
+      );
+      if (parsedRoot == null) continue;
+      if (parsedRoot.hasScheme && parsedRoot.scheme != 'file') continue;
+      final Uri libUri;
+      try {
+        final rootResolved = configDirUri.resolveUri(parsedRoot);
+        libUri = rootResolved.resolve(
+          libSegment.endsWith('/') ? libSegment : '$libSegment/',
+        );
+        // CONTAINMENT: the lib prefix must sit inside the package root.
+        // This closes the whole escape class at once — absolute inputs,
+        // '..' traversal, and any future resolution trick — instead of
+        // enumerating bad shapes (rounds 2-4 each found one).
+        final rootPath = _normalizePath(
+          rootResolved.toFilePath(windows: windows),
+          windows: windowsPaths,
+        );
+        final libPath = libUri.toFilePath(windows: windows);
+        if (!_normalizePath(libPath, windows: windowsPaths)
+            .startsWith(rootPath)) {
+          continue;
+        }
+        // The front-end may write resolved (symlink-free) paths into the
+        // depfile (the same reason appLibrariesFromClosure carries a
+        // _tryResolve fallback for the project root) — register BOTH the
+        // literal prefix and the symlink-resolved one, or symlinked
+        // layouts (macOS /tmp, monorepo path deps) silently drop every
+        // file of the package from the freeze.
+        // Defense-in-depth for any degenerate resolution: a root ('/')
+        // prefix would match every absolute path.
+        if (_normalizePath(libPath, windows: windowsPaths) == '/') {
+          continue;
+        }
+        final candidates = prefixes.putIfAbsent(name, () => <String>{});
+        candidates.add(_normalizePath(libPath, windows: windowsPaths));
+        var resolved = _tryResolve(libPath);
+        if (!resolved.endsWith('/')) resolved = '$resolved/';
+        candidates.add(_normalizePath(resolved, windows: windowsPaths));
+      } on Object {
+        continue;
+      }
+    }
+    if (prefixes.isEmpty) return const [];
+    final safe = RegExp(r'^[A-Za-z0-9_\-./]+$');
+    final uris = <String>{};
+    for (final rawPath in closurePaths) {
+      final path = _normalizePath(rawPath, windows: windowsPaths);
+      if (!path.endsWith('.dart')) continue;
+      String? matchedPackage;
+      String? matchedPrefix;
+      for (final packageEntry in prefixes.entries) {
+        for (final prefix in packageEntry.value) {
+          if (path.startsWith(prefix)) {
+            matchedPackage = packageEntry.key;
+            matchedPrefix = prefix;
+            break;
+          }
+        }
+        if (matchedPackage != null) break;
+      }
+      if (matchedPackage == null) continue;
+      final rel = path.substring(matchedPrefix!.length);
+      if (rel.split('/').any((seg) => seg.startsWith('.'))) continue;
+      if (!safe.hasMatch(rel)) {
+        onSkip?.call(path, 'unsupported characters in path');
+        continue;
+      }
+      String content;
+      try {
+        // Read via the NORMALIZED path — same contract as
+        // appLibrariesFromClosure: matching and reading must agree even
+        // for windowsPaths-normalized inputs.
+        content = utf8.decode(
+          File(path).readAsBytesSync(),
+          allowMalformed: true,
+        );
+      } on FileSystemException {
+        onSkip?.call(
+          path,
+          File(path).existsSync()
+              ? 'unreadable'
+              : 'missing on disk — moved during the build, or an '
+                  'unreadable parent directory?',
+        );
+        continue;
+      }
+      if (!dartSourceIsPart(content)) {
+        uris.add('package:$matchedPackage/$rel');
+      }
+    }
+    final sorted = uris.toList()..sort();
+    return sorted;
   }
 
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
@@ -1516,12 +1698,24 @@ class CodePushBuildService {
       onSkip: onSkip,
     );
     if (appLibraries.isEmpty) return null;
+    // Dependency packages join the freeze alongside the app's own
+    // libraries: in release builds an unfrozen package library keeps
+    // no public dictionary, so later-delivered code that imports it
+    // resolves nothing through it. The app count reported below stays
+    // main-package-only; dependency libraries ride in the same
+    // callable section.
+    final dependencyLibraries = dependencyPackageLibrariesFromClosure(
+      closurePaths: closurePaths,
+      projectRoot: projectRoot,
+      packageName: packageName,
+      onSkip: onSkip,
+    );
     final flutterLibraries = flutterLibrariesFromClosure(closurePaths);
     final includeExtendable =
         allowExtendable && closureHasExtendableFramework(closurePaths);
     final yaml = buildIosInterfaceFreezeYaml(
       flutterLibraries: flutterLibraries,
-      appLibraries: appLibraries,
+      appLibraries: [...appLibraries, ...dependencyLibraries],
       includeExtendable: includeExtendable,
     );
     // Content-addressed name: the build fingerprint includes the
