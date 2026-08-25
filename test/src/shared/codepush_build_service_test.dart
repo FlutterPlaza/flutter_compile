@@ -867,6 +867,29 @@ void _interfaceFreeze() {
       expect(uris, ['package:rootpkg/top.dart']);
     });
 
+    test('absolute packageUri is rejected, never resolved from root', () {
+      Directory('${tmp.path}/etc').createSync(recursive: true);
+      File('${tmp.path}/etc/evil.dart').writeAsStringSync('int e = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "badpkg", "rootUri": "../../deps/sdk_pkg", "packageUri": "/etc/"}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '/etc/evil.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
     test('writer appends dependency libraries to the callable section', () {
       File('${tmp.path}/app/lib/main.dart').writeAsStringSync('void main() {}');
       final specDir = Directory('${tmp.path}/app/specs')..createSync();

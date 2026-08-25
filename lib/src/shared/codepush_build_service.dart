@@ -1455,6 +1455,16 @@ class CodePushBuildService {
       // hijack every closure path into this package.
       var libSegment = packageUri is String ? packageUri : 'lib/';
       if (libSegment.isEmpty) libSegment = './';
+      // Reject the INPUT class, not one bad output: a path-absolute or
+      // scheme-carrying packageUri (spec-illegal; only relative values
+      // are produced by pub) would resolve by DISCARDING the package
+      // root entirely (RFC 3986 §5.3) and register a prefix from the
+      // filesystem root — the fabricate-instead-of-degrade hijack.
+      if (libSegment.startsWith('/') ||
+          libSegment.startsWith(r'\') ||
+          libSegment.contains(':')) {
+        continue;
+      }
       final Uri? parsedRoot = Uri.tryParse(
         rootUri.endsWith('/') ? rootUri : '$rootUri/',
       );
