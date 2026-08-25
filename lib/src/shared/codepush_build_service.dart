@@ -1472,10 +1472,23 @@ class CodePushBuildService {
       if (parsedRoot.hasScheme && parsedRoot.scheme != 'file') continue;
       final Uri libUri;
       try {
-        libUri = configDirUri.resolveUri(parsedRoot).resolve(
-              libSegment.endsWith('/') ? libSegment : '$libSegment/',
-            );
+        final rootResolved = configDirUri.resolveUri(parsedRoot);
+        libUri = rootResolved.resolve(
+          libSegment.endsWith('/') ? libSegment : '$libSegment/',
+        );
+        // CONTAINMENT: the lib prefix must sit inside the package root.
+        // This closes the whole escape class at once — absolute inputs,
+        // '..' traversal, and any future resolution trick — instead of
+        // enumerating bad shapes (rounds 2-4 each found one).
+        final rootPath = _normalizePath(
+          rootResolved.toFilePath(windows: windows),
+          windows: windowsPaths,
+        );
         final libPath = libUri.toFilePath(windows: windows);
+        if (!_normalizePath(libPath, windows: windowsPaths)
+            .startsWith(rootPath)) {
+          continue;
+        }
         // The front-end may write resolved (symlink-free) paths into the
         // depfile (the same reason appLibrariesFromClosure carries a
         // _tryResolve fallback for the project root) — register BOTH the

@@ -890,6 +890,28 @@ void _interfaceFreeze() {
       expect(uris, isEmpty);
     });
 
+    test('dot-dot packageUri escaping the package root is rejected', () {
+      File('${tmp.path}/outside.dart').writeAsStringSync('int o = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "escapee", "rootUri": "../../deps/sdk_pkg", "packageUri": "../../"}
+  ]
+}
+''');
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/outside.dart',
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+      );
+      expect(uris, isEmpty);
+    });
+
     test('writer appends dependency libraries to the callable section', () {
       File('${tmp.path}/app/lib/main.dart').writeAsStringSync('void main() {}');
       final specDir = Directory('${tmp.path}/app/specs')..createSync();
