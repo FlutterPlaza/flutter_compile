@@ -1645,20 +1645,17 @@ class CodePushBuildService {
         continue;
       }
     }
-    final closure = {
-      for (final p in closurePaths) _normalizePath(p, windows: windowsPaths),
-    };
-    // The front-end may write project-root-relative source paths into
-    // the depfile, depending on version — [appLibrariesFromClosure]
+    // The front-end may write cwd-relative source paths into the
+    // depfile, depending on version — [appLibrariesFromClosure]
     // carries a bare 'lib/' prefix for the same reason. Precompute the
     // root spellings (literal + symlink-resolved, trailing separator
-    // kept) so each absolute candidate below can also be compared
-    // relative to the project root; without them a relative-path
+    // kept) so each relative closure entry below can also be recorded
+    // in its root-joined absolute form; without that a relative-path
     // closure would report EVERY include as "matches no library" —
     // the one false positive the doc comment above rules out. On any
-    // resolution failure the set stays empty: the absolute comparison
+    // resolution failure the set stays empty: the literal comparison
     // still runs, so a warning can at worst be kept, never invented.
-    final rootPrefixes = <String>{};
+    final rootJoinBases = <String>{};
     try {
       final rootPath = _normalizePath(
         Directory(projectRoot).absolute.uri.normalizePath().toFilePath(
@@ -1671,10 +1668,38 @@ class CodePushBuildService {
         windows: windowsPaths,
       );
       for (final root in {rootPath, resolvedRoot}) {
-        rootPrefixes.add(root.endsWith('/') ? root : '$root/');
+        rootJoinBases.add(root.endsWith('/') ? root : '$root/');
       }
     } on Object {
-      // Keep the absolute-only comparison.
+      // Keep the literal-spelling comparison.
+    }
+    // Normalize the closure ONCE: alongside each entry's literal
+    // spelling, a relative entry also gets its root-joined absolute
+    // form with `.`/`..` segments collapsed, so an out-of-root path
+    // dependency's `../shared_ui/lib/x.dart` spelling still matches
+    // its absolute lib/ dir. This widens the MATCH only, never the
+    // report suppression: the joined forms are per-entry, so an
+    // include whose source is in no spelling of the closure keeps
+    // warning.
+    final closure = <String>{};
+    for (final p in closurePaths) {
+      final normalized = _normalizePath(p, windows: windowsPaths);
+      closure.add(normalized);
+      if (isAbsoluteSourcePath(normalized)) continue;
+      for (final base in rootJoinBases) {
+        try {
+          closure.add(
+            _normalizePath(
+              Uri.file('$base$normalized', windows: windows)
+                  .normalizePath()
+                  .toFilePath(windows: windows),
+              windows: windowsPaths,
+            ),
+          );
+        } on Object {
+          // Unjoinable spelling — the literal entry stands.
+        }
+      }
     }
     final unmatched = <String>[];
     for (final uri in packageUris) {
@@ -1697,15 +1722,7 @@ class CodePushBuildService {
         _tryResolve(literal),
         windows: windowsPaths,
       );
-      final candidates = {literal, resolved};
-      for (final prefix in rootPrefixes) {
-        for (final absolute in [literal, resolved]) {
-          if (absolute.startsWith(prefix)) {
-            candidates.add(absolute.substring(prefix.length));
-          }
-        }
-      }
-      if (!candidates.any(closure.contains)) {
+      if (!closure.contains(literal) && !closure.contains(resolved)) {
         unmatched.add(uri);
       }
     }

@@ -408,6 +408,33 @@ void main() {
               reason: 'exit 0 without an output file is not a success');
         });
 
+        test('deletes a stale depfile before compiling', () async {
+          // The depfile is never removed after a run, so a previous
+          // run's closure is present on entry to every subsequent
+          // build; this delete is the only thing keeping it from
+          // answering this run's include-URI verification.
+          final dep = File('$outputDill.d')
+            ..createSync(recursive: true)
+            ..writeAsStringSync('stale: /old/x.dart');
+
+          var goneAtCallTime = false;
+          await service.compilePatchKernel(
+            targetPath: 'lib/.fcp_patch_entry.dart',
+            outputDillPath: outputDill,
+            depfilePath: dep.path,
+            flutterRootOverride: root.path,
+            runProcess: (executable, args) {
+              goneAtCallTime = !dep.existsSync();
+              return ProcessResult(0, 0, '', '');
+            },
+          );
+
+          expect(goneAtCallTime, isTrue,
+              reason: 'a stale depfile must be deleted before the '
+                  'compile so it can never answer this run\'s '
+                  'include-URI verification');
+        });
+
         test(
             'fails on a non-zero compiler exit even when an output '
             'exists', () async {
@@ -855,6 +882,50 @@ void _interfaceFreeze() {
         projectRoot: '${tmp.path}/app',
       );
       expect(unmatched, ['package:demo/overlay.dart']);
+    });
+
+    test(
+        'an out-of-root path dependency matches a ../-relative closure '
+        'spelling', () {
+      // Monorepo shape: shared_ui lives NEXT TO the app
+      // (`shared_ui: {path: ../shared_ui}`), so a cwd-relative depfile
+      // spells its sources `../shared_ui/lib/…`. Root-joining must
+      // collapse the `..` segments to reach the package's absolute
+      // lib/ dir — while an include of that same package whose source
+      // is in NO spelling of the closure keeps warning.
+      Directory('${tmp.path}/shared_ui/lib').createSync(recursive: true);
+      File('${tmp.path}/shared_ui/lib/x.dart').writeAsStringSync('int x = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "demo", "rootUri": "../", "packageUri": "lib/"},
+    {"name": "shared_ui", "rootUri": "../../shared_ui", "packageUri": "lib/"}
+  ]
+}
+''');
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const [
+          'package:shared_ui/x.dart',
+          'package:shared_ui/absent.dart',
+        ],
+        closurePaths: {'lib/main.dart', '../shared_ui/lib/x.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, ['package:shared_ui/absent.dart']);
+    });
+
+    test('windows-shaped relative closure paths still match', () {
+      // posix host; exercise the normalizer + root-join only, like the
+      // sibling rows at dependencyPackageLibrariesFromClosure.
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {r'lib\main.dart', r'lib\overlay.dart'},
+        projectRoot: '${tmp.path}/app',
+        windowsPaths: true,
+      );
+      expect(unmatched, isEmpty);
     });
   });
 
