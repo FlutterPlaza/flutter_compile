@@ -1378,6 +1378,39 @@ void main() {
             contains('writable ios/Runner/ directory'),
           );
         });
+        test(
+            'EACCES with the failing path OUTSIDE ios/Runner/ names '
+            "the link target's directory, not ios/Runner/", () {
+          // The monorepo shape: Info.plist is a symlink into shared
+          // config whose directory is read-only. The writer resolves
+          // first and creates the temp in the RESOLVED parent, so the
+          // exception's path is the shared directory's — and telling
+          // the operator to make the (writable) ios/Runner/ writable
+          // would send them nowhere.
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot create file',
+              '/repo/shared/config/.Info.plist.1.tmp',
+              OSError('Permission denied', 13),
+            ),
+          );
+          expect(msg, contains('/repo/shared/config/'));
+          expect(msg, contains('symbolic link'));
+          expect(msg, isNot(contains('writable ios/Runner/ directory')));
+        });
+        test(
+            'EACCES with the failing path UNDER ios/Runner/ keeps the '
+            'plain directory guidance', () {
+          final msg = cmd.iosStampCauseFor(
+            const FileSystemException(
+              'Cannot create file',
+              '/proj/ios/Runner/.Info.plist.1.tmp',
+              OSError('Permission denied', 13),
+            ),
+          );
+          expect(msg, contains('writable ios/Runner/ directory'));
+          expect(msg, isNot(contains('symbolic link')));
+        });
         test('ENOSPC → disk, NOT permissions', () {
           final msg = cmd.iosStampCauseFor(
             const FileSystemException(

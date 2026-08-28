@@ -866,6 +866,157 @@ void main() {
     });
   });
 
+  group('warnUnmatchedIncludeUris', () {
+    late MockLogger logger;
+    late ParsedArgsPatchCommand cmd;
+    late Directory tmp;
+    late String projectRoot;
+    late String depfilePath;
+
+    setUp(() {
+      logger = MockLogger();
+      when(() => logger.warn(any())).thenReturn(null);
+      cmd = ParsedArgsPatchCommand(logger);
+      tmp = Directory.systemTemp.createTempSync('fcp_include_warn');
+      projectRoot = '${tmp.path}/app';
+      Directory('$projectRoot/.dart_tool').createSync(recursive: true);
+      Directory('$projectRoot/lib').createSync(recursive: true);
+      File('$projectRoot/lib/main.dart').writeAsStringSync('void main(){}');
+      File('$projectRoot/lib/overlay.dart').writeAsStringSync('int o = 1;');
+      File('$projectRoot/.dart_tool/package_config.json').writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "demo", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+''');
+      depfilePath =
+          '$projectRoot/${CodePushPatchSubCommand.kPatchKernelDepfile}';
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    void writeDepfile(List<String> sources) {
+      File(depfilePath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync(
+          'build/codepush/patch_kernel.dill: ${sources.join(' ')}\n',
+        );
+    }
+
+    test('an unmatched user URI draws the actionable warning', () {
+      writeDepfile(['$projectRoot/lib/main.dart']);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--include-uri', 'package:demo/overlay.dart'],
+      );
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: depfilePath,
+        projectRoot: projectRoot,
+      );
+      // The message must reach the logger as the operator reads it:
+      // the URI, the no-effect verdict, and the concrete fix.
+      verify(
+        () => logger.warn(
+          any(
+            that: allOf(
+              contains('--include-uri package:demo/overlay.dart'),
+              contains('matches no library in the patch build input'),
+              contains('will have no effect'),
+              contains('// ignore: unused_import'),
+            ),
+          ),
+        ),
+      ).called(1);
+    });
+
+    test('a URI whose library IS in the compiled input stays silent', () {
+      writeDepfile([
+        '$projectRoot/lib/main.dart',
+        '$projectRoot/lib/overlay.dart',
+      ]);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--include-uri', 'package:demo/overlay.dart'],
+      );
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: depfilePath,
+        projectRoot: projectRoot,
+      );
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('a missing depfile checks nothing and never fails the build', () {
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--include-uri', 'package:demo/overlay.dart'],
+      );
+      // Returns normally — the advisory must not become a build
+      // failure when the compile wrote no depfile.
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: '${tmp.path}/definitely/not/there.d',
+        projectRoot: projectRoot,
+      );
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('an unreadable depfile degrades to silence, not a crash', () {
+      // Malformed UTF-8 makes the read throw AFTER existsSync passes —
+      // the try/on Object fallback path, pinned as non-fatal.
+      File(depfilePath)
+        ..createSync(recursive: true)
+        ..writeAsBytesSync([0xc3, 0x28, 0xff, 0xfe]);
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--include-uri', 'package:demo/overlay.dart'],
+      );
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: depfilePath,
+        projectRoot: projectRoot,
+      );
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('a depfile with no parseable sources checks nothing', () {
+      // The empty-closure gate: a readable file that yields zero
+      // sources proves nothing about the input and must not turn
+      // every include into a false report.
+      File(depfilePath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('no colon here');
+      cmd.parsedArgs = cmd.argParser.parse(
+        ['--include-uri', 'package:demo/overlay.dart'],
+      );
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: depfilePath,
+        projectRoot: projectRoot,
+      );
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('only user-passed values are checked: no flag, no warning', () {
+      // The build assembles auto-derived include entries (swap-mode
+      // source, helper imports) that are in the input by
+      // construction; the method reads exactly the user's
+      // --include-uri values, so a run without the flag checks
+      // nothing even over a sparse closure.
+      writeDepfile(['$projectRoot/lib/main.dart']);
+      cmd.parsedArgs = cmd.argParser.parse([]);
+      cmd.warnUnmatchedIncludeUris(
+        depfilePath: depfilePath,
+        projectRoot: projectRoot,
+      );
+      verifyNever(() => logger.warn(any()));
+    });
+
+    test('the default depfile path is the compile-side constant', () {
+      // The verification reads the depfile the patch-kernel compile
+      // writes; the shared const is the wiring that keeps them from
+      // diverging.
+      expect(
+        CodePushPatchSubCommand.kPatchKernelDepfile,
+        'build/codepush/patch_kernel.dill.d',
+      );
+    });
+  });
+
   group('nonBlankEntries', () {
     test('drops whitespace-only entries, keeps values UNTRIMMED', () {
       // A trimmed value would bake a different compile-time constant

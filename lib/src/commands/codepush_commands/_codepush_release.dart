@@ -368,7 +368,14 @@ class CodePushReleaseSubCommand extends Command<int> {
   /// - EACCES/EPERM → the directory the temp+rename needs (or an
   ///   unreadable plist — both are "fix a permission", and naming
   ///   the directory is the one the flagship read-only-`ios/Runner/`
-  ///   case actually needs);
+  ///   case actually needs). The writer resolves symlinks FIRST and
+  ///   creates the temp in the RESOLVED target's parent, so when the
+  ///   failing operation's own path (`e.path`) sits outside
+  ///   `ios/Runner/` — the plist is a link into shared config whose
+  ///   directory is read-only — the guidance names THAT directory:
+  ///   telling the operator to make `ios/Runner/` writable when it
+  ///   demonstrably is would send them nowhere (the restore half's
+  ///   link-awareness, applied to the stamp half);
   /// - ENOSPC/EDQUOT/EROFS → a full/read-only disk, NOT permissions;
   /// - anything else → a neutral could-not-read-or-write.
   String iosStampCauseFor(FileSystemException e) {
@@ -384,6 +391,13 @@ class CodePushReleaseSubCommand extends Command<int> {
     const edquotDarwin = 69, edquotLinux = 122;
     final code = e.osError?.errorCode;
     if (code == eacces || code == eperm) {
+      final linkedDir = _stampFailingDirOutsideRunner(e.path);
+      if (linkedDir != null) {
+        return 'the stamp needs a writable $linkedDir/ directory — '
+            'ios/Runner/Info.plist resolves there through a symbolic '
+            'link, so THAT directory (not ios/Runner/) is the one to '
+            'make writable';
+      }
       return 'the stamp needs a writable ios/Runner/ directory '
           '(not just a writable Info.plist), or the plist is '
           'unreadable — a permissions problem either way';
@@ -397,6 +411,25 @@ class CodePushReleaseSubCommand extends Command<int> {
     }
     return 'ios/Runner/Info.plist could not be read, or the stamp '
         'could not be written to ios/Runner/';
+  }
+
+  /// The parent directory of the failing operation's own path
+  /// ([FileSystemException.path]) when it sits OUTSIDE `ios/Runner/`,
+  /// else null. Structural, not a filesystem probe — the exception
+  /// already names where the writer actually failed (the temp is
+  /// created in the RESOLVED target's parent), so this stays pure and
+  /// rowable like its caller. A bare filename or an absent path
+  /// carries no directory information → null (generic text).
+  static String? _stampFailingDirOutsideRunner(String? failingPath) {
+    if (failingPath == null || failingPath.isEmpty) return null;
+    final normalized = failingPath.replaceAll(r'\', '/');
+    final cut = normalized.lastIndexOf('/');
+    if (cut <= 0) return null;
+    final parent = normalized.substring(0, cut);
+    if (parent == 'ios/Runner' || parent.endsWith('/ios/Runner')) {
+      return null;
+    }
+    return parent;
   }
 
   /// Warns when a SUCCESSFUL stamp was not consumed by the build —

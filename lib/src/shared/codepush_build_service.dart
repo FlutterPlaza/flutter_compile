@@ -1095,6 +1095,7 @@ class CodePushBuildService {
     required String outputDillPath,
     required String targetPath,
     List<String> dartDefines = const [],
+    String? depfilePath,
   }) {
     return <String>[
       '--sdk-root',
@@ -1110,6 +1111,10 @@ class CodePushBuildService {
       packagesPath,
       '--output-dill',
       outputDillPath,
+      // The source closure of the compile — what lets the caller
+      // verify a requested include URI is actually present in the
+      // input before the module build silently ignores it.
+      if (depfilePath != null) ...['--depfile', depfilePath],
       '--verbosity=error',
       targetPath,
     ];
@@ -1443,6 +1448,19 @@ class CodePushBuildService {
       final name = entry['name'];
       final rootUri = entry['rootUri'];
       if (name is! String || rootUri is! String) continue;
+      // The name is embedded verbatim into the spec's `package:` URIs
+      // and their single-quoted YAML scalars, so enforce the same
+      // charset [parsePubspecName] accepts for the app's own name. Pub
+      // never produces a name outside it; only a hand-edited config
+      // can, and a quote/newline there would corrupt (or inject into)
+      // the emitted spec.
+      if (!RegExp(r'^[A-Za-z0-9_]+$').hasMatch(name)) {
+        onSkip?.call(
+          'package "${name.replaceAll(RegExp(r'[^A-Za-z0-9_\-. ]'), '?')}"',
+          'unsupported characters in package name',
+        );
+        continue;
+      }
       if (name == packageName ||
           kIosFreezeExcludedDependencyPackages.contains(name)) {
         continue;
@@ -1559,6 +1577,156 @@ class CodePushBuildService {
     }
     final sorted = uris.toList()..sort();
     return sorted;
+  }
+
+  /// The subset of [includeUris] whose `package:` URI maps to no
+  /// source file in [closurePaths] (the patch compile's transitive
+  /// closure) — each is a silent no-op downstream: the module build
+  /// SELECTS from the compiled input and cannot add what was never
+  /// compiled in, so a library unreachable from the patch entry's
+  /// import chain must be reported here or the operator learns it
+  /// only on device. Advisory and conservative: URIs that cannot be
+  /// verified (non-`package:` scheme, malformed, absent/unreadable
+  /// package config) are NOT reported — a false "matches nothing"
+  /// would send the operator chasing a working include. A URI naming
+  /// a package absent from the config IS reported: the compile that
+  /// produced [closurePaths] resolved through that same config, so
+  /// the package's libraries cannot be in the input. Never throws.
+  static List<String> unmatchedPackageIncludeUris({
+    required List<String> includeUris,
+    required Set<String> closurePaths,
+    required String projectRoot,
+    bool? windowsPaths,
+  }) {
+    final windows = windowsPaths ?? Platform.isWindows;
+    final packageUris = [
+      for (final uri in includeUris)
+        if (uri.startsWith('package:')) uri,
+    ];
+    if (packageUris.isEmpty) return const [];
+    final configFile = File('$projectRoot/.dart_tool/package_config.json');
+    if (!configFile.existsSync()) return const [];
+    Object? decoded;
+    try {
+      decoded = jsonDecode(configFile.readAsStringSync());
+    } on Object {
+      return const [];
+    }
+    if (decoded is! Map<String, Object?>) return const [];
+    final packages = decoded['packages'];
+    if (packages is! List) return const [];
+    final configDirUri = Directory('$projectRoot/.dart_tool').absolute.uri;
+    // Package name -> lib/ directory path (trailing separator kept by
+    // toFilePath on a directory URI). Resolution mirrors
+    // [dependencyPackageLibrariesFromClosure] minus its emission
+    // hardening: this map only answers a membership question, so a
+    // degenerate config can at worst suppress a warning, never
+    // corrupt an artifact.
+    final libDirs = <String, String>{};
+    for (final entry in packages) {
+      if (entry is! Map) continue;
+      final name = entry['name'];
+      final rootUri = entry['rootUri'];
+      if (name is! String || rootUri is! String) continue;
+      final packageUri = entry['packageUri'];
+      var libSegment = packageUri is String ? packageUri : 'lib/';
+      if (libSegment.isEmpty) libSegment = './';
+      final parsedRoot = Uri.tryParse(
+        rootUri.endsWith('/') ? rootUri : '$rootUri/',
+      );
+      if (parsedRoot == null) continue;
+      if (parsedRoot.hasScheme && parsedRoot.scheme != 'file') continue;
+      try {
+        final libUri = configDirUri.resolveUri(parsedRoot).resolve(
+              libSegment.endsWith('/') ? libSegment : '$libSegment/',
+            );
+        libDirs[name] = libUri.toFilePath(windows: windows);
+      } on Object {
+        continue;
+      }
+    }
+    // The front-end may write cwd-relative source paths into the
+    // depfile, depending on version — [appLibrariesFromClosure]
+    // carries a bare 'lib/' prefix for the same reason. Precompute the
+    // root spellings (literal + symlink-resolved, trailing separator
+    // kept) so each relative closure entry below can also be recorded
+    // in its root-joined absolute form; without that a relative-path
+    // closure would report EVERY include as "matches no library" —
+    // the one false positive the doc comment above rules out. On any
+    // resolution failure the set stays empty: the literal comparison
+    // still runs, so a warning can at worst be kept, never invented.
+    final rootJoinBases = <String>{};
+    try {
+      final rootPath = _normalizePath(
+        Directory(projectRoot).absolute.uri.normalizePath().toFilePath(
+              windows: windows,
+            ),
+        windows: windowsPaths,
+      );
+      final resolvedRoot = _normalizePath(
+        _tryResolve(rootPath),
+        windows: windowsPaths,
+      );
+      for (final root in {rootPath, resolvedRoot}) {
+        rootJoinBases.add(root.endsWith('/') ? root : '$root/');
+      }
+    } on Object {
+      // Keep the literal-spelling comparison.
+    }
+    // Normalize the closure ONCE: alongside each entry's literal
+    // spelling, a relative entry also gets its root-joined absolute
+    // form with `.`/`..` segments collapsed, so an out-of-root path
+    // dependency's `../shared_ui/lib/x.dart` spelling still matches
+    // its absolute lib/ dir. This widens the MATCH only, never the
+    // report suppression: the joined forms are per-entry, so an
+    // include whose source is in no spelling of the closure keeps
+    // warning.
+    final closure = <String>{};
+    for (final p in closurePaths) {
+      final normalized = _normalizePath(p, windows: windowsPaths);
+      closure.add(normalized);
+      if (isAbsoluteSourcePath(normalized)) continue;
+      for (final base in rootJoinBases) {
+        try {
+          closure.add(
+            _normalizePath(
+              Uri.file('$base$normalized', windows: windows)
+                  .normalizePath()
+                  .toFilePath(windows: windows),
+              windows: windowsPaths,
+            ),
+          );
+        } on Object {
+          // Unjoinable spelling — the literal entry stands.
+        }
+      }
+    }
+    final unmatched = <String>[];
+    for (final uri in packageUris) {
+      final rest = uri.substring('package:'.length);
+      final slash = rest.indexOf('/');
+      // No package name or no library path — unverifiable, not
+      // reportable as "matches nothing".
+      if (slash <= 0 || slash == rest.length - 1) continue;
+      final name = rest.substring(0, slash);
+      final rel = rest.substring(slash + 1);
+      final libDir = libDirs[name];
+      if (libDir == null) {
+        unmatched.add(uri);
+        continue;
+      }
+      final literal = _normalizePath('$libDir$rel', windows: windowsPaths);
+      // The front-end may write symlink-resolved paths into the
+      // depfile — accept either spelling, like the freeze mapping.
+      final resolved = _normalizePath(
+        _tryResolve(literal),
+        windows: windowsPaths,
+      );
+      if (!closure.contains(literal) && !closure.contains(resolved)) {
+        unmatched.add(uri);
+      }
+    }
+    return unmatched;
   }
 
   /// The subset of [kIosInterfaceFreezeFlutterCandidates] whose source
@@ -2022,9 +2190,8 @@ class CodePushBuildService {
         packagesPath: '.dart_tool/package_config.json',
         outputDillPath: dillPath,
         targetPath: targetPath,
+        depfilePath: depfilePath,
       ),
-      '--depfile',
-      depfilePath,
     ];
     final ProcessResult result;
     try {
@@ -2075,6 +2242,7 @@ class CodePushBuildService {
     required String outputDillPath,
     List<String> dartDefines = const [],
     String? flutterRootOverride,
+    String? depfilePath,
     ProcessResult Function(String executable, List<String> args)? runProcess,
   }) async {
     final flutterRoot = flutterRootOverride ?? _findActiveFlutterRoot();
@@ -2108,6 +2276,18 @@ class CodePushBuildService {
     if (outputFile.existsSync()) {
       outputFile.deleteSync();
     }
+    // Same rule for the depfile: a stale closure from an earlier run
+    // must never answer this run's include-URI verification.
+    if (depfilePath != null) {
+      final depFile = File(depfilePath);
+      if (depFile.existsSync()) {
+        try {
+          depFile.deleteSync();
+        } on FileSystemException {
+          // Best-effort: the depfile is advisory-only downstream.
+        }
+      }
+    }
 
     final args = <String>[
       frontendServer,
@@ -2117,6 +2297,7 @@ class CodePushBuildService {
         outputDillPath: outputDillPath,
         targetPath: targetPath,
         dartDefines: dartDefines,
+        depfilePath: depfilePath,
       ),
     ];
     final result = (runProcess ?? Process.runSync)(dartAotRuntime, args);

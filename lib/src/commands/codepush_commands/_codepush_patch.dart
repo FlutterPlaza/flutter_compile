@@ -88,8 +88,15 @@ class CodePushPatchSubCommand extends Command<int> {
       ..addMultiOption(
         'include-uri',
         help: 'iOS only. Additional library URI to include in the '
-            'bytecode module (repeatable). For patch-side helper '
-            'libraries not discovered automatically.',
+            'patch module (repeatable). For patch-side helper '
+            'libraries not discovered automatically. The URI must be '
+            "reachable from the patch entry's import chain — the "
+            'build selects from what it compiled, it cannot add a '
+            'library nothing imports. For a library only the baseline '
+            'references, import it from your patch source (a '
+            '`// ignore: unused_import` import works). A URI matching '
+            'nothing in the build input is reported and has no '
+            'effect.',
       )
       ..addFlag(
         'allow-unguarded-release',
@@ -196,6 +203,13 @@ class CodePushPatchSubCommand extends Command<int> {
   /// [patchFileArgCheck]'s one-output-path premise is enforced by
   /// the compiler rather than a duplicated literal.
   static const kPatchOutputPath = 'build/codepush/patch.fcppatch';
+
+  /// Depfile the iOS patch-kernel compile writes beside its dill. A
+  /// class const shared between the compile call and
+  /// [warnUnmatchedIncludeUris], so the verification always reads
+  /// the depfile the build just wrote — a diverged literal would
+  /// quietly re-open the missing-depfile (check nothing) path.
+  static const kPatchKernelDepfile = 'build/codepush/patch_kernel.dill.d';
 
   /// The early `--patch-file` check: (warning, error). Present-but-
   /// blank REJECTS like its five siblings — the blank-means-absent
@@ -461,6 +475,53 @@ class CodePushPatchSubCommand extends Command<int> {
         for (final u in argResults?['include-uri'] as List<String>? ?? const [])
           if (u.trim().isNotEmpty) u.trim(),
       ];
+
+  /// Warn for each user-passed `--include-uri` naming a library
+  /// absent from the compiled patch input. Such a value is a silent
+  /// no-op downstream (the module build selects, it cannot add) —
+  /// the patch then builds and uploads fine but does not contain
+  /// the library, so the operator must hear BEFORE any upload.
+  ///
+  /// Reads its own args so exactly the user-passed values are
+  /// checked: the auto-derived include entries the build assembles
+  /// (swap-mode source, helper imports) come from imports that are
+  /// in the input by construction and never enter this check.
+  /// Advisory only — a missing or unreadable depfile, or one with
+  /// no parseable sources, checks nothing rather than failing the
+  /// build. Public for tests.
+  void warnUnmatchedIncludeUris({
+    String depfilePath = kPatchKernelDepfile,
+    String projectRoot = '.',
+  }) {
+    final userIncludeUris = includeUriValues();
+    if (userIncludeUris.isEmpty) return;
+    Set<String> closure = const {};
+    try {
+      final depfile = File(depfilePath);
+      if (depfile.existsSync()) {
+        closure = CodePushBuildService.parseDepfileSources(
+          depfile.readAsStringSync(),
+        );
+      }
+    } on Object {
+      closure = const {};
+    }
+    if (closure.isEmpty) return;
+    for (final uri in CodePushBuildService.unmatchedPackageIncludeUris(
+      includeUris: userIncludeUris,
+      closurePaths: closure,
+      projectRoot: projectRoot,
+    )) {
+      _logger.warn(
+        '--include-uri $uri matches no library in the patch '
+        'build input and will have no effect: the input '
+        'contains only libraries reachable from the patch '
+        "entry's import chain. Import it from your patch "
+        'source (a `// ignore: unused_import` import works) '
+        'so it is compiled in.',
+      );
+    }
+  }
 
   /// Same contract as the release command's blankArgError, for the
   /// boundary reads the per-flag helpers here do not own. A blank
@@ -1025,6 +1086,7 @@ class CodePushPatchSubCommand extends Command<int> {
             targetPath: iosPatchTarget,
             outputDillPath: patchKernelOutput,
             dartDefines: dartDefines,
+            depfilePath: kPatchKernelDepfile,
           );
           if (!kernelResult.success) {
             bytecodeProgress.fail(
@@ -1072,6 +1134,11 @@ class CodePushPatchSubCommand extends Command<int> {
             for (final helper in iosHelperImports) '$packagePrefix$helper',
             ...includeUriValues(),
           }.toList();
+
+          // An --include-uri naming a library absent from the compiled
+          // input is a silent no-op downstream — warn NOW, before any
+          // upload (contract + fallbacks: [warnUnmatchedIncludeUris]).
+          warnUnmatchedIncludeUris();
 
           final bcResult = await buildService.bytecodeFromKernel(
             inputDill: inputDill,
