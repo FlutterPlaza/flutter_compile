@@ -108,6 +108,9 @@ void main() {
       // while the temp is still owner-writable, and only then is the
       // faithful (here: unwritable) mode applied. Reversed ordering
       // would try to write into a 0444 temp and fail.
+      // Caveat: uid 0 bypasses the permission check, so under a root
+      // container this row passes even with the ordering inverted —
+      // it only enforces the property on a normal (non-root) runner.
       final target = File('${root.path}/config.yaml')..writeAsStringSync('old');
       Process.runSync('chmod', ['444', target.path]);
       addTearDown(() => Process.runSync('chmod', ['644', target.path]));

@@ -425,6 +425,7 @@ void main() {
             flutterRootOverride: root.path,
             runProcess: (executable, args) {
               goneAtCallTime = !dep.existsSync();
+              expect(args, containsAllInOrder(<String>['--depfile', dep.path]));
               return ProcessResult(0, 0, '', '');
             },
           );

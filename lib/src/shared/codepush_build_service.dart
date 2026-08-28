@@ -2190,9 +2190,8 @@ class CodePushBuildService {
         packagesPath: '.dart_tool/package_config.json',
         outputDillPath: dillPath,
         targetPath: targetPath,
+        depfilePath: depfilePath,
       ),
-      '--depfile',
-      depfilePath,
     ];
     final ProcessResult result;
     try {
