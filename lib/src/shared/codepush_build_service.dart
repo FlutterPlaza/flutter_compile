@@ -1648,6 +1648,34 @@ class CodePushBuildService {
     final closure = {
       for (final p in closurePaths) _normalizePath(p, windows: windowsPaths),
     };
+    // The front-end may write project-root-relative source paths into
+    // the depfile, depending on version — [appLibrariesFromClosure]
+    // carries a bare 'lib/' prefix for the same reason. Precompute the
+    // root spellings (literal + symlink-resolved, trailing separator
+    // kept) so each absolute candidate below can also be compared
+    // relative to the project root; without them a relative-path
+    // closure would report EVERY include as "matches no library" —
+    // the one false positive the doc comment above rules out. On any
+    // resolution failure the set stays empty: the absolute comparison
+    // still runs, so a warning can at worst be kept, never invented.
+    final rootPrefixes = <String>{};
+    try {
+      final rootPath = _normalizePath(
+        Directory(projectRoot).absolute.uri.normalizePath().toFilePath(
+              windows: windows,
+            ),
+        windows: windowsPaths,
+      );
+      final resolvedRoot = _normalizePath(
+        _tryResolve(rootPath),
+        windows: windowsPaths,
+      );
+      for (final root in {rootPath, resolvedRoot}) {
+        rootPrefixes.add(root.endsWith('/') ? root : '$root/');
+      }
+    } on Object {
+      // Keep the absolute-only comparison.
+    }
     final unmatched = <String>[];
     for (final uri in packageUris) {
       final rest = uri.substring('package:'.length);
@@ -1669,7 +1697,15 @@ class CodePushBuildService {
         _tryResolve(literal),
         windows: windowsPaths,
       );
-      if (!closure.contains(literal) && !closure.contains(resolved)) {
+      final candidates = {literal, resolved};
+      for (final prefix in rootPrefixes) {
+        for (final absolute in [literal, resolved]) {
+          if (absolute.startsWith(prefix)) {
+            candidates.add(absolute.substring(prefix.length));
+          }
+        }
+      }
+      if (!candidates.any(closure.contains)) {
         unmatched.add(uri);
       }
     }

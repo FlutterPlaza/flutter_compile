@@ -830,6 +830,32 @@ void _interfaceFreeze() {
       );
       expect(unmatched, isEmpty);
     });
+
+    test('a project-root-relative closure path still matches', () {
+      // A front-end version may write cwd-relative source paths into
+      // the depfile ([appLibrariesFromClosure] carries a bare 'lib/'
+      // prefix for the same reason). Every include reporting "matches
+      // no library" on such a closure is the false positive this
+      // function's doc comment rules out.
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {'lib/main.dart', 'lib/overlay.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, isEmpty);
+    });
+
+    test('a relative closure still reports a genuinely absent include', () {
+      // The relative candidate must widen the MATCH, not the report
+      // suppression: an include whose source is in no spelling of the
+      // closure keeps warning.
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {'lib/main.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, ['package:demo/overlay.dart']);
+    });
   });
 
   group('dependencyPackageLibrariesFromClosure', () {
