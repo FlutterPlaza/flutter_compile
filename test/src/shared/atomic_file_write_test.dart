@@ -84,6 +84,40 @@ void main() {
       expect(leftovers, isEmpty);
     });
 
+    test(
+        'a NON-600 target mode survives — pins the faithful-mode '
+        'chmod, not just the owner-only clamp', () {
+      // The plist-level row uses a 0600 target, which is exactly the
+      // pre-content clamp value: delete the faithful-mode chmod and
+      // that row stays green while every 0644 target silently becomes
+      // 0600. A 0640 target isolates the faithful chmod itself; both
+      // platform writers inherit this via the shared helper.
+      final target = File('${root.path}/config.yaml')..writeAsStringSync('old');
+      Process.runSync('chmod', ['640', target.path]);
+
+      atomicReplaceFileContents(target.path, 'new');
+
+      expect(target.statSync().mode & 0xFFF, int.parse('640', radix: 8));
+      expect(target.readAsStringSync(), 'new');
+    }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
+
+    test(
+        'a READ-ONLY (0444) target still restores — content lands '
+        'before the faithful-mode clamp', () {
+      // Exercises the documented ordering: the content is written
+      // while the temp is still owner-writable, and only then is the
+      // faithful (here: unwritable) mode applied. Reversed ordering
+      // would try to write into a 0444 temp and fail.
+      final target = File('${root.path}/config.yaml')..writeAsStringSync('old');
+      Process.runSync('chmod', ['444', target.path]);
+      addTearDown(() => Process.runSync('chmod', ['644', target.path]));
+
+      atomicReplaceFileContents(target.path, 'new');
+
+      expect(target.statSync().mode & 0xFFF, int.parse('444', radix: 8));
+      expect(target.readAsStringSync(), 'new');
+    }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
+
     test('an ABSENT target is recreated (documented mode exception)', () {
       // No mode to preserve: the file lands at the umask default —
       // property 3's one documented exception.

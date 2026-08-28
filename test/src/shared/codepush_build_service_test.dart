@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
@@ -234,6 +235,26 @@ void main() {
 
       test('ends with the entry target', () {
         expect(args().last, 'lib/.fcp_patch_entry.dart');
+      });
+
+      test('adds --depfile only when a path is given', () {
+        expect(args(), isNot(contains('--depfile')));
+        final withDep = CodePushBuildService.patchKernelCompilerArgs(
+          sdkRoot: '/sdk/flutter_patched_sdk_product/',
+          packagesPath: '.dart_tool/package_config.json',
+          outputDillPath: 'build/codepush/patch_kernel.dill',
+          targetPath: 'lib/.fcp_patch_entry.dart',
+          depfilePath: 'build/codepush/patch_kernel.dill.d',
+        );
+        expect(
+          withDep,
+          containsAllInOrder(<String>[
+            '--depfile',
+            'build/codepush/patch_kernel.dill.d',
+          ]),
+        );
+        // The entry target must stay last either way.
+        expect(withDep.last, 'lib/.fcp_patch_entry.dart');
       });
     });
 
@@ -716,6 +737,101 @@ void _interfaceFreeze() {
     });
   });
 
+  group('unmatchedPackageIncludeUris', () {
+    late Directory tmp;
+
+    setUp(() {
+      tmp = Directory.systemTemp.createTempSync('include_uri_test');
+      Directory('${tmp.path}/app/.dart_tool').createSync(recursive: true);
+      Directory('${tmp.path}/app/lib').createSync(recursive: true);
+      File('${tmp.path}/app/lib/main.dart').writeAsStringSync('void main(){}');
+      File('${tmp.path}/app/lib/overlay.dart').writeAsStringSync('int o = 1;');
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync('''
+{
+  "configVersion": 2,
+  "packages": [
+    {"name": "demo", "rootUri": "../", "packageUri": "lib/"}
+  ]
+}
+''');
+    });
+
+    tearDown(() => tmp.deleteSync(recursive: true));
+
+    test('a URI whose source file is in the closure is not reported', () {
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {
+          '${tmp.path}/app/lib/main.dart',
+          '${tmp.path}/app/lib/overlay.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, isEmpty);
+    });
+
+    test(
+        'a URI reachable only from the BASELINE (absent from the '
+        'patch closure) is reported', () {
+      // The device-validation shape: the overlay exists on disk but
+      // nothing in the patch entry's import chain pulls it in, so the
+      // compiled input does not contain it and the include silently
+      // selects nothing.
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {'${tmp.path}/app/lib/main.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, ['package:demo/overlay.dart']);
+    });
+
+    test('a package unknown to the config is reported', () {
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:absent_pkg/x.dart'],
+        closurePaths: {'${tmp.path}/app/lib/main.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, ['package:absent_pkg/x.dart']);
+    });
+
+    test('non-package and malformed URIs are unverifiable, not reported', () {
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const [
+          'dart:core',
+          'package:no_slash',
+          'package:trailing/',
+        ],
+        closurePaths: {'${tmp.path}/app/lib/main.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, isEmpty);
+    });
+
+    test('an absent package config verifies nothing (no false report)', () {
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: const {},
+        projectRoot: '${tmp.path}/nonexistent',
+      );
+      expect(unmatched, isEmpty);
+    });
+
+    test('a symlink-resolved closure path still matches the literal URI', () {
+      // The front-end may write resolved paths into the depfile while
+      // the config spells the literal ones — same tolerance as the
+      // freeze mapping.
+      final resolvedLib =
+          Directory('${tmp.path}/app/lib').resolveSymbolicLinksSync();
+      final unmatched = CodePushBuildService.unmatchedPackageIncludeUris(
+        includeUris: const ['package:demo/overlay.dart'],
+        closurePaths: {'$resolvedLib/overlay.dart'},
+        projectRoot: '${tmp.path}/app',
+      );
+      expect(unmatched, isEmpty);
+    });
+  });
+
   group('dependencyPackageLibrariesFromClosure', () {
     late Directory tmp;
 
@@ -888,6 +1004,47 @@ void _interfaceFreeze() {
         packageName: 'demo',
       );
       expect(uris, isEmpty);
+    });
+
+    test(
+        'package name with YAML-significant characters is skipped, '
+        'not embedded', () {
+      // Only a hand-edited config can carry such a name (pub validates
+      // names); a quote or newline would otherwise land verbatim in the
+      // emitted spec's quoted scalar.
+      File('${tmp.path}/app/.dart_tool/package_config.json')
+          .writeAsStringSync(jsonEncode({
+        'configVersion': 2,
+        'packages': [
+          {
+            'name': "evil'\n  - library: 'package:injected/x.dart",
+            'rootUri': '../../deps/sdk_pkg',
+            'packageUri': 'lib/',
+          },
+          {
+            'name': 'hosted_pkg',
+            'rootUri': 'file://${tmp.path}/cache/hosted_pkg',
+            'packageUri': 'lib/',
+          },
+        ],
+      }));
+      final skips = <String>[];
+      final uris = CodePushBuildService.dependencyPackageLibrariesFromClosure(
+        closurePaths: {
+          '${tmp.path}/deps/sdk_pkg/lib/src/core.dart',
+          '${tmp.path}/cache/hosted_pkg/lib/hosted.dart',
+        },
+        projectRoot: '${tmp.path}/app',
+        packageName: 'demo',
+        onSkip: (path, reason) => skips.add('$reason: $path'),
+      );
+      // The conforming package still maps; the bad name maps nothing.
+      expect(uris, ['package:hosted_pkg/hosted.dart']);
+      expect(skips, hasLength(1));
+      expect(skips.single, contains('unsupported characters in package name'));
+      // The skip report itself carries no raw quote/newline either.
+      expect(skips.single, isNot(contains("'")));
+      expect(skips.single, isNot(contains('\n')));
     });
 
     test('dot-dot packageUri escaping the package root is rejected', () {

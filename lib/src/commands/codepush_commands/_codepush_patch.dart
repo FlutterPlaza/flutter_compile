@@ -88,8 +88,15 @@ class CodePushPatchSubCommand extends Command<int> {
       ..addMultiOption(
         'include-uri',
         help: 'iOS only. Additional library URI to include in the '
-            'bytecode module (repeatable). For patch-side helper '
-            'libraries not discovered automatically.',
+            'patch module (repeatable). For patch-side helper '
+            'libraries not discovered automatically. The URI must be '
+            "reachable from the patch entry's import chain — the "
+            'build selects from what it compiled, it cannot add a '
+            'library nothing imports. For a library only the baseline '
+            'references, import it from your patch source (a '
+            '`// ignore: unused_import` import works). A URI matching '
+            'nothing in the build input is reported and has no '
+            'effect.',
       )
       ..addFlag(
         'allow-unguarded-release',
@@ -1021,10 +1028,12 @@ class CodePushPatchSubCommand extends Command<int> {
             return ExitCode.software.code;
           }
           const patchKernelOutput = 'build/codepush/patch_kernel.dill';
+          const patchKernelDepfile = 'build/codepush/patch_kernel.dill.d';
           final kernelResult = await buildService.compilePatchKernel(
             targetPath: iosPatchTarget,
             outputDillPath: patchKernelOutput,
             dartDefines: dartDefines,
+            depfilePath: patchKernelDepfile,
           );
           if (!kernelResult.success) {
             bytecodeProgress.fail(
@@ -1072,6 +1081,47 @@ class CodePushPatchSubCommand extends Command<int> {
             for (final helper in iosHelperImports) '$packagePrefix$helper',
             ...includeUriValues(),
           }.toList();
+
+          // An --include-uri naming a library absent from the compiled
+          // input is a silent no-op downstream (the module build
+          // selects, it cannot add) — the patch then builds and
+          // uploads fine but does not contain the library. Warn NOW,
+          // before any upload, naming each such URI. Only the
+          // user-passed values are checked: the auto-derived entries
+          // above come from imports that are in the input by
+          // construction. Advisory only — a missing/unreadable
+          // depfile checks nothing rather than failing the build.
+          final userIncludeUris = includeUriValues();
+          if (userIncludeUris.isNotEmpty) {
+            Set<String> closure = const {};
+            try {
+              final depfile = File(patchKernelDepfile);
+              if (depfile.existsSync()) {
+                closure = CodePushBuildService.parseDepfileSources(
+                  depfile.readAsStringSync(),
+                );
+              }
+            } on Object {
+              closure = const {};
+            }
+            if (closure.isNotEmpty) {
+              for (final uri
+                  in CodePushBuildService.unmatchedPackageIncludeUris(
+                includeUris: userIncludeUris,
+                closurePaths: closure,
+                projectRoot: '.',
+              )) {
+                _logger.warn(
+                  '--include-uri $uri matches no library in the patch '
+                  'build input and will have no effect: the input '
+                  'contains only libraries reachable from the patch '
+                  "entry's import chain. Import it from your patch "
+                  'source (a `// ignore: unused_import` import works) '
+                  'so it is compiled in.',
+                );
+              }
+            }
+          }
 
           final bcResult = await buildService.bytecodeFromKernel(
             inputDill: inputDill,
