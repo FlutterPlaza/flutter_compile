@@ -128,31 +128,73 @@
   <!-- ===== Config Methods ===== -->
   <h2 id="config-methods">Configuration Methods</h2>
 
+  <p>All three config methods read and write the machine-wide
+  <code>~/.flutter_compilerc</code>, and all three accept an optional
+  <code>directory</code> parameter naming the project root. Some keys —
+  today <code>codepush_app_id</code> — are resolved PER PROJECT by the
+  code push commands, from a <code>.flutter_compilerc</code> beside the
+  project's <code>pubspec.yaml</code>. When that project file overrides
+  the machine-wide value, the response carries an advisory saying so.
+  Pass <code>directory</code> whenever you know the workspace root: the
+  daemon's own working directory is not necessarily the project's.</p>
+
   <h3 id="config-list">config.list</h3>
   <p>Get all configuration key-value pairs.</p>
   <pre><code>// Request
-{"jsonrpc": "2.0", "id": 6, "method": "config.list"}
+{"jsonrpc": "2.0", "id": 6, "method": "config.list", "params": {"directory": "/path/to/project"}}
 
 // Response
 {"jsonrpc": "2.0", "id": 6, "result": {
   "flutter_path": "~/flutter_compile/flutter/bin",
   "engine_path": "~/flutter_compile/engine",
-  "global_sdk_version": "3.24.0"
+  "global_sdk_version": "3.24.0",
+  "codepush_app_id": "machine-wide-app-id",
+  "_advisories": {
+    "codepush_app_id": {
+      "key": "codepush_app_id",
+      "project_file": "/path/to/project/.flutter_compilerc",
+      "project_value": "project-app-id",
+      "message": "..."
+    }
+  }
 }}</code></pre>
+  <p><strong>The result is not a flat <code>Map&lt;String, String&gt;</code>.</strong>
+  <code>_advisories</code> is an object keyed by config key. Any key
+  beginning with <code>_</code> is reserved metadata, not a config
+  entry — clients that render rows should skip those. The key is
+  present only when an override exists.</p>
 
   <h3 id="config-get">config.get</h3>
   <pre><code>// Request
-{"jsonrpc": "2.0", "id": 7, "method": "config.get", "params": {"key": "flutter_path"}}
+{"jsonrpc": "2.0", "id": 7, "method": "config.get", "params": {"key": "flutter_path", "directory": "/path/to/project"}}
 
 // Response
-{"jsonrpc": "2.0", "id": 7, "result": {"key": "flutter_path", "value": "~/flutter_compile/flutter/bin"}}</code></pre>
+{"jsonrpc": "2.0", "id": 7, "result": {"key": "flutter_path", "value": "~/flutter_compile/flutter/bin"}}
+
+// Response when a project file overrides the key
+{"jsonrpc": "2.0", "id": 7, "result": {
+  "key": "codepush_app_id",
+  "value": "machine-wide-app-id",
+  "advisory": {
+    "key": "codepush_app_id",
+    "project_file": "/path/to/project/.flutter_compilerc",
+    "project_value": "project-app-id",
+    "message": "..."
+  }
+}}</code></pre>
+  <p><code>value</code> is always the MACHINE-WIDE value. When
+  <code>advisory</code> is present, <code>advisory.project_value</code>
+  is what the code push commands will actually use in that project.</p>
 
   <h3 id="config-set">config.set</h3>
   <pre><code>// Request
-{"jsonrpc": "2.0", "id": 8, "method": "config.set", "params": {"key": "flutter_path", "value": "~/my/flutter/bin"}}
+{"jsonrpc": "2.0", "id": 8, "method": "config.set", "params": {"key": "flutter_path", "value": "~/my/flutter/bin", "directory": "/path/to/project"}}
 
 // Response
 {"jsonrpc": "2.0", "id": 8, "result": {"key": "flutter_path", "value": "~/my/flutter/bin"}}</code></pre>
+  <p>Writes the machine-wide file. The response carries the same
+  optional <code>advisory</code> as <code>config.get</code> — a set that
+  is shadowed by a project file has no effect on that project.</p>
 
   <!-- ===== Diagnostic Methods ===== -->
   <h2 id="diagnostic-methods">Diagnostic Methods</h2>

@@ -1187,7 +1187,10 @@ class CodePushReleaseSubCommand extends Command<int> {
           logger: _logger,
         );
       } finally {
-        sessionClient.close();
+        // force: `checkSession`'s 10s timeout abandons the future but
+        // not the socket. Same rule the patch command writes down at
+        // its own close site — a probe must leave nothing behind.
+        sessionClient.close(force: true);
       }
       if (sessionExit != null) return sessionExit;
 

@@ -64,17 +64,24 @@ String? findApplicationClassName(String manifestContent) {
   return RegExp(r'android:name="([^"]+)"').firstMatch(applicationTag)?.group(1);
 }
 
-/// The advisory `init` prints when this machine ALREADY had an app id
-/// stored machine-wide and it names a different app, or null when there
-/// is nothing to say.
+/// The advisory `init` prints when this machine ALREADY had a DIFFERENT
+/// app id stored machine-wide, or null when there is nothing to say.
 ///
 /// The id used to live only in `~/.flutter_compilerc`, one per machine:
 /// `init` in a second app overwrote the first app's id, and every later
 /// `patch`/`release`/`status` in the FIRST project then resolved the
 /// second app — uploads succeeded, `status` agreed, and only the devices
-/// running the first app noticed (they never saw the patch). This run no
-/// longer overwrites anything, but the stale machine-wide value still
-/// answers for every project that has no file of its own, so say so.
+/// running the first app noticed (they never saw the patch).
+///
+/// What changed, and what did NOT: this project is now pinned by its own
+/// project-root file, so it can never be repointed by a later `init`
+/// elsewhere. The machine-wide file, however, IS still repointed — every
+/// `storeAppId` mirrors the new id into it so that callers which resolve
+/// without a working directory (the IDE extensions, any daemon RPC not
+/// passing `directory`) keep behaving exactly as they did before project
+/// files existed. So the population this advisory speaks for is the one
+/// the mirror deliberately leaves exposed: OTHER projects on this machine
+/// that have no file of their own and were resolving [machineAppId].
 ///
 /// Pure and public: the condition is the whole value of the advisory,
 /// and it is the kind of thing that silently stops firing.
@@ -84,16 +91,20 @@ String? machineAppIdAdvisory({
   required String appIdPath,
 }) {
   final previous = machineAppId?.trim() ?? '';
+  final current = newAppId.trim();
   if (previous.isEmpty) return null;
-  if (previous == newAppId.trim()) return null;
-  // Only worth saying when this run did NOT write the machine-wide file
-  // — if it did, there is no second value left to surprise anyone.
-  if (appIdPath == '${F.homeDir()}/${CodePushClient.rcFileName}') return null;
-  return 'This machine already had app id $previous stored in '
-      '~/${CodePushClient.rcFileName}. This project keeps its own id in '
-      '$appIdPath, so nothing was repointed — but any OTHER project here '
-      'without its own file still resolves $previous. Pass --app-id there '
-      'if that is not the app you mean.';
+  if (previous == current) return null;
+  final machineRc = '${F.homeDir()}/${CodePushClient.rcFileName}';
+  final pinned = appIdPath != machineRc
+      ? 'This project is pinned to $current by $appIdPath, so a later '
+          '"fcp codepush init" elsewhere cannot move it. '
+      : '';
+  return '${pinned}The machine-wide fallback in '
+      '~/${CodePushClient.rcFileName} was repointed from $previous to '
+      '$current. Any OTHER project on this machine without its own '
+      '${CodePushClient.rcFileName} now resolves $current instead of '
+      '$previous — run "fcp codepush init" there to pin it, or pass '
+      '--app-id $previous to that project\'s codepush commands.';
 }
 
 class CodePushInitSubCommand extends Command<int> {
@@ -184,6 +195,13 @@ class CodePushInitSubCommand extends Command<int> {
 
     final progress = _logger.progress('Creating app "$appName"');
 
+    // Set the moment the server answers 201. Everything after that
+    // point — recording the id, scaffolding Android/iOS — can still
+    // fail, and when it does the operator must NOT be told that app
+    // creation failed: they would re-run `init` and create a second
+    // app. See the catch at the bottom of this method.
+    String? createdAppId;
+
     final httpClient = HttpClient();
     try {
       final request =
@@ -214,12 +232,35 @@ class CodePushInitSubCommand extends Command<int> {
 
       final app = result['app'] as Map<String, dynamic>?;
       final appId = app?['id'] as String? ?? '';
+      createdAppId = appId;
 
       // Read the machine-wide id BEFORE storing, so the advisory below
       // compares against what this machine resolved a moment ago rather
       // than against whatever this run just wrote.
       final machineAppId = await CodePushClient.getMachineAppId();
-      final appIdPath = await CodePushClient.storeAppId(appId);
+      final machineRcPath = '${F.homeDir()}/${CodePushClient.rcFileName}';
+      final rcTarget = CodePushClient.projectRcFile()?.path ?? machineRcPath;
+
+      final String appIdPath;
+      try {
+        appIdPath = await CodePushClient.storeAppId(appId);
+      } catch (e) {
+        // The app EXISTS server-side from here on. Falling through to
+        // the generic catch would fail the "Creating app" spinner, and
+        // an operator who reads that re-runs `init` and gets a DUPLICATE
+        // app. The only thing that went wrong is a local write, so say
+        // that, and hand the id back so nothing is stranded.
+        progress.complete('App created');
+        _logger.err(
+          'App $appId was created, but its id could not be recorded in '
+          '$rcTarget: $e\n'
+          'Do NOT re-run "fcp codepush init" — that would create a '
+          'SECOND app. Instead pass --app-id $appId to the codepush '
+          'commands, or make ${File(rcTarget).parent.path} writable and '
+          'run "fcp config set codepush_app_id $appId".',
+        );
+        return ExitCode.software.code;
+      }
 
       progress.complete('App created');
       _logger.info('  App ID: $appId');
@@ -245,11 +286,18 @@ class CodePushInitSubCommand extends Command<int> {
       // to do with it; the id is an identifier, not a credential (the
       // login token stays machine-wide), so committing it is the
       // useful default for a team.
-      if (appIdPath != '${F.homeDir()}/${CodePushClient.rcFileName}') {
+      if (appIdPath != machineRcPath) {
         _logger.info(
           '  That file holds only this project\'s app id — no '
           'credentials — so it is safe to commit and share with your '
           'team.',
+        );
+        // `storeAppId` writes a SECOND file. Naming it here is the
+        // difference between an operator who knows where the fallback
+        // lives and one who is surprised by the advisory below.
+        _logger.info(
+          '  Also mirrored to: $machineRcPath (the fallback for tools '
+          'that resolve without a project directory)',
         );
       }
       final staleMachineIdWarning = machineAppIdAdvisory(
@@ -339,6 +387,20 @@ class CodePushInitSubCommand extends Command<int> {
 
       return ExitCode.success.code;
     } catch (e) {
+      final appId = createdAppId;
+      if (appId != null) {
+        // Same rule as the storeAppId catch above: once the server has
+        // the app, no failure downstream may be reported as a failure
+        // to create it.
+        _logger.err(
+          'App $appId was created, but "fcp codepush init" could not '
+          'finish: $e\n'
+          'Do NOT re-run "fcp codepush init" — that would create a '
+          'SECOND app. Pass --app-id $appId to the codepush commands, '
+          'and complete any native setup steps by hand.',
+        );
+        return ExitCode.software.code;
+      }
       progress.fail('Failed: $e');
       return ExitCode.software.code;
     } finally {

@@ -109,7 +109,10 @@ Future<ProjectScopedKeyAdvisory?> projectScopedKeyAdvisoryFor(
   return ProjectScopedKeyAdvisory(
     key: key,
     projectFile: projectRc.path,
-    projectValue: local,
+    // Trimmed to match what `getAppId` actually resolves. Echoing the
+    // raw slice would print a padded id as if it were the value in
+    // use, which is the one thing this advisory exists to prevent.
+    projectValue: local.trim(),
   );
 }
 

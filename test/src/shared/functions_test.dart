@@ -155,6 +155,43 @@ void main() {
       final result = await F.readValueForKeyFromRcConfig(rcFile, 'key1');
       expect(result, isNull);
     });
+
+    // Invisible while `$HOME/.flutter_compilerc` was the only rc file
+    // this CLI wrote. The per-project `.flutter_compilerc` is committed
+    // and teams are told to hand-edit it, so a dropped comment is a
+    // silent edit to a version-controlled file.
+    test('preserves comment and blank lines a human wrote', () async {
+      final rcFile = File('${tempHome.path}/.flutter_compilerc')
+        ..writeAsStringSync(
+          '# the staging app, not production\n'
+          '\n'
+          'codepush_app_id:old-id\n',
+        );
+
+      await F.writeKeyValueToRcConfig(rcFile, 'codepush_app_id', 'new-id');
+
+      final lines = rcFile.readAsLinesSync();
+      expect(lines, contains('# the staging app, not production'));
+      expect(lines, contains(''));
+      expect(lines, contains('codepush_app_id:new-id'));
+      expect(lines, isNot(contains('codepush_app_id:old-id')));
+      // Position matters as much as survival: a comment that migrates
+      // to the bottom of the file no longer explains the line it was
+      // written above.
+      expect(lines.indexOf('# the staging app, not production'), 0);
+    });
+
+    test('appends a brand-new key without disturbing what is there', () async {
+      final rcFile = File('${tempHome.path}/.flutter_compilerc')
+        ..writeAsStringSync('# header\nkey1:val1\n');
+
+      await F.writeKeyValueToRcConfig(rcFile, 'key2', 'val2');
+
+      expect(
+        rcFile.readAsLinesSync(),
+        ['# header', 'key1:val1', 'key2:val2'],
+      );
+    });
   });
 
   group('F.writeFile', () {

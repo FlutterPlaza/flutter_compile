@@ -100,6 +100,34 @@ void main() {
     test('null when neither file names one', () async {
       expect(await CodePushClient.getAppId(projectDir: projectA), isNull);
     });
+
+    // The project file is committed, team-shared and documented as
+    // hand-editable. `codepush_app_id: <id>` is the natural spelling and
+    // leaves a leading space; untrimmed it url-encodes as `%20<id>`, the
+    // server answers "app not found", and every echo of the value looks
+    // correct.
+    test('trims a hand-edited project value written as "key: value"', () async {
+      File('${projectA.path}/${CodePushClient.rcFileName}').writeAsStringSync(
+        '${Constants.codePushAppIdKey}: project-a-app\n',
+      );
+
+      expect(
+        await CodePushClient.getAppId(projectDir: projectA),
+        'project-a-app',
+      );
+    });
+
+    test('trims the machine-wide value too', () async {
+      File('${F.homeDir()}/${CodePushClient.rcFileName}').writeAsStringSync(
+        '${Constants.codePushAppIdKey}: machine-app \n',
+      );
+
+      expect(await CodePushClient.getMachineAppId(), 'machine-app');
+      expect(
+        await CodePushClient.getAppId(projectDir: projectA),
+        'machine-app',
+      );
+    });
   });
 
   group('storeAppId scoping', () {
@@ -179,7 +207,9 @@ void main() {
           appIdPath: appIdPath,
         );
 
-    test('fires when a different machine-wide id is left behind', () {
+    test(
+        'names the repoint the mirror just performed, and the projects it '
+        'moves', () {
       final text = advise(
         machineAppId: 'app-a-id',
         newAppId: 'app-b-id',
@@ -188,7 +218,27 @@ void main() {
 
       expect(text, isNotNull);
       expect(text, contains('app-a-id'));
+      expect(text, contains('app-b-id'));
       expect(text, contains('--app-id'));
+      // The sentence this replaced claimed the opposite of what the
+      // same call had just done. `storeAppId` mirrors into the
+      // machine-wide file on EVERY init, so an advisory that says
+      // nothing moved is a written reassurance handed to the exact
+      // population the mirror leaves exposed.
+      expect(text, isNot(contains('nothing was repointed')));
+      expect(text, isNot(contains('still resolves app-a-id')));
+      expect(text, contains('repointed'));
+    });
+
+    test('says this project is pinned when a project file was written', () {
+      final text = advise(
+        machineAppId: 'app-a-id',
+        newAppId: 'app-b-id',
+        appIdPath: '${projectB.path}/${CodePushClient.rcFileName}',
+      );
+
+      expect(text, contains('${projectB.path}/${CodePushClient.rcFileName}'));
+      expect(text, contains('pinned'));
     });
 
     test('silent when no machine-wide id exists', () {
@@ -222,16 +272,45 @@ void main() {
     });
 
     test(
-        'silent when this run wrote the machine-wide file itself — there '
-        'is no second value left to surprise anyone', () {
-      expect(
-        advise(
-          machineAppId: 'app-a-id',
-          newAppId: 'app-b-id',
-          appIdPath: '${F.homeDir()}/${CodePushClient.rcFileName}',
-        ),
-        isNull,
+        'still fires outside a project — the machine-wide file was '
+        'repointed there too, and nothing pins this run', () {
+      final text = advise(
+        machineAppId: 'app-a-id',
+        newAppId: 'app-b-id',
+        appIdPath: '${F.homeDir()}/${CodePushClient.rcFileName}',
       );
+
+      expect(text, isNotNull);
+      expect(text, contains('repointed'));
+      // No project file exists in this case, so there is nothing to
+      // claim is pinned.
+      expect(text, isNot(contains('pinned')));
+    });
+  });
+
+  // Round-2 Critical: the advisory has to agree with `storeAppId`, and
+  // the only way to keep that true is to run them against each other.
+  group('machineAppIdAdvisory against real storeAppId behaviour', () {
+    test('a file-less project resolves the NEW id the advisory names',
+        () async {
+      await writeMachineAppId('app-a-id');
+      final machineBefore = await CodePushClient.getMachineAppId();
+
+      final appIdPath =
+          await CodePushClient.storeAppId('app-b-id', projectDir: projectB);
+
+      final text = machineAppIdAdvisory(
+        machineAppId: machineBefore,
+        newAppId: 'app-b-id',
+        appIdPath: appIdPath,
+      );
+
+      // projectA has no file of its own: this is the population the
+      // advisory speaks for, and it now resolves app-b-id.
+      expect(await CodePushClient.getAppId(projectDir: projectA), 'app-b-id');
+      expect(text, isNotNull);
+      expect(text, contains('app-b-id'));
+      expect(text, isNot(contains('still resolves app-a-id')));
     });
   });
 
@@ -281,6 +360,24 @@ void main() {
         'project_value': 'project-a-app',
         'message': advisory.message,
       });
+    });
+
+    test('echoes the TRIMMED value — what getAppId actually resolves',
+        () async {
+      File('${projectA.path}/${CodePushClient.rcFileName}').writeAsStringSync(
+        '${Constants.codePushAppIdKey}: project-a-app\n',
+      );
+
+      final advisory = await projectScopedKeyAdvisoryFor(
+        Constants.codePushAppIdKey,
+        projectDir: projectA,
+      );
+
+      expect(advisory?.projectValue, 'project-a-app');
+      expect(
+        advisory?.projectValue,
+        await CodePushClient.getAppId(projectDir: projectA),
+      );
     });
 
     test('silent for other keys and for projects without an override',

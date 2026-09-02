@@ -161,7 +161,14 @@ class CodePushClient {
       // empty value is what a hand-edited or half-written file leaves,
       // and inheriting the machine-wide id is strictly better than
       // resolving to nothing.
-      if (local != null && local.trim().isNotEmpty) return local;
+      //
+      // TRIMMED, not returned raw: this file is committed, team-shared
+      // and documented as hand-editable, so `codepush_app_id: <id>`
+      // (the natural spelling) is a value with a leading space. Raw, it
+      // url-encodes as `%20<id>`, the server answers "app not found",
+      // and every echo of it — `config get`, the shadowing advisory —
+      // prints something that looks exactly right.
+      if (local != null && local.trim().isNotEmpty) return local.trim();
     }
     return getMachineAppId();
   }
@@ -171,10 +178,17 @@ class CodePushClient {
   /// commands can SAY that a machine-wide id exists — the fact behind
   /// the two-projects-one-machine trap — without re-deriving where the
   /// value came from.
+  /// Trimmed for the same reason [getAppId] trims the project value:
+  /// an app id is a UUID, whitespace around it is never meaningful, and
+  /// an untrimmed one fails on the wire while reading back correctly.
+  /// Null stays null so "no id here" and "a blank id" remain
+  /// distinguishable to callers that care.
   static Future<String?> getMachineAppId() async {
     final home = F.homeDir();
     final rcFile = File('$home/$rcFileName');
-    return F.readValueForKeyFromRcConfig(rcFile, Constants.codePushAppIdKey);
+    final value =
+        await F.readValueForKeyFromRcConfig(rcFile, Constants.codePushAppIdKey);
+    return value?.trim();
   }
 
   /// Store auth token in ~/.flutter_compilerc.

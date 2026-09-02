@@ -210,7 +210,14 @@ class DaemonPeer {
       try {
         appId = params['app_id'].asString;
       } catch (_) {
-        appId = await CodePushClient.getAppId();
+        // Same optional `directory` the config RPCs take, and it
+        // matters more here: this is the call whose answer SELECTS the
+        // app the panel shows. Without it a client could read a
+        // project-accurate id from `config.get` and the machine-wide
+        // fallback from here, for the same workspace.
+        appId = await CodePushClient.getAppId(
+          projectDir: _optionalDirectory(params),
+        );
       }
       if (appId == null || appId.isEmpty) {
         throw rpc.RpcException(-32602, 'app_id is required.');
