@@ -104,8 +104,10 @@ String? machineAppIdAdvisory({
       '~/${CodePushClient.rcFileName} was repointed from $previous to '
       '$current. Any OTHER project on this machine without its own '
       '${CodePushClient.rcFileName} now resolves $current instead of '
-      '$previous — run "fcp codepush init" there to pin it, or pass '
-      '--app-id $previous to that project\'s codepush commands.';
+      '$previous — run "fcp codepush init --app-id $previous" there to '
+      'pin it (records the id; creates nothing), or pass --app-id '
+      "$previous to that project's codepush commands. Do NOT run a "
+      'bare "fcp codepush init" there: that creates a NEW app.';
 }
 
 /// The message `init` prints when the server has ALREADY created the
@@ -130,6 +132,39 @@ String? machineAppIdAdvisory({
 /// first and mirrors into the machine-wide file second, so a throw does
 /// not mean nothing landed. Telling an operator their project file is
 /// unwritten when it is correct sends them to fix what is not broken.
+/// `init --app-id`: records an existing app id without creating
+/// anything. Public for direct testing.
+Future<int> runPinExistingApp({
+  required String appId,
+  required Logger logger,
+}) async {
+  final machineAppId = await CodePushClient.getMachineAppId();
+  final machineRcPath = '${F.homeDir()}/${CodePushClient.rcFileName}';
+  final rcTarget = CodePushClient.projectRcFile()?.path ?? machineRcPath;
+  final String appIdPath;
+  try {
+    appIdPath = await CodePushClient.storeAppId(appId);
+  } catch (e) {
+    logger.err(appIdRecordFailureMessage(
+      appId: appId,
+      rcTarget: rcTarget,
+      machineRcPath: machineRcPath,
+      error: e,
+      projectFileRecorded:
+          CodePushClient.projectRcFile()?.existsSync() ?? false,
+    ));
+    return ExitCode.software.code;
+  }
+  logger.success('Pinned app $appId in $appIdPath (no app was created).');
+  final advisory = machineAppIdAdvisory(
+    machineAppId: machineAppId,
+    newAppId: appId,
+    appIdPath: appIdPath,
+  );
+  if (advisory != null) logger.warn(advisory);
+  return ExitCode.success.code;
+}
+
 String appIdRecordFailureMessage({
   required String appId,
   required String rcTarget,
@@ -195,6 +230,13 @@ class CodePushInitSubCommand extends Command<int> {
       ..addOption(
         'platform',
         help: 'Target platform (android, ios).',
+      )
+      ..addOption(
+        'app-id',
+        help: 'Pin this project to an EXISTING app id instead of creating '
+            'a new app. Records the id locally (the project file when run '
+            'inside a project); makes no server call, uploads no key, and '
+            'scaffolds nothing.',
       );
   }
 
@@ -208,6 +250,16 @@ class CodePushInitSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    final pinAppId = (argResults?['app-id'] as String?)?.trim();
+    if (pinAppId != null && pinAppId.isNotEmpty) {
+      // Pin-only mode: record an EXISTING app id. Local-only by
+      // design — no login, no server call, no key upload, no
+      // scaffold — because the population running this is a project
+      // that already has a live app (a fresh clone, or a project the
+      // machine-wide repoint stranded), and every server-touching
+      // step of a full init is a way to damage it.
+      return runPinExistingApp(appId: pinAppId, logger: _logger);
+    }
     final token = await CodePushClient.getStoredToken();
     if (token == null || token.isEmpty) {
       _logger.err('Not logged in. Run "fcp codepush login" first.');

@@ -193,8 +193,9 @@ class _KeysRegisterCommand extends Command<int> {
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
-        'No app ID. Pass --app-id <id> or run `fcp codepush init` / '
-        '`fcp config set codepush_app_id <id>` first.',
+        'No app ID. Pass --app-id <id>, or run '
+        '`fcp codepush init --app-id <id>` to record an existing app '
+        '(a bare `fcp codepush init` creates a NEW app).',
       );
       return ExitCode.usage.code;
     }

@@ -1079,10 +1079,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
-        'No app ID specified. Use --app-id, or run "fcp codepush init" '
-        'in this project to record one — the app id is resolved per '
-        'project now, so a machine-wide "fcp config set codepush_app_id" '
-        'is only a fallback for projects that set none.',
+        'No app ID specified. Use --app-id, or run '
+        '"fcp codepush init --app-id <id>" in this project to record an '
+        'EXISTING app id (a bare "fcp codepush init" creates a NEW app) '
+        '— the app id is resolved per project now, so a machine-wide '
+        '"fcp config set codepush_app_id" is only a fallback for '
+        'projects that set none.',
       );
       return ExitCode.usage.code;
     }

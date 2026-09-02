@@ -8,9 +8,26 @@ import 'package:flutter_compile/src/commands/config_command.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
+import 'package:mason_logger/mason_logger.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import '../../helpers/temp_home.dart';
+
+class _CapturingLogger extends Mock implements Logger {
+  final successes = <String>[];
+  final warnings = <String>[];
+
+  @override
+  void success(String? message, {LogStyle? style}) {
+    successes.add(message ?? '');
+  }
+
+  @override
+  void warn(String? message, {String tag = 'WARN', LogStyle? style}) {
+    warnings.add(message ?? '');
+  }
+}
 
 void main() {
   final tempHome = TempHome();
@@ -532,6 +549,49 @@ void main() {
 
       expect(payload[Constants.codePushAppIdKey], 'machine-wide-app');
       expect(payload.keys.where((k) => k.contains('#')), isEmpty);
+    });
+  });
+
+  group('runPinExistingApp (init --app-id, the round-3 Critical fix)', () {
+    test(
+        'records the id in the project file with NO server interaction, '
+        'and warns about the machine-wide repoint', () async {
+      await writeMachineAppId('old-app');
+      final logger = _CapturingLogger();
+      final exit = await IOOverrides.runZoned(
+        () => runPinExistingApp(appId: 'existing-app', logger: logger),
+        getCurrentDirectory: () => projectA,
+      );
+      expect(exit, 0);
+      expect(
+          await CodePushClient.getAppId(projectDir: projectA), 'existing-app');
+      expect(logger.successes.single, contains('no app was created'));
+      expect(logger.warnings.single, contains('repointed from old-app'));
+      expect(logger.warnings.single,
+          contains('fcp codepush init --app-id old-app'));
+    });
+
+    test('the advisory never prescribes a bare init', () {
+      final advisory = machineAppIdAdvisory(
+        machineAppId: 'prev',
+        newAppId: 'next',
+        appIdPath: '/x/.flutter_compilerc',
+      )!;
+      // "codepush init" may appear ONLY as --app-id pinning, as the
+      // explicit do-not warning, or in the it-cannot-move-you clause —
+      // never as a bare REMEDY. Judge each occurrence by its
+      // surrounding window (the negations precede the phrase).
+      final bare = RegExp('fcp codepush init(?! --app-id)')
+          .allMatches(advisory)
+          .map((m) => advisory.substring(
+              (m.start - 40).clamp(0, advisory.length),
+              (m.start + 60).clamp(0, advisory.length)))
+          .where(
+              (ctx) => !ctx.contains('NOT run') && !ctx.contains('cannot move'))
+          .toList();
+      expect(bare, isEmpty,
+          reason: 'a bare init creates a NEW app - the damage the '
+              'advisory exists to prevent');
     });
   });
 }
