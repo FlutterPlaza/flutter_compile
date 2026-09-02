@@ -1,0 +1,148 @@
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_init.dart';
+import 'package:test/test.dart';
+
+/// The exact header a pre-fix CLI generated. Written out in full rather
+/// than composed from the production constants: an upgrade test built
+/// out of the same strings it is checking would keep passing if both
+/// sides drifted together.
+const _legacyScaffold = '''
+package com.example.demo
+
+import io.flutter.app.FlutterApplication
+import java.io.File
+
+class CodePushApp : FlutterApplication() {
+    override fun onCreate() {
+        // Copy codepush.yaml from assets to files dir before Flutter engine init.
+        try {
+            val dest = File(filesDir, "codepush.yaml")
+            assets.open("codepush.yaml").use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CodePushApp", "Failed to copy codepush.yaml", e)
+        }
+        super.onCreate()
+    }
+}
+''';
+
+/// The even older shape: v1 embedding AND the exists-guarded copy.
+const _oldestScaffold = '''
+package com.example.demo
+
+import io.flutter.app.FlutterApplication
+import java.io.File
+
+class CodePushApp : FlutterApplication() {
+    override fun onCreate() {
+        // Copy codepush.yaml from assets to files dir before Flutter engine init.
+        try {
+            val dest = File(filesDir, "codepush.yaml")
+            if (!dest.exists()) {
+                assets.open("codepush.yaml").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        } catch (_: Exception) {}
+        super.onCreate()
+    }
+}
+''';
+
+void main() {
+  group('codePushAppKotlinSource', () {
+    final source = codePushAppKotlinSource('com.example.demo');
+
+    test('extends android.app.Application, not the deprecated v1 shim', () {
+      expect(source, contains('import android.app.Application'));
+      expect(source, contains('class CodePushApp : Application()'));
+      expect(source, isNot(contains('io.flutter.app.FlutterApplication')));
+      expect(source, isNot(contains('FlutterApplication()')));
+    });
+
+    test('keeps the package, the File import and the copy body', () {
+      expect(source, startsWith('package com.example.demo\n'));
+      expect(source, contains('import java.io.File'));
+      expect(source, contains(kCodePushAppCopyBlock));
+    });
+
+    test(
+        'copies the config BEFORE super.onCreate() — the engine reads it '
+        'during FlutterJNI init', () {
+      expect(
+        source.indexOf('assets.open("codepush.yaml")'),
+        lessThan(source.indexOf('super.onCreate()')),
+      );
+    });
+
+    test('the copy is unguarded, so a store update refreshes the config', () {
+      expect(source, isNot(contains('if (!dest.exists())')));
+    });
+  });
+
+  group('upgradeCodePushAppSource', () {
+    test('migrates the deprecated base class in an otherwise current file', () {
+      final upgraded = upgradeCodePushAppSource(_legacyScaffold);
+
+      expect(upgraded, isNotNull);
+      expect(upgraded!.source, isNot(contains('FlutterApplication')));
+      expect(upgraded.source, contains('import android.app.Application'));
+      expect(upgraded.source, contains('class CodePushApp : Application()'));
+      expect(upgraded.notes, hasLength(1));
+      expect(upgraded.notes.single, contains('android.app.Application'));
+    });
+
+    test('applies both migrations to the oldest shape, one note each', () {
+      final upgraded = upgradeCodePushAppSource(_oldestScaffold);
+
+      expect(upgraded, isNotNull);
+      expect(upgraded!.notes, hasLength(2));
+      expect(upgraded.source, contains(kCodePushAppCopyBlock));
+      expect(upgraded.source, isNot(contains('if (!dest.exists())')));
+      expect(upgraded.source, isNot(contains('FlutterApplication')));
+    });
+
+    test(
+        'the freshly generated file is a fixed point — repeat init runs '
+        'rewrite nothing', () {
+      expect(
+        upgradeCodePushAppSource(codePushAppKotlinSource('com.example.demo')),
+        isNull,
+      );
+    });
+
+    test('leaves a hand-modified file alone when only half the pair matches',
+        () {
+      // A renamed class still referencing the old base: swapping the
+      // import alone would strand the FlutterApplication reference.
+      const modified = '''
+package com.example.demo
+
+import io.flutter.app.FlutterApplication
+import java.io.File
+
+class MyApp : FlutterApplication() {
+$kCodePushAppCopyBlock
+}
+''';
+
+      expect(upgradeCodePushAppSource(modified), isNull);
+    });
+
+    test('an upgrade is idempotent — its own output needs no second pass', () {
+      final once = upgradeCodePushAppSource(_oldestScaffold)!.source;
+
+      expect(upgradeCodePushAppSource(once), isNull);
+    });
+  });
+
+  group('scaffold constants', () {
+    test(
+        'name the v2-embedding base class — the manual instructions '
+        'interpolate these, so both places move together', () {
+      expect(kCodePushAppImport, 'import android.app.Application');
+      expect(kCodePushAppSuperclass, 'class CodePushApp : Application()');
+    });
+  });
+}

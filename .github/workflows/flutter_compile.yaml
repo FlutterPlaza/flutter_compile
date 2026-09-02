@@ -50,11 +50,24 @@ jobs:
       - name: 🕵️ Analyze
         run: dart analyze lib test
 
+      # One command per step, deliberately. These three used to share a
+      # multi-line `run:` block, which on windows-latest runs under pwsh:
+      # GitHub appends a single `exit $LASTEXITCODE` after the whole
+      # block, so only the LAST command decided the step. A failing
+      # `dart test` was overwritten by the format_coverage call that
+      # followed it and the Windows leg reported green. (The Linux and
+      # macOS legs never had the bug — their default shell is `bash -e`,
+      # which stops at the first failure.) A single-command step's exit
+      # code is that command's exit code under every shell, so splitting
+      # fixes it without depending on shell-specific settings.
+      - name: 📦 Install Coverage Tool
+        run: dart pub global activate coverage
+
       - name: 🧪 Run Tests with Coverage
-        run: |
-          dart pub global activate coverage
-          dart test --coverage=coverage
-          dart pub global run coverage:format_coverage --lcov --in=coverage --out=coverage/lcov.info
+        run: dart test --coverage=coverage
+
+      - name: 📈 Format Coverage
+        run: dart pub global run coverage:format_coverage --lcov --in=coverage --out=coverage/lcov.info
 
       - name: 📊 Upload Coverage to Codecov
         if: matrix.os == 'ubuntu-latest'

@@ -64,6 +64,109 @@ String? findApplicationClassName(String manifestContent) {
   return RegExp(r'android:name="([^"]+)"').firstMatch(applicationTag)?.group(1);
 }
 
+/// The asset-copy body of the generated `CodePushApp.onCreate()`. The
+/// copy must run on every launch: the asset is the source of truth and
+/// changes with each app update, while a copy guarded by `exists()`
+/// would stay frozen at whatever the first install shipped.
+const String kCodePushAppCopyBlock = '''
+        try {
+            val dest = File(filesDir, "codepush.yaml")
+            assets.open("codepush.yaml").use { input ->
+                dest.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CodePushApp", "Failed to copy codepush.yaml", e)
+        }''';
+
+/// The exists-guarded copy body a pre-0.19 CLI generated.
+const String _kLegacyCodePushAppCopyBlock = '''
+        try {
+            val dest = File(filesDir, "codepush.yaml")
+            if (!dest.exists()) {
+                assets.open("codepush.yaml").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        } catch (_: Exception) {}''';
+
+/// The v1-embedding import and superclass earlier CLI versions
+/// scaffolded, and the plain-`Application` pair that replaces them.
+///
+/// `io.flutter.app.FlutterApplication` is an EMPTY, `@Deprecated`
+/// subclass of `android.app.Application`, kept only so v1-embedding
+/// projects still compile; its own doc tells a project that needs to
+/// extend `Application` to extend `android.app.Application` instead.
+/// Extending it buys nothing, warns in a file the app author did not
+/// write, and makes every scaffolded project a removal candidate's
+/// hostage. `filesDir`, `assets` and the pre-`super.onCreate()` ordering
+/// are all `Application` members, so the swap changes no behavior — and
+/// it makes the scaffold match what the manifest's default
+/// `applicationName` already resolves to.
+const String _kLegacyEmbeddingImport =
+    'import io.flutter.app.FlutterApplication';
+const String kCodePushAppImport = 'import android.app.Application';
+const String _kLegacyEmbeddingSuperclass =
+    'class CodePushApp : FlutterApplication()';
+const String kCodePushAppSuperclass = 'class CodePushApp : Application()';
+
+/// The `CodePushApp.kt` source `fcp codepush init` scaffolds for
+/// [packageName]. Pure so the generated shape — which the docs mirror
+/// as the manual recovery path — is pinned by tests rather than by
+/// reading a string literal buried in a file-writing branch.
+String codePushAppKotlinSource(String packageName) => '''
+package $packageName
+
+$kCodePushAppImport
+import java.io.File
+
+$kCodePushAppSuperclass {
+    override fun onCreate() {
+        // Copy codepush.yaml from assets to files dir before Flutter engine init.
+$kCodePushAppCopyBlock
+        super.onCreate()
+    }
+}
+''';
+
+/// The rewrite `init` applies to an EXISTING `CodePushApp.kt`, with one
+/// note per migration applied — or null when the file needs no change.
+///
+/// Two independent migrations, both keyed on the EXACT text an earlier
+/// CLI generated, so a file the app author has since edited is left
+/// alone (the caller warns instead):
+///
+///  * the exists-guarded copy body → the copy-every-launch body;
+///  * the deprecated v1-embedding base class → `android.app.Application`.
+///
+/// The embedding swap requires BOTH the import and the superclass line
+/// to match: rewriting the import alone would leave a dangling
+/// `FlutterApplication` reference in a file we no longer understand.
+({String source, List<String> notes})? upgradeCodePushAppSource(
+  String existing,
+) {
+  var source = existing;
+  final notes = <String>[];
+  if (source.contains(_kLegacyCodePushAppCopyBlock)) {
+    source = source.replaceFirst(
+      _kLegacyCodePushAppCopyBlock,
+      kCodePushAppCopyBlock,
+    );
+    notes.add('Updated: CodePushApp.kt (config now refreshes on every launch)');
+  }
+  if (source.contains(_kLegacyEmbeddingImport) &&
+      source.contains(_kLegacyEmbeddingSuperclass)) {
+    source = source
+        .replaceFirst(_kLegacyEmbeddingImport, kCodePushAppImport)
+        .replaceFirst(_kLegacyEmbeddingSuperclass, kCodePushAppSuperclass);
+    notes.add(
+      'Updated: CodePushApp.kt (extends android.app.Application; the '
+      'previous base class is deprecated)',
+    );
+  }
+  if (notes.isEmpty) return null;
+  return (source: source, notes: notes);
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -244,11 +347,15 @@ class CodePushInitSubCommand extends Command<int> {
         '         enabled: true\n'
         '         release_version: "$version"\n'
         '\n'
+        // Interpolated, not retyped: this block is what a customer
+        // reads when the automated step did not finish, i.e. exactly
+        // when the generated file is missing. The two must never
+        // describe different base classes.
         '    b. Create CodePushApp.kt next to MainActivity.kt:\n'
         '         package <your.package>\n'
-        '         import io.flutter.app.FlutterApplication\n'
+        '         $kCodePushAppImport\n'
         '         import java.io.File\n'
-        '         class CodePushApp : FlutterApplication() {\n'
+        '         $kCodePushAppSuperclass {\n'
         '           override fun onCreate() {\n'
         '             try {\n'
         '               val dest = File(filesDir, "codepush.yaml")\n'
@@ -390,52 +497,20 @@ class CodePushInitSubCommand extends Command<int> {
     );
     if (!kotlinDir.existsSync()) kotlinDir.createSync(recursive: true);
     final codePushAppFile = File('${kotlinDir.path}/CodePushApp.kt');
-    // The copy must run on every launch: the asset is the source of truth
-    // and changes with each app update, while a copy guarded by exists()
-    // would stay frozen at whatever the first install shipped.
-    const oldCopyBlock = '''
-        try {
-            val dest = File(filesDir, "codepush.yaml")
-            if (!dest.exists()) {
-                assets.open("codepush.yaml").use { input ->
-                    dest.outputStream().use { output -> input.copyTo(output) }
-                }
-            }
-        } catch (_: Exception) {}''';
-    const newCopyBlock = '''
-        try {
-            val dest = File(filesDir, "codepush.yaml")
-            assets.open("codepush.yaml").use { input ->
-                dest.outputStream().use { output -> input.copyTo(output) }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("CodePushApp", "Failed to copy codepush.yaml", e)
-        }''';
     if (!codePushAppFile.existsSync()) {
-      codePushAppFile.writeAsStringSync('''
-package $packageName
-
-import io.flutter.app.FlutterApplication
-import java.io.File
-
-class CodePushApp : FlutterApplication() {
-    override fun onCreate() {
-        // Copy codepush.yaml from assets to files dir before Flutter engine init.
-$newCopyBlock
-        super.onCreate()
-    }
-}
-''');
+      codePushAppFile.writeAsStringSync(codePushAppKotlinSource(packageName));
     } else {
-      // Upgrade a CodePushApp.kt generated by an older CLI version, which
-      // skipped the copy when the file already existed.
+      // Upgrade a CodePushApp.kt generated by an older CLI version: one
+      // that skipped the copy when the file already existed, and/or one
+      // built on the deprecated v1-embedding base class.
       final existing = codePushAppFile.readAsStringSync();
-      if (existing.contains(oldCopyBlock)) {
-        codePushAppFile.writeAsStringSync(
-            existing.replaceFirst(oldCopyBlock, newCopyBlock));
-        _logger.info(
-            '  Updated: CodePushApp.kt (config now refreshes on every launch)');
-      } else if (!existing.contains(newCopyBlock)) {
+      final upgraded = upgradeCodePushAppSource(existing);
+      if (upgraded != null) {
+        codePushAppFile.writeAsStringSync(upgraded.source);
+        for (final note in upgraded.notes) {
+          _logger.info('  $note');
+        }
+      } else if (!existing.contains(kCodePushAppCopyBlock)) {
         _logger.warn(
           '  CodePushApp.kt was not upgraded automatically (the file has '
           'been modified). Make sure the codepush.yaml copy in onCreate() '
