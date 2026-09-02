@@ -105,8 +105,10 @@ void main() {
   group('storeAppId scoping', () {
     test("a second project's init no longer repoints the first (issue #73)",
         () async {
-      // Project A is the pre-existing, machine-wide setup.
-      await writeMachineAppId('app-a-id');
+      // Project A pinned itself by running init once (writing its own
+      // project file) — the documented migration step for setups that
+      // predate project-scoped ids.
+      await CodePushClient.storeAppId('app-a-id', projectDir: projectA);
       expect(await CodePushClient.getAppId(projectDir: projectA), 'app-a-id');
 
       // Project B is set up later on the same laptop.
@@ -117,9 +119,29 @@ void main() {
 
       expect(written, '${projectB.path}/${CodePushClient.rcFileName}');
       expect(await CodePushClient.getAppId(projectDir: projectB), 'app-b-id');
-      // The whole point: A still resolves A.
+      // The whole point: A still resolves A through its project file.
       expect(await CodePushClient.getAppId(projectDir: projectA), 'app-a-id');
-      expect(await CodePushClient.getMachineAppId(), 'app-a-id');
+      // The machine-wide file mirrors the LATEST init as a fallback for
+      // callers that resolve without a working directory (the IDE
+      // extensions, cwd-less daemon RPCs) — for them this is exactly
+      // the pre-project-file behavior, no regression. Every cwd-aware
+      // path prefers the project file, as asserted above.
+      expect(await CodePushClient.getMachineAppId(), 'app-b-id');
+    });
+
+    test(
+        'a legacy machine-only project stays exposed to the repoint until '
+        'it re-runs init (the documented migration boundary)', () async {
+      // Project A never re-ran init: only the machine-wide id exists.
+      await writeMachineAppId('app-a-id');
+      expect(await CodePushClient.getAppId(projectDir: projectA), 'app-a-id');
+
+      await CodePushClient.storeAppId('app-b-id', projectDir: projectB);
+
+      // Without a project file, A falls through to the mirrored
+      // machine value — exactly the pre-project-file behavior #73
+      // describes. One init in A pins it permanently (previous test).
+      expect(await CodePushClient.getAppId(projectDir: projectA), 'app-b-id');
     });
 
     test('falls back to the machine-wide file outside a project', () async {

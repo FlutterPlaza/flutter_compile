@@ -201,9 +201,23 @@ class CodePushClient {
   /// value on, so the machine-wide file stays the target.
   static Future<String> storeAppId(String appId,
       {Directory? projectDir}) async {
-    final target =
-        projectRcFile(from: projectDir) ?? File('${F.homeDir()}/$rcFileName');
+    final projectTarget = projectRcFile(from: projectDir);
+    final machineFile = File('${F.homeDir()}/$rcFileName');
+    final target = projectTarget ?? machineFile;
     await F.writeKeyValueToRcConfig(target, Constants.codePushAppIdKey, appId);
+    if (projectTarget != null) {
+      // Mirror into the machine-wide file as a FALLBACK for callers
+      // that resolve without a working directory — today the IDE
+      // extensions and any daemon RPC not passing `directory`. For
+      // those callers this is exactly the pre-project-file behavior
+      // (last init wins), so nothing regresses while the project file
+      // stays authoritative for every cwd-aware path; the shadowing
+      // advisory names the machine value whenever it is overridden.
+      // Follow-up to remove the need for this: thread cwd through the
+      // IDE extensions' CLI invocations.
+      await F.writeKeyValueToRcConfig(
+          machineFile, Constants.codePushAppIdKey, appId);
+    }
     return target.path;
   }
 
