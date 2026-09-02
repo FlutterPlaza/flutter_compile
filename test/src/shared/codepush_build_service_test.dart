@@ -933,6 +933,11 @@ void _interfaceFreeze() {
   group('dependencyPackageLibrariesFromClosure', () {
     late Directory tmp;
 
+    /// The absolute (pub-cache style) rootUri, spelled as a real file URI
+    /// so it is valid on both hosts — see the setUp comment.
+    String hostedPkgRootUri() =>
+        Directory('${tmp.path}/cache/hosted_pkg').uri.toString();
+
     setUp(() {
       tmp = Directory.systemTemp.createTempSync('dep_freeze_test');
       // App package layout + package_config referencing one relative
@@ -953,18 +958,36 @@ void _interfaceFreeze() {
           .writeAsStringSync('int h = 1;');
       File('${tmp.path}/flutter/lib/widgets.dart')
           .writeAsStringSync('class W {}');
+      // Two things here are load-bearing on a Windows host, and getting
+      // either wrong makes the WHOLE config unreadable — which reads as
+      // "the mapping is broken" when the mapping was never reached:
+      //   * jsonEncode, not an interpolated literal: a native Windows
+      //     path is full of backslashes, and '\U' is not a legal JSON
+      //     string escape, so a spliced literal fails jsonDecode outright.
+      //   * Uri.directory(...), not 'file://' + a native path: only a
+      //     POSIX absolute path can be concatenated onto the scheme. On
+      //     Windows that yields file://C:\... whose authority parses as
+      //     'c' and whose file path comes back as the UNC \\c\... .
+      // Both are fixture bugs, not product bugs: pub writes a real
+      // file:/// URI and a real JSON escape on every platform.
       File('${tmp.path}/app/.dart_tool/package_config.json')
-          .writeAsStringSync('''
-{
-  "configVersion": 2,
-  "packages": [
-    {"name": "demo", "rootUri": "../", "packageUri": "lib/"},
-    {"name": "sdk_pkg", "rootUri": "../../deps/sdk_pkg", "packageUri": "lib/"},
-    {"name": "hosted_pkg", "rootUri": "file://${tmp.path}/cache/hosted_pkg", "packageUri": "lib/"},
-    {"name": "flutter", "rootUri": "../../flutter", "packageUri": "lib/"}
-  ]
-}
-''');
+          .writeAsStringSync(jsonEncode({
+        'configVersion': 2,
+        'packages': [
+          {'name': 'demo', 'rootUri': '../', 'packageUri': 'lib/'},
+          {
+            'name': 'sdk_pkg',
+            'rootUri': '../../deps/sdk_pkg',
+            'packageUri': 'lib/',
+          },
+          {
+            'name': 'hosted_pkg',
+            'rootUri': hostedPkgRootUri(),
+            'packageUri': 'lib/',
+          },
+          {'name': 'flutter', 'rootUri': '../../flutter', 'packageUri': 'lib/'},
+        ],
+      }));
     });
 
     tearDown(() => tmp.deleteSync(recursive: true));
@@ -1121,7 +1144,8 @@ void _interfaceFreeze() {
           },
           {
             'name': 'hosted_pkg',
-            'rootUri': 'file://${tmp.path}/cache/hosted_pkg',
+            // A real file URI: 'file://' + a native path is POSIX-only.
+            'rootUri': hostedPkgRootUri(),
             'packageUri': 'lib/',
           },
         ],

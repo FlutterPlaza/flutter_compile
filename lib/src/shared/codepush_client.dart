@@ -6,6 +6,41 @@ import 'dart:typed_data';
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 
+/// What [CodePushClient.migrateLegacySigningKey] did.
+enum SigningKeyMigrationOutcome {
+  /// No legacy keypair to move, or the canonical location already has
+  /// one. The common case, and the only one on POSIX with `HOME` set.
+  nothingToDo,
+
+  /// A legacy keypair was copied to the canonical location.
+  migrated,
+
+  /// A legacy keypair exists but could not be copied. The caller MUST
+  /// keep using it where it is rather than generating a new one.
+  failed,
+}
+
+/// The result of [CodePushClient.migrateLegacySigningKey].
+class SigningKeyMigration {
+  const SigningKeyMigration(
+    this.outcome, {
+    this.fromDir,
+    this.toDir,
+    this.error,
+  });
+
+  final SigningKeyMigrationOutcome outcome;
+
+  /// The legacy directory, when one was involved.
+  final String? fromDir;
+
+  /// The canonical directory, when one was involved.
+  final String? toDir;
+
+  /// The failure text, set only for [SigningKeyMigrationOutcome.failed].
+  final String? error;
+}
+
 /// HTTP client for the FlutterPlaza Code Push server.
 ///
 /// When [pinnedCertificatePath] is provided, TLS certificate pinning is
@@ -102,6 +137,124 @@ class CodePushClient {
     final home = F.homeDir();
     final rcFile = File('$home/.flutter_compilerc');
     await F.writeKeyValueToRcConfig(rcFile, Constants.codePushAppIdKey, appId);
+  }
+
+  /// Basename of the private half of the signing keypair.
+  static const String signingPrivateKeyName = 'codepush_private.pem';
+
+  /// Basename of the public half of the signing keypair.
+  static const String signingPublicKeyName = 'codepush_public.pem';
+
+  /// The canonical signing-key directory, `~/.flutter_codepush`.
+  ///
+  /// ONE definition, shared by `init`, `keys generate` and
+  /// `keys register`. They used to compute it separately and drifted:
+  /// `init` moved to [F.homeDir] (USERPROFILE on Windows) while `keys`
+  /// stayed on `$HOME`, so on Windows the two commands named different
+  /// directories — `init` wrote a key `keys register` then could not
+  /// find, and `keys generate` made a SECOND keypair.
+  static String signingKeyDir() => '${F.homeDir()}/.flutter_codepush';
+
+  /// The directory a pre-[F.homeDir] release wrote the keypair to, or
+  /// null when it is the same directory [signingKeyDir] already names.
+  ///
+  /// Non-null in exactly the cases the move created: Windows, where
+  /// `HOME` is normally unset so the old expression answered `C:\tmp`,
+  /// and a POSIX environment with no `HOME` at all (a container running
+  /// as an arbitrary UID).
+  static String? legacySigningKeyDir() {
+    final legacy = '${F.legacyHomeDir()}/.flutter_codepush';
+    return legacy == signingKeyDir() ? null : legacy;
+  }
+
+  /// The directory that actually holds a keypair right now.
+  ///
+  /// [signingKeyDir] when it has one (or when nothing does, since that
+  /// is where a new one belongs), otherwise the legacy directory. This
+  /// is what every DEFAULT must resolve to: an upgrading user whose key
+  /// could not be migrated keeps signing with the key the server
+  /// already knows, instead of silently getting a new one.
+  static String resolveSigningKeyDir() {
+    final current = signingKeyDir();
+    if (File('$current/$signingPrivateKeyName').existsSync()) return current;
+    final legacy = legacySigningKeyDir();
+    if (legacy != null && File('$legacy/$signingPrivateKeyName').existsSync()) {
+      return legacy;
+    }
+    return current;
+  }
+
+  /// The public key that pairs with the key PATCHES ARE SIGNED WITH.
+  ///
+  /// Signing reads the `codepush_signing_key` rc entry; the directory
+  /// probe above knows nothing about it. Every site that UPLOADS,
+  /// REGISTERS or EMBEDS a public key must resolve through here, or a
+  /// user-chosen `keys generate --output-dir` key signs patches while a
+  /// different key gets registered — devices then verify against a key
+  /// that never signs anything. Order: the rc entry's sibling public
+  /// pem when the rc names an existing private key; otherwise the
+  /// directory resolution.
+  static Future<String> resolveActivePublicKeyPath() async {
+    final stored = await getStoredSigningKey();
+    if (stored != null && stored.trim().isNotEmpty) {
+      final privateFile = File(stored.trim());
+      if (privateFile.existsSync()) {
+        final sibling = File(
+          '${privateFile.parent.path}/$signingPublicKeyName',
+        );
+        if (sibling.existsSync()) return sibling.path;
+      }
+    }
+    return '${resolveSigningKeyDir()}/$signingPublicKeyName';
+  }
+
+  /// Move a keypair left at [legacySigningKeyDir] into
+  /// [signingKeyDir], so the two commands agree from here on.
+  ///
+  /// Never overwrites: a keypair already at the canonical location wins
+  /// and the legacy copy is left where it is. Copy rather than move, so
+  /// a partially-completed migration still leaves the user with the key
+  /// the server knows.
+  ///
+  /// Why this must exist at all: without it, an upgrading Windows user
+  /// hits the `exists` guard against an empty `%USERPROFILE%`, a brand
+  /// new keypair is generated, and `storeSigningKey` repoints the rc
+  /// file at it. Every later patch is then signed with a key the server
+  /// has never seen, and every upload is refused — for apps whose
+  /// builds are already shipped.
+  static SigningKeyMigration migrateLegacySigningKey() {
+    final target = signingKeyDir();
+    if (File('$target/$signingPrivateKeyName').existsSync()) {
+      return const SigningKeyMigration(SigningKeyMigrationOutcome.nothingToDo);
+    }
+    final legacy = legacySigningKeyDir();
+    if (legacy == null) {
+      return const SigningKeyMigration(SigningKeyMigrationOutcome.nothingToDo);
+    }
+    final legacyPrivate = File('$legacy/$signingPrivateKeyName');
+    if (!legacyPrivate.existsSync()) {
+      return const SigningKeyMigration(SigningKeyMigrationOutcome.nothingToDo);
+    }
+    try {
+      Directory(target).createSync(recursive: true);
+      legacyPrivate.copySync('$target/$signingPrivateKeyName');
+      final legacyPublic = File('$legacy/$signingPublicKeyName');
+      if (legacyPublic.existsSync()) {
+        legacyPublic.copySync('$target/$signingPublicKeyName');
+      }
+      return SigningKeyMigration(
+        SigningKeyMigrationOutcome.migrated,
+        fromDir: legacy,
+        toDir: target,
+      );
+    } on FileSystemException catch (e) {
+      return SigningKeyMigration(
+        SigningKeyMigrationOutcome.failed,
+        fromDir: legacy,
+        toDir: target,
+        error: '$e',
+      );
+    }
   }
 
   static Future<void> storeSigningKey(String path) async {

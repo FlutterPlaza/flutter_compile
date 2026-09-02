@@ -43,6 +43,12 @@ class BuildStepResult {
   final String? stdout;
   final String? stderr;
 
+  /// Path separators to strip a tool path down to its basename with.
+  /// Windows treats '/' and '\' alike; POSIX treats only '/' as a
+  /// separator, so a filename there may legally contain a backslash.
+  static final RegExp _toolPathSeparators =
+      Platform.isWindows ? RegExp(r'[\\/]') : RegExp('/');
+
   /// Multi-line diagnostic dump suitable for `_logger.err(...)` right after
   /// a `progress.fail(...)` call. Empty when there is nothing to add beyond
   /// the short [message]. Never includes ANSI codes.
@@ -52,7 +58,12 @@ class BuildStepResult {
       buf.writeln('  exit code: $exitCode');
     }
     if (command != null && command!.isNotEmpty) {
-      final tool = command!.first.split(Platform.pathSeparator).last;
+      // Windows accepts BOTH separators and this CLI composes tool paths
+      // with '/' throughout, so splitting on Platform.pathSeparator alone
+      // ('\' there) elided nothing and printed the whole absolute path —
+      // exactly what the basename exists to avoid. POSIX keeps splitting
+      // on '/' only, where a literal '\' is a legal filename character.
+      final tool = command!.first.split(_toolPathSeparators).last;
       final display = [tool, ...command!.skip(1)];
       buf.writeln('  command:   ${display.join(' ')}');
     }

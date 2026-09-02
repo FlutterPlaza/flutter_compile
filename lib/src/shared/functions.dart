@@ -40,6 +40,25 @@ class F {
     return Platform.environment['HOME'] ?? '';
   }
 
+  /// Override for testing — when set, [legacyHomeDir] returns this
+  /// value. Defaults to [homeDirOverride] so a test that redirects the
+  /// home directory can never reach the developer's REAL `$HOME`
+  /// through the legacy path.
+  static String? legacyHomeDirOverride;
+
+  /// The home directory older releases resolved: `$HOME`, falling back
+  /// to `/tmp`.
+  ///
+  /// On Windows `HOME` is normally unset outside Git Bash, so this
+  /// answered `/tmp` — i.e. `C:\tmp` — and that is where an upgrading
+  /// Windows user's files actually are. Exists ONLY so migrations can
+  /// find them; never build a new path from it.
+  static String legacyHomeDir() {
+    final override = legacyHomeDirOverride ?? homeDirOverride;
+    if (override != null) return override;
+    return Platform.environment['HOME'] ?? '/tmp';
+  }
+
   /// Returns the platform-specific PATH separator (`;` on Windows, `:` elsewhere).
   static String get envPathSeparator => Platform.isWindows ? ';' : ':';
 
@@ -702,13 +721,21 @@ class F {
     return sdkPath != null && isFlutterSdk(sdkPath);
   }
 
-  /// Returns true if [path] contains a Flutter SDK (has `bin/flutter`).
-  static bool isFlutterSdk(String path) {
-    final flutter = Platform.isWindows
-        ? File('$path/bin/flutter.bat')
-        : File('$path/bin/flutter');
-    return flutter.existsSync();
-  }
+  /// Returns true if [path] contains a Flutter SDK (has a `bin/flutter`
+  /// launcher).
+  ///
+  /// EITHER launcher answers the question. A real Flutter SDK ships both
+  /// halves on every host — `bin/flutter` (the POSIX shell script) and
+  /// `bin/flutter.bat` (the Windows batch wrapper) are both tracked in
+  /// flutter/flutter and both land in the release archives — so demanding
+  /// the host-specific one made a genuine SDK read as absent whenever only
+  /// its sibling had been materialized (an archive extracted without the
+  /// executable bit, a partial checkout, a fixture). This predicate answers
+  /// "is this a Flutter SDK", not "which launcher would I exec"; callers
+  /// that need to RUN one pick the host-appropriate name themselves.
+  static bool isFlutterSdk(String path) =>
+      File('$path/bin/flutter').existsSync() ||
+      File('$path/bin/flutter.bat').existsSync();
 
   static Future<String?> readProjectSdkVersion([String? directory]) async {
     final dir = directory ?? Directory.current.path;
