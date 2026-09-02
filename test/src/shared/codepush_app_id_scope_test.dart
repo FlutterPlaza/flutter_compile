@@ -594,4 +594,47 @@ void main() {
               'advisory exists to prevent');
     });
   });
+
+  group('pin-mode failure message (PR #87 round 4)', () {
+    test('names nothing as created and prescribes the safe re-run', () {
+      final msg = appIdRecordFailureMessage(
+        appId: 'app-x',
+        rcTarget: '/p/.flutter_compilerc',
+        machineRcPath: '/h/.flutter_compilerc',
+        error: 'denied',
+        created: false,
+        projectFileRecorded: false,
+      );
+      expect(msg, contains('Nothing was created'));
+      expect(msg, isNot(contains('was created,')));
+      expect(msg, contains('re-running "fcp codepush init --app-id app-x"'));
+      expect(msg, isNot(contains('SECOND app')));
+    });
+
+    test(
+        'a read-only project file carrying the OLD id is not reported '
+        'as recorded (contents, not existence)', () async {
+      // Project file exists but carries a DIFFERENT id and cannot be
+      // rewritten - the exact scenario --app-id repairs.
+      final rc = File('${projectA.path}/${CodePushClient.rcFileName}')
+        ..writeAsStringSync('codepush_app_id:old-app\n');
+      await Process.run('chmod', ['444', rc.path]);
+      addTearDown(() => Process.run('chmod', ['644', rc.path]));
+
+      final logger = _CapturingLogger();
+      final errs = <String>[];
+      when(() => logger.err(any())).thenAnswer((inv) {
+        errs.add(inv.positionalArguments.first as String? ?? '');
+      });
+      final exit = await IOOverrides.runZoned(
+        () => runPinExistingApp(appId: 'new-app', logger: logger),
+        getCurrentDirectory: () => projectA,
+      );
+      expect(exit, isNot(0));
+      expect(errs.single, contains('could not be recorded'));
+      expect(errs.single, isNot(contains('WAS recorded')),
+          reason: 'existence of a file carrying the OLD id must not '
+              'read as the pin having taken');
+    });
+  });
 }

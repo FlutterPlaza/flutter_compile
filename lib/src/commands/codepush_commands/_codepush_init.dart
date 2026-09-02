@@ -150,8 +150,12 @@ Future<int> runPinExistingApp({
       rcTarget: rcTarget,
       machineRcPath: machineRcPath,
       error: e,
-      projectFileRecorded:
-          CodePushClient.projectRcFile()?.existsSync() ?? false,
+      created: false,
+      // Contents, not existence: the likeliest pin failure is a
+      // read-only project file carrying the OLD id — existsSync would
+      // claim the pin took while every upload keeps going to the old
+      // app (round 4, the round-2 false-reassurance at a new site).
+      projectFileRecorded: await _rcFileCarriesAppId(rcTarget, appId),
     ));
     return ExitCode.software.code;
   }
@@ -171,13 +175,23 @@ String appIdRecordFailureMessage({
   required String machineRcPath,
   required bool projectFileRecorded,
   required Object error,
+  bool created = true,
 }) {
   const key = Constants.codePushAppIdKey;
-  const doNotReRun = 'Do NOT re-run "fcp codepush init" — that would '
-      'create a SECOND app.';
+  // Pin mode (`init --app-id`) is local-only and idempotent: nothing
+  // was created, and re-running it after fixing the obstacle IS the
+  // recovery — the post-201 warning would forbid the safe command
+  // (round 4).
+  final doNotReRun = created
+      ? 'Do NOT re-run "fcp codepush init" — that would '
+          'create a SECOND app.'
+      : 'Once the obstacle is fixed, re-running '
+          '"fcp codepush init --app-id $appId" is safe — it is '
+          'local-only and idempotent.';
+  final lede = created ? 'App $appId was created' : 'Nothing was created';
 
   if (projectFileRecorded) {
-    return 'App $appId was created and its id WAS recorded in '
+    return '$lede — the id WAS recorded in '
         '$rcTarget, but the machine-wide fallback in $machineRcPath '
         'could not be updated: $error\n'
         '$doNotReRun This project already resolves $appId; only tools '
@@ -194,7 +208,7 @@ String appIdRecordFailureMessage({
           '$machineRcPath, which $rcTarget takes precedence over.'
       : '';
 
-  return 'App $appId was created, but its id could not be recorded in '
+  return '$lede — the app id $appId could not be recorded in '
       '$rcTarget: $error\n'
       '$doNotReRun Record it by adding this line to $rcTarget:\n'
       '    $key: $appId\n'

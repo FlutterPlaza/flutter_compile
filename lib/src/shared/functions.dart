@@ -617,6 +617,14 @@ class F {
           continue;
         }
         final lineKey = line.substring(0, colonIndex);
+        // Comments are prose, not keys: '# Note: x' and '# Note: y'
+        // legitimately share a first word and must both survive
+        // (round 4 — the dedup was deleting annotations in a file
+        // teams are told to commit and annotate).
+        if (line.trimLeft().startsWith('#')) {
+          out.add(line);
+          continue;
+        }
         if (!seenKeys.add(lineKey)) continue; // later duplicate
         if (lineKey == key) {
           out.add('$key:$value');
