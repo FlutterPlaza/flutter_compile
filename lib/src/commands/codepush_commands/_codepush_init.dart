@@ -54,6 +54,31 @@ String? computeManifestUpdate(String manifestContent) {
   return updated == manifestContent ? null : updated;
 }
 
+/// A bare drive designator, e.g. `C:` — the only non-empty segment a
+/// Windows drive-root URI has.
+final RegExp _kDriveDesignator = RegExp(r'^[A-Za-z]:$');
+
+/// The app name to fall back on when `pubspec.yaml` names none: the
+/// last segment of the current directory's URI.
+///
+/// Via the URI rather than splitting on '/': a Windows path is
+/// separated by '\', so the split returned the whole path as the app
+/// name. A directory URI ends in a separator, so the trailing empty
+/// segment is dropped.
+///
+/// The drive root needs its own case. `Directory('C:\\').uri` is
+/// `file:///C:/`, whose only non-empty segment is `C:` — a drive
+/// letter, not a name. POSIX's `/` has no non-empty segments at all and
+/// already fell back to `app`; Windows should reach the same place.
+String defaultAppNameFrom(Uri directory) {
+  final segments =
+      directory.pathSegments.where((segment) => segment.isNotEmpty).toList();
+  if (segments.isEmpty) return 'app';
+  final last = segments.last;
+  if (segments.length == 1 && _kDriveDesignator.hasMatch(last)) return 'app';
+  return last;
+}
+
 /// The `android:name` attribute of the `<application ...>` element, or null.
 /// Scoped to the application tag so permission declarations above it can't
 /// be mistaken for the Application class name.
@@ -92,10 +117,16 @@ const String _kLegacyCodePushAppCopyBlock = '''
 /// The v1-embedding import and superclass earlier CLI versions
 /// scaffolded, and the plain-`Application` pair that replaces them.
 ///
-/// `io.flutter.app.FlutterApplication` is an EMPTY, `@Deprecated`
-/// subclass of `android.app.Application`, kept only so v1-embedding
-/// projects still compile; its own doc tells a project that needs to
-/// extend `Application` to extend `android.app.Application` instead.
+/// `io.flutter.app.FlutterApplication` is a `@Deprecated` subclass of
+/// `android.app.Application`, kept only so v1-embedding projects still
+/// compile; its own doc tells a project that needs to extend
+/// `Application` to extend `android.app.Application` instead. It is
+/// near-empty rather than literally empty: it carries
+/// `getCurrentActivity()` / `setCurrentActivity()`, so a v1-era plugin
+/// that casts `getApplicationContext()` to it would throw
+/// `ClassCastException` once this migration runs. Such a plugin cannot
+/// work on a modern Flutter anyway, which is why the swap is still
+/// right — but the claim is "near-empty", not "empty".
 /// Extending it buys nothing, warns in a file the app author did not
 /// write, and makes every scaffolded project a removal candidate's
 /// hostage. `filesDir`, `assets` and the pre-`super.onCreate()` ordering
@@ -234,17 +265,35 @@ bool codePushAppUsesLegacyEmbedding(String source) {
     reconcileCodePushAppSource(String existing) {
   final upgraded = upgradeCodePushAppSource(existing);
   final effective = upgraded?.source ?? existing;
+  final warnings = <String>[
+    if (codePushAppNeedsCopyFix(effective)) kCodePushAppCopyFixWarning,
+    if (codePushAppUsesLegacyEmbedding(effective))
+      kCodePushAppLegacyEmbeddingWarning,
+  ];
+  // The summary must answer to the WARNINGS, not just to whether a
+  // rewrite happened. They key on different questions — "did anything
+  // change" vs "does a human still have to touch this" — and every
+  // case where a warning fires without a rewrite produced the pair
+  // "CodePushApp.kt: already configured" under "✓ Android configured",
+  // printed after a warning saying the CLI could not fix the file. The
+  // summary is the last line the user reads about it, so it is the one
+  // that has to carry the doubt.
+  final String summary;
+  if (warnings.isNotEmpty) {
+    summary = upgraded != null
+        ? 'Updated: CodePushApp.kt (still needs a manual fix — see the '
+            'warning above)'
+        : 'CodePushApp.kt: needs a manual fix — see the warning above';
+  } else {
+    summary = upgraded != null
+        ? 'Updated: CodePushApp.kt'
+        : 'CodePushApp.kt: already configured';
+  }
   return (
     source: upgraded?.source,
     notes: upgraded?.notes ?? const <String>[],
-    warnings: <String>[
-      if (codePushAppNeedsCopyFix(effective)) kCodePushAppCopyFixWarning,
-      if (codePushAppUsesLegacyEmbedding(effective))
-        kCodePushAppLegacyEmbeddingWarning,
-    ],
-    summary: upgraded != null
-        ? 'Updated: CodePushApp.kt'
-        : 'CodePushApp.kt: already configured',
+    warnings: warnings,
+    summary: summary,
   );
 }
 
@@ -287,13 +336,7 @@ class CodePushInitSubCommand extends Command<int> {
             RegExp(r'^name:\s*(.+)$', multiLine: true).firstMatch(content);
         if (match != null) appName = match.group(1)?.trim();
       }
-      // Via the URI rather than splitting on '/': a Windows path is
-      // separated by '\', so the split returned the whole path as the
-      // app name. A directory URI ends in a separator, so the trailing
-      // empty segment is dropped.
-      final segments = Directory.current.uri.pathSegments
-          .where((segment) => segment.isNotEmpty);
-      appName ??= segments.isEmpty ? 'app' : segments.last;
+      appName ??= defaultAppNameFrom(Directory.current.uri);
     }
 
     final platform = argResults?['platform'] as String?;
@@ -304,12 +347,44 @@ class CodePushInitSubCommand extends Command<int> {
     // first patch. If key gen fails (openssl missing), we still create
     // the app — it'll be grandfathered and the user can run
     // `fcp codepush keys register` later.
-    // Via F.homeDir() so the key path resolves on Windows too
-    // (USERPROFILE rather than HOME), and so tests can redirect it.
-    final home = F.homeDir();
-    final keyDir = '$home/.flutter_codepush';
-    final privateKeyPath = '$keyDir/codepush_private.pem';
-    final publicKeyPath = '$keyDir/codepush_public.pem';
+    // The keypair location comes from CodePushClient so `init`, `keys
+    // generate` and `keys register` cannot name different directories
+    // — which is exactly what happened when only `init` moved to
+    // F.homeDir() (USERPROFILE on Windows) and `keys` stayed on $HOME.
+    //
+    // Migrate BEFORE the exists-check. Without this an upgrading
+    // Windows user's key at C:\tmp\.flutter_codepush is invisible to a
+    // check against %USERPROFILE%, so a brand-new keypair is generated
+    // and `storeSigningKey` repoints the rc file at it — every later
+    // patch signed with a key the server has never seen, for apps whose
+    // builds are already in the field.
+    final migration = CodePushClient.migrateLegacySigningKey();
+    switch (migration.outcome) {
+      case SigningKeyMigrationOutcome.migrated:
+        _logger.info(
+          'Moved your signing keypair from ${migration.fromDir} to '
+          '${migration.toDir}. Earlier releases wrote it to the first '
+          'path; every command reads the second now. The old copy was '
+          'left in place — delete it once you have confirmed a patch '
+          'still uploads.',
+        );
+      case SigningKeyMigrationOutcome.failed:
+        // Do NOT generate over this. Keep using the key the server
+        // already knows, wherever it is.
+        _logger.warn(
+          'Your signing keypair is at ${migration.fromDir} and could '
+          'not be copied to ${migration.toDir}: ${migration.error}\n'
+          'It will keep being used from where it is, so nothing is '
+          're-keyed — but copy the directory across when you can, '
+          'since that is where the other commands look.',
+        );
+      case SigningKeyMigrationOutcome.nothingToDo:
+        break;
+    }
+
+    final keyDir = CodePushClient.resolveSigningKeyDir();
+    final privateKeyPath = '$keyDir/${CodePushClient.signingPrivateKeyName}';
+    final publicKeyPath = '$keyDir/${CodePushClient.signingPublicKeyName}';
     var keysGeneratedThisRun = false;
     if (!File(privateKeyPath).existsSync()) {
       final keyProgress = _logger.progress('Generating RSA signing key pair');
@@ -318,10 +393,12 @@ class CodePushInitSubCommand extends Command<int> {
       // openssl executable is missing entirely — and this block now runs
       // outside the command's main try/catch, so degrade in place.
       (String, String)? keyResult;
+      Object? keyError;
       try {
         keyResult = await buildService.generateSigningKey(keyDir);
-      } catch (_) {
+      } catch (e) {
         keyResult = null;
+        keyError = e;
       }
       if (keyResult != null) {
         await CodePushClient.storeSigningKey(keyResult.$1);
@@ -330,9 +407,25 @@ class CodePushInitSubCommand extends Command<int> {
         _logger.info('  Public key:  ${keyResult.$2}');
         keysGeneratedThisRun = true;
       } else {
-        keyProgress.fail('Could not generate signing keys (openssl missing?)');
+        keyProgress.fail('Could not generate signing keys');
+        // Naming the directory and the actual error matters: with no
+        // HOME/USERPROFILE the path resolves to `/.flutter_codepush`,
+        // the create throws, and "openssl missing?" sends the user to
+        // debug a tool that is working fine.
+        if (F.homeDir().isEmpty) {
+          _logger.warn(
+            'Neither HOME nor USERPROFILE is set, so the key directory '
+            'resolved to "$keyDir", which is not writable. Set one of '
+            'them, or run `fcp codepush keys generate --output-dir '
+            '<path>`.',
+          );
+        } else if (keyError != null) {
+          _logger.warn('Writing the keypair to $keyDir failed: $keyError');
+        } else {
+          _logger.warn('Is openssl installed and on PATH?');
+        }
         _logger.warn(
-          'Patches will not be signed. Install openssl, then run '
+          'Patches will not be signed. Once that is fixed, run '
           '`fcp codepush keys generate` and `fcp codepush keys register`.',
         );
       }
@@ -663,8 +756,10 @@ class CodePushInitSubCommand extends Command<int> {
     // `keys generate --output-dir <custom>`), then the default location.
     final candidates = <String>[
       if (storedSigningKeyPath != null && storedSigningKeyPath.isNotEmpty)
-        '${File(storedSigningKeyPath).parent.path}/codepush_public.pem',
-      '${F.homeDir()}/.flutter_codepush/codepush_public.pem',
+        '${File(storedSigningKeyPath).parent.path}/'
+            '${CodePushClient.signingPublicKeyName}',
+      '${CodePushClient.resolveSigningKeyDir()}/'
+          '${CodePushClient.signingPublicKeyName}',
     ];
     for (final candidate in candidates) {
       final publicKeyFile = File(candidate);
@@ -703,10 +798,13 @@ class CodePushInitSubCommand extends Command<int> {
     if (!content.contains('FLTCodePushEnabled')) {
       // Read the public key if it exists, for signature verification.
       var publicKeyBlock = '';
-      // Via F.homeDir() so the key path resolves on Windows too
-      // (USERPROFILE rather than HOME), and so tests can redirect it.
-      final home = F.homeDir();
-      final publicKeyFile = File('$home/.flutter_codepush/codepush_public.pem');
+      // Through the shared resolver so this agrees with what `init`
+      // just generated or migrated, and with what `keys register`
+      // uploads — one directory, resolved in one place.
+      final publicKeyFile = File(
+        '${CodePushClient.resolveSigningKeyDir()}/'
+        '${CodePushClient.signingPublicKeyName}',
+      );
       if (publicKeyFile.existsSync()) {
         final pem = publicKeyFile.readAsStringSync().trim();
         publicKeyBlock = '\t<key>FLTCodePushPublicKey</key>\n'

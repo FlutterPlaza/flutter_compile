@@ -40,6 +40,25 @@ class F {
     return Platform.environment['HOME'] ?? '';
   }
 
+  /// Override for testing — when set, [legacyHomeDir] returns this
+  /// value. Defaults to [homeDirOverride] so a test that redirects the
+  /// home directory can never reach the developer's REAL `$HOME`
+  /// through the legacy path.
+  static String? legacyHomeDirOverride;
+
+  /// The home directory older releases resolved: `$HOME`, falling back
+  /// to `/tmp`.
+  ///
+  /// On Windows `HOME` is normally unset outside Git Bash, so this
+  /// answered `/tmp` — i.e. `C:\tmp` — and that is where an upgrading
+  /// Windows user's files actually are. Exists ONLY so migrations can
+  /// find them; never build a new path from it.
+  static String legacyHomeDir() {
+    final override = legacyHomeDirOverride ?? homeDirOverride;
+    if (override != null) return override;
+    return Platform.environment['HOME'] ?? '/tmp';
+  }
+
   /// Returns the platform-specific PATH separator (`;` on Windows, `:` elsewhere).
   static String get envPathSeparator => Platform.isWindows ? ';' : ':';
 

@@ -234,6 +234,12 @@ class CodePushApp : FlutterApplication() {
       expect(outcome.notes, hasLength(1));
       expect(outcome.warnings, contains(kCodePushAppCopyFixWarning));
       expect(kCodePushAppCopyFixWarning, contains('has been modified'));
+      // The summary is the LAST thing printed about this file, after
+      // "✓ Android configured". Reporting it as done under a warning
+      // that says the CLI could not fix it is what undercuts the
+      // warning.
+      expect(outcome.summary, contains('manual fix'));
+      expect(outcome.summary, isNot(contains('already configured')));
     });
 
     test(
@@ -255,6 +261,10 @@ $kCodePushAppCopyBlock
       expect(outcome.source, isNull, reason: 'leaving it alone is right');
       expect(outcome.warnings, [kCodePushAppLegacyEmbeddingWarning]);
       expect(outcome.warnings.single, contains(kCodePushAppSuperclass));
+      // No rewrite happened, so the old summary said "already
+      // configured" — for a file the CLI had just declined to fix.
+      expect(outcome.summary, contains('manual fix'));
+      expect(outcome.summary, isNot(contains('already configured')));
     });
 
     test('a CRLF copy of the current file warns about nothing', () {
@@ -264,6 +274,35 @@ $kCodePushAppCopyBlock
 
       expect(outcome.warnings, isEmpty);
       expect(outcome.source, isNull);
+      expect(outcome.summary, contains('already configured'));
+    });
+  });
+
+  group('defaultAppNameFrom', () {
+    test('uses the directory name', () {
+      expect(
+          defaultAppNameFrom(Uri.parse('file:///home/me/my_app/')), 'my_app');
+      // No trailing slash: the last segment is still the name.
+      expect(defaultAppNameFrom(Uri.parse('file:///home/me/my_app')), 'my_app');
+    });
+
+    test('a POSIX root has no name to take', () {
+      expect(defaultAppNameFrom(Uri.parse('file:///')), 'app');
+    });
+
+    test('a Windows drive root falls back too — "C:" is not a name', () {
+      // `Directory('C:\\').uri` is `file:///C:/`, whose only non-empty
+      // segment is the drive designator. The POSIX root already fell
+      // back here; this is the narrow case the URI fix itself targets.
+      expect(defaultAppNameFrom(Uri.parse('file:///C:/')), 'app');
+      expect(defaultAppNameFrom(Uri.parse('file:///c:/')), 'app');
+    });
+
+    test('a directory ON a drive keeps its own name', () {
+      expect(defaultAppNameFrom(Uri.parse('file:///C:/src/my_app/')), 'my_app');
+      // A directory literally named "C:" one level down is not a drive
+      // root, so it is a real (if odd) name.
+      expect(defaultAppNameFrom(Uri.parse('file:///src/C:/')), 'C:');
     });
   });
 

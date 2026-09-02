@@ -19,6 +19,7 @@
 - Fixed device installs being rejected after the build-time engine check repairs the built app: the repair now re-signs what it touched.
 
 - `fcp codepush init` now scaffolds the current Android integration, and updates files it scaffolded in earlier versions in place. Files you have edited by hand are left untouched, with a note saying what still needs changing.
+- On Windows, `fcp codepush init` and `fcp codepush keys` now agree on where your signing keypair lives, under your user profile. A keypair an earlier version wrote elsewhere is moved there on the next `fcp codepush init` or `fcp codepush keys generate`, and if it cannot be moved it keeps being used where it is — no version generates a replacement key, which the server would reject.
 
 ## 0.19.15-rc.11
 

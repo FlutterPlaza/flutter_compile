@@ -88,10 +88,38 @@ class _KeysGenerateCommand extends Command<int> {
 
   @override
   Future<int> run() async {
-    final outputDir = argResults?['output-dir'] as String? ?? _defaultKeyDir();
+    // Before anything decides whether a key exists: move one an older
+    // release left at the pre-USERPROFILE path. Otherwise the guard
+    // below looks at an empty directory, regenerates, and
+    // `storeSigningKey` makes the new key authoritative — silently
+    // superseding the key the server verifies against.
+    final migration = CodePushClient.migrateLegacySigningKey();
+    switch (migration.outcome) {
+      case SigningKeyMigrationOutcome.migrated:
+        _logger.info(
+          'Moved your signing keypair from ${migration.fromDir} to '
+          '${migration.toDir} (the old copy was left in place).',
+        );
+      case SigningKeyMigrationOutcome.failed:
+        _logger.warn(
+          'Your signing keypair is at ${migration.fromDir} and could '
+          'not be copied to ${migration.toDir}: ${migration.error}\n'
+          'Continuing against the existing key rather than generating a '
+          'new one, which would stop the server accepting your patches.',
+        );
+      case SigningKeyMigrationOutcome.nothingToDo:
+        break;
+    }
+
+    // Re-resolve rather than trusting the flag's default: `defaultsTo`
+    // was evaluated when this command was CONSTRUCTED, which is before
+    // the migration above ran.
+    final outputDir = argResults?.wasParsed('output-dir') ?? false
+        ? argResults!['output-dir'] as String
+        : _defaultKeyDir();
     final force = argResults?['force'] as bool? ?? false;
 
-    final privateKeyPath = '$outputDir/codepush_private.pem';
+    final privateKeyPath = '$outputDir/${CodePushClient.signingPrivateKeyName}';
 
     if (File(privateKeyPath).existsSync() && !force) {
       _logger.warn(
@@ -178,7 +206,8 @@ class _KeysRegisterCommand extends Command<int> {
     }
 
     var publicKeyPath = argResults?['public-key'] as String?;
-    publicKeyPath ??= '${_defaultKeyDir()}/codepush_public.pem';
+    publicKeyPath ??=
+        '${_defaultKeyDir()}/${CodePushClient.signingPublicKeyName}';
 
     final publicKeyFile = File(publicKeyPath);
     if (!publicKeyFile.existsSync()) {
@@ -292,7 +321,14 @@ class _KeysRegisterCommand extends Command<int> {
   }
 }
 
-String _defaultKeyDir() {
-  final home = Platform.environment['HOME'] ?? '/tmp';
-  return '$home/.flutter_codepush';
-}
+/// The keypair directory these commands default to.
+///
+/// Delegates to [CodePushClient.resolveSigningKeyDir] rather than
+/// computing a path of its own. It used to read `HOME` directly while
+/// `init` had moved to [F.homeDir]; on Windows, where `HOME` is
+/// normally unset, the two named different directories — so
+/// `keys register` reported "Public key not found at
+/// /tmp/.flutter_codepush/..." for a key `init` had just written under
+/// `%USERPROFILE%`, and `keys generate` produced a SECOND keypair that
+/// `storeSigningKey` then made authoritative.
+String _defaultKeyDir() => CodePushClient.resolveSigningKeyDir();
