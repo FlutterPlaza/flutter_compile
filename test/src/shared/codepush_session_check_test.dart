@@ -21,9 +21,14 @@ void main() {
       );
     });
 
-    test('401 and 403 are the only rejections', () {
+    test('401 is a dead login', () {
       expect(CodePushClient.sessionCheckForStatus(401), SessionCheck.expired);
-      expect(CodePushClient.sessionCheckForStatus(403), SessionCheck.expired);
+    });
+
+    test(
+        '403 is a denial, NOT a dead login — the rest of the CLI reads it '
+        'as plan/quota/permission, and re-logging in cannot fix it', () {
+      expect(CodePushClient.sessionCheckForStatus(403), SessionCheck.denied);
     });
 
     test(
@@ -47,6 +52,7 @@ void main() {
       logger = _MockLogger();
       client = _MockClient();
       when(() => logger.err(any())).thenReturn(null);
+      when(() => logger.warn(any())).thenReturn(null);
       when(() => logger.detail(any())).thenReturn(null);
     });
 
@@ -84,6 +90,25 @@ void main() {
 
       expect(await run(), isNull);
       verifyNever(() => logger.err(any()));
+    });
+
+    test(
+        'a denial reports the real problem and lets the run continue — '
+        'the probe must not refuse a build over a 403 the upload has '
+        'not refused yet', () async {
+      when(() => client.checkSession(token: any(named: 'token')))
+          .thenAnswer((_) async => SessionCheck.denied);
+
+      expect(await run(), isNull);
+      verifyNever(() => logger.err(any()));
+      verify(() => logger.warn(kDeniedSessionMessage)).called(1);
+    });
+
+    test(
+        'the denial message never sends the operator at the login '
+        'command — that is the one action that cannot help', () {
+      expect(kDeniedSessionMessage, isNot(contains('codepush login')));
+      expect(kDeniedSessionMessage, contains('403'));
     });
 
     test('the message says the check happened BEFORE the build', () {

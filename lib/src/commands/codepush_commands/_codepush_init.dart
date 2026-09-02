@@ -241,6 +241,17 @@ class CodePushInitSubCommand extends Command<int> {
       }
 
       _logger.info('  App id stored in: $appIdPath');
+      // A new untracked file in the repo root needs a word about what
+      // to do with it; the id is an identifier, not a credential (the
+      // login token stays machine-wide), so committing it is the
+      // useful default for a team.
+      if (appIdPath != '${F.homeDir()}/${CodePushClient.rcFileName}') {
+        _logger.info(
+          '  That file holds only this project\'s app id — no '
+          'credentials — so it is safe to commit and share with your '
+          'team.',
+        );
+      }
       final staleMachineIdWarning = machineAppIdAdvisory(
         machineAppId: machineAppId,
         newAppId: appId,

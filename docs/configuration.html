@@ -59,6 +59,7 @@
 
   <h2 id="rc-config">Configuration File</h2>
   <p>The main configuration file is <code>~/.flutter_compilerc</code>. It uses a <code>key:value</code> format with one entry per line.</p>
+  <p>One key is resolved <strong>per project</strong>: <code>codepush_app_id</code>. <code>fcp codepush init</code> writes it to a <code>.flutter_compilerc</code> next to your <code>pubspec.yaml</code>, and the code push commands prefer that file over the machine-wide one, so several code-push apps can share a machine. The project file holds only the app id — no credentials — so it is safe to commit. Projects that set none fall back to <code>~/.flutter_compilerc</code>. <code>fcp config</code> reads and writes the machine-wide file only; when a project overrides the key, <code>config list</code>, <code>config get</code> and <code>config set</code> say so.</p>
 
   <h3>Configuration keys</h3>
   <table>
@@ -169,6 +170,7 @@ flutter_compile doctor --json</code></pre>
     <thead><tr><th>File</th><th>Purpose</th></tr></thead>
     <tbody>
       <tr><td><code>~/.flutter_compilerc</code></td><td>Main configuration file</td></tr>
+      <tr><td><code>.flutter_compilerc</code></td><td>Project-scoped <code>codepush_app_id</code> (in project root, beside <code>pubspec.yaml</code>); safe to commit</td></tr>
       <tr><td><code>~/.flutter_compile_env</code></td><td>Shell PATH exports (sourced by shell RC)</td></tr>
       <tr><td><code>.flutter-version</code></td><td>Project-pinned SDK version (in project root)</td></tr>
     </tbody>

@@ -6,23 +6,6 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 
-/// `fcp codepush keys`
-///
-/// Top-level group for RSA signing-key management. Split into two
-/// sub-sub-commands to keep each one focused:
-///
-///   * `fcp codepush keys generate` — create a local RSA-2048 keypair
-///     under `~/.flutter_codepush/`, store the private-key path in
-///     `~/.flutter_compilerc`. Idempotent; refuses to overwrite an
-///     existing key unless `--force` is passed.
-///   * `fcp codepush keys register` — upload the **public** key to the
-///     code push server for the current app, turning on mandatory
-///     signature verification for every subsequent patch. Works for
-///     apps created before signing was enforced (grandfathered apps).
-///
-/// Exists as a standalone command so users who ran `fcp codepush init`
-/// on a pre-0.15.0 CLI (when init didn't generate keys) have a clear
-/// recovery path without having to re-create their server-side app.
 /// What `keys generate` says when a keypair already exists at
 /// [privateKeyPath] and `--force` was not passed.
 ///
@@ -47,6 +30,23 @@ String existingSigningKeyWarning(String privateKeyPath) =>
     'Patches you have already shipped keep working. Rotate for a '
     'compromised key, not as routine hygiene.';
 
+/// `fcp codepush keys`
+///
+/// Top-level group for RSA signing-key management. Split into two
+/// sub-sub-commands to keep each one focused:
+///
+///   * `fcp codepush keys generate` — create a local RSA-2048 keypair
+///     under `~/.flutter_codepush/`, store the private-key path in
+///     `~/.flutter_compilerc`. Idempotent; refuses to overwrite an
+///     existing key unless `--force` is passed.
+///   * `fcp codepush keys register` — upload the **public** key to the
+///     code push server for the current app, turning on mandatory
+///     signature verification for every subsequent patch. Works for
+///     apps created before signing was enforced (grandfathered apps).
+///
+/// Exists as a standalone command so users who ran `fcp codepush init`
+/// on a pre-0.15.0 CLI (when init didn't generate keys) have a clear
+/// recovery path without having to re-create their server-side app.
 class CodePushKeysSubCommand extends Command<int> {
   CodePushKeysSubCommand(this._logger) {
     addSubcommand(_KeysGenerateCommand(_logger));
@@ -159,7 +159,9 @@ class _KeysRegisterCommand extends Command<int> {
       ..addOption(
         'app-id',
         help: 'App ID to register the public key against. Defaults to the '
-            'stored codepush_app_id from ~/.flutter_compilerc.',
+            'codepush_app_id this project resolves — the project-local '
+            '.flutter_compilerc when there is one, otherwise the '
+            'machine-wide ~/.flutter_compilerc.',
       )
       ..addOption(
         'public-key',

@@ -48,6 +48,20 @@ class DaemonPeer {
     return StreamChannel<String>(input, output);
   }
 
+  /// The optional `directory` parameter as a [Directory], or null when
+  /// the caller did not send one (JSON-RPC parameter access throws
+  /// rather than returning null — the same try/catch the `sdk.use`
+  /// methods use, factored out so the config methods cannot drift from
+  /// it). A blank string reads as absent.
+  static Directory? _optionalDirectory(rpc.Parameters params) {
+    try {
+      final value = params['directory'].asString;
+      return value.trim().isEmpty ? null : Directory(value);
+    } catch (_) {
+      return null;
+    }
+  }
+
   void _registerMethods() {
     _peer.registerMethod('sdk.list', () async {
       return await gatherSdkList();
@@ -121,8 +135,17 @@ class DaemonPeer {
       return await gatherDoctorChecks();
     });
 
-    _peer.registerMethod('config.list', () async {
-      return await gatherConfig();
+    // The three config RPCs are the IDE's config surface, so they carry
+    // the same project-override advisory the human CLI prints — without
+    // it they report a machine-wide `codepush_app_id` that the next
+    // `fcp codepush patch` in that project will not use. `directory` is
+    // optional and follows the `sdk.use` idiom: an IDE that knows its
+    // workspace root should pass it, since the daemon's own working
+    // directory is not necessarily the project's.
+    _peer.registerMethod('config.list', (rpc.Parameters params) async {
+      return await configListPayload(
+        projectDir: _optionalDirectory(params),
+      );
     });
 
     _peer.registerMethod('config.get', (rpc.Parameters params) async {
@@ -130,7 +153,15 @@ class DaemonPeer {
       final home = F.homeDir();
       final rcConfigFile = File('$home/.flutter_compilerc');
       final value = await F.readValueForKeyFromRcConfig(rcConfigFile, key);
-      return {'key': key, 'value': value};
+      final advisory = await projectScopedKeyAdvisoryFor(
+        key,
+        projectDir: _optionalDirectory(params),
+      );
+      return {
+        'key': key,
+        'value': value,
+        if (advisory != null) 'advisory': advisory.toJson(),
+      };
     });
 
     _peer.registerMethod('config.set', (rpc.Parameters params) async {
@@ -139,7 +170,15 @@ class DaemonPeer {
       final home = F.homeDir();
       final rcConfigFile = File('$home/.flutter_compilerc');
       await F.writeKeyValueToRcConfig(rcConfigFile, key, value);
-      return {'key': key, 'value': value};
+      final advisory = await projectScopedKeyAdvisoryFor(
+        key,
+        projectDir: _optionalDirectory(params),
+      );
+      return {
+        'key': key,
+        'value': value,
+        if (advisory != null) 'advisory': advisory.toJson(),
+      };
     });
 
     _peer.registerMethod('status', () async {

@@ -81,15 +81,32 @@ const String kExpiredSessionMessage =
     'retry — checked before the build starts, so an expired session no '
     'longer costs you a full build.';
 
+/// What both build-capable commands print when the probe comes back
+/// FORBIDDEN rather than unauthenticated.
+///
+/// Must not name the login command: the login is fine, and re-running
+/// it is the one action guaranteed not to help. It also must not stop
+/// the run — a 403 on the account probe is not evidence that the upload
+/// will be refused (a proxy, a WAF, or an endpoint the account simply
+/// cannot read all produce one), and the upload path already reports
+/// the server's own reason and upgrade URL when it really is a plan or
+/// quota limit.
+const String kDeniedSessionMessage =
+    'The server accepted your login but refused the account check '
+    '(HTTP 403) — a plan, quota, or permission limit rather than an '
+    'expired session. Continuing; if an upload is refused, it will '
+    'report the exact reason and where to resolve it.';
+
 /// Pre-flight the stored login BEFORE a command spends a build on it.
 /// Returns the exit code the command must return, or null to continue.
 ///
 /// One shared body: both build-capable commands paid the same cost (a
 /// full `flutter build`, then a 401 at the upload), and both must fail
-/// on exactly the one verdict that is evidence — an explicit rejection.
-/// [SessionCheck.unknown] is deliberately NOT a refusal: an offline or
-/// slow server would otherwise turn a saving into a new outage, and the
-/// upload still checks the token for real.
+/// on exactly the one verdict that is evidence AND actionable — a
+/// rejected login. [SessionCheck.denied] (403) is reported but not
+/// refused, and [SessionCheck.unknown] is deliberately silent: an
+/// offline or slow server would otherwise turn a saving into a new
+/// outage, and the upload still checks the token for real.
 Future<int?> refuseOnExpiredSession({
   required CodePushClient client,
   required String token,
@@ -100,6 +117,9 @@ Future<int?> refuseOnExpiredSession({
     case SessionCheck.expired:
       logger.err(kExpiredSessionMessage);
       return ExitCode.software.code;
+    case SessionCheck.denied:
+      logger.warn(kDeniedSessionMessage);
+      return null;
     case SessionCheck.unknown:
       logger.detail(
         'Could not verify the saved login before building; continuing '

@@ -232,6 +232,35 @@ void main() {
       expect(text, contains(CodePushClient.rcFileName));
     });
 
+    test(
+        'the structured form carries the pieces a JSON or daemon consumer '
+        'needs, not just the sentence', () async {
+      await F.writeKeyValueToRcConfig(
+        File('${projectA.path}/${CodePushClient.rcFileName}'),
+        Constants.codePushAppIdKey,
+        'project-a-app',
+      );
+
+      final advisory = await projectScopedKeyAdvisoryFor(
+        Constants.codePushAppIdKey,
+        projectDir: projectA,
+      );
+
+      expect(advisory, isNotNull);
+      expect(advisory!.key, Constants.codePushAppIdKey);
+      expect(advisory.projectValue, 'project-a-app');
+      expect(
+        advisory.projectFile,
+        '${projectA.path}/${CodePushClient.rcFileName}',
+      );
+      expect(advisory.toJson(), {
+        'key': Constants.codePushAppIdKey,
+        'project_file': advisory.projectFile,
+        'project_value': 'project-a-app',
+        'message': advisory.message,
+      });
+    });
+
     test('silent for other keys and for projects without an override',
         () async {
       expect(
@@ -245,6 +274,41 @@ void main() {
         ),
         isNull,
       );
+    });
+  });
+
+  // The payload `fcp config list --json` and the daemon's `config.list`
+  // both return. Shared so the CLI and the IDE cannot disagree about
+  // which app id this project resolves.
+  group('configListPayload', () {
+    test('carries the machine-wide settings plus the project advisory',
+        () async {
+      await writeMachineAppId('machine-wide-app');
+      await F.writeKeyValueToRcConfig(
+        File('${projectA.path}/${CodePushClient.rcFileName}'),
+        Constants.codePushAppIdKey,
+        'project-a-app',
+      );
+
+      final payload = await configListPayload(projectDir: projectA);
+
+      expect(payload[Constants.codePushAppIdKey], 'machine-wide-app');
+      final advisories = payload[kConfigAdvisoriesKey] as Map<String, dynamic>?;
+      expect(advisories, isNotNull);
+      expect(
+        (advisories![Constants.codePushAppIdKey]
+            as Map<String, dynamic>)['project_value'],
+        'project-a-app',
+      );
+    });
+
+    test('omits the advisories key entirely when nothing is shadowed',
+        () async {
+      await writeMachineAppId('machine-wide-app');
+
+      final payload = await configListPayload(projectDir: projectA);
+
+      expect(payload.containsKey(kConfigAdvisoriesKey), isFalse);
     });
   });
 }

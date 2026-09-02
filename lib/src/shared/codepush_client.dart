@@ -12,8 +12,18 @@ enum SessionCheck {
   /// The server accepted the stored login.
   valid,
 
-  /// The server explicitly rejected it — the operator must log in again.
+  /// The server rejected the login itself (401) — the operator must log
+  /// in again, and logging in again is what fixes it.
   expired,
+
+  /// The login was recognized but the account is not allowed to make the
+  /// call (403) — a plan, quota, or permission limit. Deliberately NOT
+  /// [expired]: this repo maps 401 to "session expired" and 403 to
+  /// "plan/quota/permission" everywhere else (`_codepush_release.dart`,
+  /// `_codepush_apps.dart`, `_codepush_patch.dart`), and telling an
+  /// operator whose plan lapsed to log in again sends them at the one
+  /// action that cannot help.
+  denied,
 
   /// Nothing was learned (offline, timeout, a 5xx, an old server). This
   /// NEVER blocks a run: a probe that exists to save a wasted build must
@@ -261,15 +271,21 @@ class CodePushClient {
   }
 
   /// Classifies an account-probe status code into a [SessionCheck].
-  /// Static and public so the tri-state rule is testable without an
-  /// HTTP seam (the [releaseFromListing] precedent): only an EXPLICIT
-  /// rejection may read as [SessionCheck.expired] — a 5xx, a redirect,
-  /// or a null (offline/timeout/parse surprise) is
-  /// [SessionCheck.unknown], because refusing a build on a flaky
-  /// network would be a worse failure than the one this prevents.
+  /// Static and public so the rule is testable without an HTTP seam
+  /// (the [releaseFromListing] precedent): only an EXPLICIT rejection
+  /// may read as [SessionCheck.expired] — a 5xx, a redirect, or a null
+  /// (offline/timeout/parse surprise) is [SessionCheck.unknown],
+  /// because refusing a build on a flaky network would be a worse
+  /// failure than the one this prevents.
+  ///
+  /// 401 and 403 are kept apart on purpose. They are two different
+  /// problems with two different fixes, and the rest of this CLI
+  /// already splits them that way — folding 403 in here would answer a
+  /// lapsed plan with "run `fcp codepush login`".
   static SessionCheck sessionCheckForStatus(int? statusCode) {
     if (statusCode == null) return SessionCheck.unknown;
-    if (statusCode == 401 || statusCode == 403) return SessionCheck.expired;
+    if (statusCode == 401) return SessionCheck.expired;
+    if (statusCode == 403) return SessionCheck.denied;
     if (statusCode >= 200 && statusCode < 300) return SessionCheck.valid;
     return SessionCheck.unknown;
   }

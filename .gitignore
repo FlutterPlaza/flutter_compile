@@ -17,6 +17,12 @@ coverage/
 # macOS
 .DS_Store
 
+# Project-scoped code push config, written by `fcp codepush init`.
+# Ignored HERE because this repo is the CLI, not a code-push app: a
+# stray one would also change what the config tests resolve. In a real
+# app the file is safe to commit — it holds only the app id.
+.flutter_compilerc
+
 plan/CLAUDE.md
 
 CLAUDE.md
