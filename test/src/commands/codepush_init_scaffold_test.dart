@@ -137,6 +137,136 @@ $kCodePushAppCopyBlock
     });
   });
 
+  group('upgradeCodePushAppSource on a CRLF checkout', () {
+    // Git for Windows defaults to core.autocrlf=true, so a committed
+    // CodePushApp.kt comes back CRLF. Byte-exact gates split on that:
+    // the single-line embedding pair still matched while the
+    // multi-line copy block never did.
+    String crlf(String source) => source.replaceAll('\n', '\r\n');
+
+    test('applies both migrations, exactly as it does on LF', () {
+      final upgraded = upgradeCodePushAppSource(crlf(_oldestScaffold));
+
+      expect(upgraded, isNotNull);
+      expect(upgraded!.notes, hasLength(2));
+      expect(upgraded.source, isNot(contains('if (!dest.exists())')));
+      expect(upgraded.source, isNot(contains('FlutterApplication')));
+      expect(
+        upgraded.source.replaceAll('\r\n', '\n'),
+        contains(kCodePushAppCopyBlock),
+      );
+    });
+
+    test('hands the file back in the endings it arrived with', () {
+      final upgraded = upgradeCodePushAppSource(crlf(_oldestScaffold))!;
+
+      expect(upgraded.source, contains('\r\n'));
+      expect(
+        upgraded.source.replaceAll('\r\n', ''),
+        isNot(contains('\n')),
+        reason: 'no bare LF should survive in a CRLF file',
+      );
+    });
+
+    test(
+        'the current file is still a fixed point — a CRLF checkout must '
+        'not be rewritten, nor warned about, on every re-run', () {
+      final current = crlf(codePushAppKotlinSource('com.example.demo'));
+
+      expect(upgradeCodePushAppSource(current), isNull);
+      expect(codePushAppNeedsCopyFix(current), isFalse);
+      expect(reconcileCodePushAppSource(current).warnings, isEmpty);
+    });
+  });
+
+  group('reconcileCodePushAppSource', () {
+    test('a current file needs nothing said about it', () {
+      final outcome = reconcileCodePushAppSource(
+        codePushAppKotlinSource('com.example.demo'),
+      );
+
+      expect(outcome.source, isNull);
+      expect(outcome.notes, isEmpty);
+      expect(outcome.warnings, isEmpty);
+      expect(outcome.summary, contains('already configured'));
+    });
+
+    test('the oldest shape migrates cleanly and warns about nothing', () {
+      final outcome = reconcileCodePushAppSource(_oldestScaffold);
+
+      expect(outcome.source, isNotNull);
+      expect(outcome.notes, hasLength(2));
+      expect(outcome.warnings, isEmpty);
+      expect(outcome.summary, contains('Updated'));
+    });
+
+    test(
+        'an embedding-only rewrite still warns about a hand-edited copy '
+        'body — the two migrations are independent, and chaining them '
+        'let the frozen-config bug survive under an "Updated" line', () {
+      // Legacy embedding pair, plus a copy body that is neither the
+      // legacy one nor the current one (an extra log line).
+      const handEdited = '''
+package com.example.demo
+
+import io.flutter.app.FlutterApplication
+import java.io.File
+
+class CodePushApp : FlutterApplication() {
+    override fun onCreate() {
+        try {
+            val dest = File(filesDir, "codepush.yaml")
+            if (!dest.exists()) {
+                android.util.Log.d("CodePushApp", "first run")
+                assets.open("codepush.yaml").use { input ->
+                    dest.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        } catch (_: Exception) {}
+        super.onCreate()
+    }
+}
+''';
+
+      final outcome = reconcileCodePushAppSource(handEdited);
+
+      expect(outcome.source, isNotNull, reason: 'the embedding is migrated');
+      expect(outcome.notes, hasLength(1));
+      expect(outcome.warnings, contains(kCodePushAppCopyFixWarning));
+      expect(kCodePushAppCopyFixWarning, contains('has been modified'));
+    });
+
+    test(
+        'the half-migrated pair is left alone but no longer silent — the '
+        'deprecated base class is named', () {
+      const renamedClass = '''
+package com.example.demo
+
+import io.flutter.app.FlutterApplication
+import java.io.File
+
+class MyApp : FlutterApplication() {
+$kCodePushAppCopyBlock
+}
+''';
+
+      final outcome = reconcileCodePushAppSource(renamedClass);
+
+      expect(outcome.source, isNull, reason: 'leaving it alone is right');
+      expect(outcome.warnings, [kCodePushAppLegacyEmbeddingWarning]);
+      expect(outcome.warnings.single, contains(kCodePushAppSuperclass));
+    });
+
+    test('a CRLF copy of the current file warns about nothing', () {
+      final outcome = reconcileCodePushAppSource(
+        codePushAppKotlinSource('com.example.demo').replaceAll('\n', '\r\n'),
+      );
+
+      expect(outcome.warnings, isEmpty);
+      expect(outcome.source, isNull);
+    });
+  });
+
   group('scaffold constants', () {
     test(
         'name the v2-embedding base class — the manual instructions '

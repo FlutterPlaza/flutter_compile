@@ -128,6 +128,52 @@ $kCodePushAppCopyBlock
 }
 ''';
 
+/// [source] with CRLF line endings collapsed to LF.
+///
+/// Every gate below matches text joined with `\n`, but `CodePushApp.kt`
+/// is a COMMITTED source file and Git for Windows defaults to
+/// `core.autocrlf=true` — so a re-run of `init` on a Windows checkout
+/// reads it back as CRLF. Without normalizing, the single-line
+/// embedding gates still matched while the multi-line copy gate never
+/// did: the file was rewritten, the user was told "Updated", and the
+/// frozen-config bug the copy migration exists to fix survived. The
+/// current file fared no better — it warned "has been modified" on
+/// every run, for a file nobody had touched.
+String _lf(String source) => source.replaceAll('\r\n', '\n');
+
+/// The exists-guarded copy body still needs a human: it is neither what
+/// this CLI generates nor a shape the migration recognizes, so `init`
+/// left it as it is.
+const String kCodePushAppCopyFixWarning =
+    'CodePushApp.kt keeps a copy of codepush.yaml that this CLI did not '
+    'generate (the file has been modified), so it was left as it is. '
+    'Make sure that copy runs on every launch — remove any exists-check '
+    'around it, or the app keeps serving whatever config its first '
+    'install shipped.';
+
+/// The file still names the deprecated v1-embedding base class, in a
+/// shape the migration deliberately refuses to rewrite.
+const String kCodePushAppLegacyEmbeddingWarning =
+    'CodePushApp.kt still references the deprecated '
+    'io.flutter.app.FlutterApplication, in a shape this CLI did not '
+    'generate — it was left as it is. Change it by hand to '
+    '"$kCodePushAppImport" and "$kCodePushAppSuperclass".';
+
+/// Whether [source] lacks the generated asset-copy body, so the copy
+/// migration could not be applied and a human still has to fix it.
+bool codePushAppNeedsCopyFix(String source) =>
+    !_lf(source).contains(kCodePushAppCopyBlock);
+
+/// Whether [source] still references the deprecated v1-embedding base
+/// class. True only for a half-matching pair the rewrite leaves alone
+/// (a renamed class, or the import without the superclass): leaving
+/// such a file untouched is right, saying nothing about it is not.
+bool codePushAppUsesLegacyEmbedding(String source) {
+  final normalized = _lf(source);
+  return normalized.contains(_kLegacyEmbeddingImport) ||
+      normalized.contains(_kLegacyEmbeddingSuperclass);
+}
+
 /// The rewrite `init` applies to an EXISTING `CodePushApp.kt`, with one
 /// note per migration applied — or null when the file needs no change.
 ///
@@ -141,10 +187,15 @@ $kCodePushAppCopyBlock
 /// The embedding swap requires BOTH the import and the superclass line
 /// to match: rewriting the import alone would leave a dangling
 /// `FlutterApplication` reference in a file we no longer understand.
+///
+/// Matching is line-ending agnostic (see [_lf]); the result is handed
+/// back in the endings the input carried, so a Windows checkout is not
+/// silently converted to LF by an upgrade run.
 ({String source, List<String> notes})? upgradeCodePushAppSource(
   String existing,
 ) {
-  var source = existing;
+  final wasCrlf = existing.contains('\r\n');
+  var source = _lf(existing);
   final notes = <String>[];
   if (source.contains(_kLegacyCodePushAppCopyBlock)) {
     source = source.replaceFirst(
@@ -164,7 +215,37 @@ $kCodePushAppCopyBlock
     );
   }
   if (notes.isEmpty) return null;
-  return (source: source, notes: notes);
+  return (
+    source: wasCrlf ? source.replaceAll('\n', '\r\n') : source,
+    notes: notes,
+  );
+}
+
+/// Everything `init` should do about an EXISTING `CodePushApp.kt`.
+///
+/// Pure so the DISPATCH is pinned by tests, not just the rewrite. The
+/// rewrite and the warnings answer independent questions, and chaining
+/// them (`if (upgraded != null) … else if (needs a fix) warn`) is what
+/// let an embedding-only rewrite report "Updated" while silently
+/// swallowing the warning that a hand-edited copy body was still
+/// freezing the app's config. Warnings are therefore computed from the
+/// POST-upgrade source, whether or not anything was upgraded.
+({String? source, List<String> notes, List<String> warnings, String summary})
+    reconcileCodePushAppSource(String existing) {
+  final upgraded = upgradeCodePushAppSource(existing);
+  final effective = upgraded?.source ?? existing;
+  return (
+    source: upgraded?.source,
+    notes: upgraded?.notes ?? const <String>[],
+    warnings: <String>[
+      if (codePushAppNeedsCopyFix(effective)) kCodePushAppCopyFixWarning,
+      if (codePushAppUsesLegacyEmbedding(effective))
+        kCodePushAppLegacyEmbeddingWarning,
+    ],
+    summary: upgraded != null
+        ? 'Updated: CodePushApp.kt'
+        : 'CodePushApp.kt: already configured',
+  );
 }
 
 class CodePushInitSubCommand extends Command<int> {
@@ -206,7 +287,13 @@ class CodePushInitSubCommand extends Command<int> {
             RegExp(r'^name:\s*(.+)$', multiLine: true).firstMatch(content);
         if (match != null) appName = match.group(1)?.trim();
       }
-      appName ??= Directory.current.path.split('/').last;
+      // Via the URI rather than splitting on '/': a Windows path is
+      // separated by '\', so the split returned the whole path as the
+      // app name. A directory URI ends in a separator, so the trailing
+      // empty segment is dropped.
+      final segments = Directory.current.uri.pathSegments
+          .where((segment) => segment.isNotEmpty);
+      appName ??= segments.isEmpty ? 'app' : segments.last;
     }
 
     final platform = argResults?['platform'] as String?;
@@ -217,7 +304,9 @@ class CodePushInitSubCommand extends Command<int> {
     // first patch. If key gen fails (openssl missing), we still create
     // the app — it'll be grandfathered and the user can run
     // `fcp codepush keys register` later.
-    final home = Platform.environment['HOME'] ?? '/tmp';
+    // Via F.homeDir() so the key path resolves on Windows too
+    // (USERPROFILE rather than HOME), and so tests can redirect it.
+    final home = F.homeDir();
     final keyDir = '$home/.flutter_codepush';
     final privateKeyPath = '$keyDir/codepush_private.pem';
     final publicKeyPath = '$keyDir/codepush_public.pem';
@@ -497,26 +586,32 @@ class CodePushInitSubCommand extends Command<int> {
     );
     if (!kotlinDir.existsSync()) kotlinDir.createSync(recursive: true);
     final codePushAppFile = File('${kotlinDir.path}/CodePushApp.kt');
+    // Hoisted out of the branch: an upgrade run used to print both
+    // "Updated: CodePushApp.kt (…)" and, in the summary below,
+    // "Created: CodePushApp.kt" for the same file.
+    var codePushAppSummary = 'Created: CodePushApp.kt';
     if (!codePushAppFile.existsSync()) {
       codePushAppFile.writeAsStringSync(codePushAppKotlinSource(packageName));
     } else {
       // Upgrade a CodePushApp.kt generated by an older CLI version: one
       // that skipped the copy when the file already existed, and/or one
-      // built on the deprecated v1-embedding base class.
-      final existing = codePushAppFile.readAsStringSync();
-      final upgraded = upgradeCodePushAppSource(existing);
-      if (upgraded != null) {
-        codePushAppFile.writeAsStringSync(upgraded.source);
-        for (final note in upgraded.notes) {
-          _logger.info('  $note');
-        }
-      } else if (!existing.contains(kCodePushAppCopyBlock)) {
-        _logger.warn(
-          '  CodePushApp.kt was not upgraded automatically (the file has '
-          'been modified). Make sure the codepush.yaml copy in onCreate() '
-          'runs on every launch — remove any exists-check around it.',
-        );
+      // built on the deprecated v1-embedding base class. What to write,
+      // say and warn is decided by a pure function so the dispatch is
+      // testable — see reconcileCodePushAppSource.
+      final outcome = reconcileCodePushAppSource(
+        codePushAppFile.readAsStringSync(),
+      );
+      final upgradedSource = outcome.source;
+      if (upgradedSource != null) {
+        codePushAppFile.writeAsStringSync(upgradedSource);
       }
+      for (final note in outcome.notes) {
+        _logger.info('  $note');
+      }
+      for (final warning in outcome.warnings) {
+        _logger.warn('  $warning');
+      }
+      codePushAppSummary = outcome.summary;
     }
 
     // 4. Update AndroidManifest.xml: use CodePushApp and ensure the INTERNET
@@ -551,7 +646,7 @@ class CodePushInitSubCommand extends Command<int> {
 
     progress.complete('Android configured');
     _logger.info('  Created: assets/codepush.yaml');
-    _logger.info('  Created: CodePushApp.kt');
+    _logger.info('  $codePushAppSummary');
     _logger.info(
       updatedManifest != null
           ? '  Updated: AndroidManifest.xml'
@@ -608,7 +703,9 @@ class CodePushInitSubCommand extends Command<int> {
     if (!content.contains('FLTCodePushEnabled')) {
       // Read the public key if it exists, for signature verification.
       var publicKeyBlock = '';
-      final home = Platform.environment['HOME'] ?? '/tmp';
+      // Via F.homeDir() so the key path resolves on Windows too
+      // (USERPROFILE rather than HOME), and so tests can redirect it.
+      final home = F.homeDir();
       final publicKeyFile = File('$home/.flutter_codepush/codepush_public.pem');
       if (publicKeyFile.existsSync()) {
         final pem = publicKeyFile.readAsStringSync().trim();
