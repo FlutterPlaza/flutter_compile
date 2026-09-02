@@ -166,10 +166,9 @@ void main() {
         releaseId: 'rel-spec',
         baselineId: 'base-spec',
         fcpVersion: '0.0.0',
-        interfaceSpecPath: specPath,
+        interfaceSpec: (path: specPath, change: InterfaceSpecChange.changed),
         interfaceReportPath: reportPath,
         interfaceSpecExtendable: true,
-        interfaceSpecChange: InterfaceSpecChange.changed,
       );
 
       expect(ok, isTrue);
@@ -219,9 +218,11 @@ void main() {
         releaseId: 'rel-optout',
         baselineId: 'base-optout',
         fcpVersion: '0.0.0',
-        interfaceSpecPath: specPath,
+        interfaceSpec: (
+          path: specPath,
+          change: InterfaceSpecChange.unchanged,
+        ),
         interfaceSpecExtendable: false,
-        interfaceSpecChange: InterfaceSpecChange.unchanged,
       );
       expect(ok, isTrue);
       final manifest = jsonDecode(
@@ -231,6 +232,49 @@ void main() {
       expect(manifest['has_interface_spec'], isTrue);
       expect(manifest['has_extendable_widgets'], isFalse);
       expect(manifest['interface_spec_change'], 'unchanged');
+    });
+
+    test(
+        'the source name and the change verdict are present together or '
+        'not at all — the pair rides on one parameter', () {
+      // Before the pair was one value a caller could attest a spec with
+      // a null verdict, writing `interface_spec_source_name: <name>`
+      // beside `interface_spec_change: null` — the exact shape the
+      // class doc defines as "no spec attested", so a reader months
+      // later would misread a guarded release as an unattested one.
+      // Both directions, since one parameter is what makes the middle
+      // state unspellable rather than merely unreached.
+      writeBaselineApp();
+      final specPath = '${projectDir.path}/build/codepush/'
+          'dynamic_interface_03dc0ffe03dc0ffe.yaml';
+      File(specPath)
+        ..createSync(recursive: true)
+        ..writeAsStringSync('callable:\n');
+
+      service.archiveIosRelease(
+        releaseId: 'rel-paired',
+        baselineId: 'base-paired',
+        fcpVersion: '0.0.0',
+        interfaceSpec: (path: specPath, change: InterfaceSpecChange.unknown),
+      );
+      service.archiveIosRelease(
+        releaseId: 'rel-unpaired',
+        baselineId: 'base-unpaired',
+        fcpVersion: '0.0.0',
+      );
+
+      Map<String, dynamic> manifestOf(String releaseId) => jsonDecode(
+            File('${projectDir.path}/.fcp-archive/$releaseId/manifest.json')
+                .readAsStringSync(),
+          ) as Map<String, dynamic>;
+
+      final paired = manifestOf('rel-paired');
+      expect(paired['interface_spec_source_name'], isNotNull);
+      expect(paired['interface_spec_change'], 'unknown');
+
+      final unpaired = manifestOf('rel-unpaired');
+      expect(unpaired['interface_spec_source_name'], isNull);
+      expect(unpaired['interface_spec_change'], isNull);
     });
 
     test('a leftover spec from a previous run is never claimed', () {
@@ -335,7 +379,7 @@ void main() {
         releaseId: 'rel-badspec',
         baselineId: 'base-badspec',
         fcpVersion: '0.0.0',
-        interfaceSpecPath: specPath,
+        interfaceSpec: (path: specPath, change: InterfaceSpecChange.unknown),
         interfaceSpecExtendable: true,
       );
 

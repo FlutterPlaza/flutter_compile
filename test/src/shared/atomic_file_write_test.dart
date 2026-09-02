@@ -123,12 +123,25 @@ void main() {
 
     test('an ABSENT target is recreated (documented mode exception)', () {
       // No mode to preserve: the file lands at the umask default —
-      // property 3's one documented exception.
+      // property 3's one documented exception. The row used to assert
+      // only the content, i.e. nothing the mode exception is about:
+      // clamping the recreated file to the 0600 the temp wore while
+      // the content landed would have passed it. Asserting the umask
+      // default is what makes the title true.
+      //
+      // Probed rather than hard-coded to 0644, so the row does not
+      // encode a runner's umask. Its own caveat: under a umask of 0177
+      // the default IS 0600 and the row stops discriminating — it
+      // cannot fail wrongly, only stop catching.
+      final probe = File('${root.path}/.umask-probe')..writeAsStringSync('');
+      final umaskDefault = probe.statSync().mode & 0xFFF;
+      probe.deleteSync();
       final path = '${root.path}/recreated.yaml';
 
       atomicReplaceFileContents(path, 'content');
 
       expect(File(path).readAsStringSync(), 'content');
-    });
+      expect(File(path).statSync().mode & 0xFFF, umaskDefault);
+    }, skip: Platform.isWindows ? 'POSIX mode bits' : false);
   });
 }

@@ -1794,6 +1794,42 @@ void _interfaceFreeze() {
       );
     });
 
+    test('the spec breadcrumbs describe cache state, never a build outcome',
+        () {
+      // The spec write is not the run's commitment: a later refusal
+      // (the framework-lib gate miss, the comma guard) deletes this
+      // spec and returns, and a line claiming "this release compiles
+      // from scratch" would then describe a build that never happened,
+      // for a file that no longer exists. Both breadcrumb branches are
+      // exercised here — empty directory, then a changed spec.
+      service.writeIosInterfaceFreezeSpec(
+        closurePaths: {'${tmp.path}/lib/main.dart'},
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+      Directory('${tmp.path}/lib').createSync(recursive: true);
+      File('${tmp.path}/lib/extra.dart').writeAsStringSync('class E {}');
+      service.writeIosInterfaceFreezeSpec(
+        closurePaths: {
+          '${tmp.path}/lib/main.dart',
+          '${tmp.path}/lib/extra.dart',
+        },
+        projectRoot: tmp.path,
+        packageName: 'demo',
+        specDirPath: tmp.path,
+      );
+
+      verify(
+        () => logger.detail(any(that: contains('No previous interface spec'))),
+      ).called(1);
+      verify(
+        () => logger.detail(any(that: contains('Interface spec changed'))),
+      ).called(1);
+      verifyNever(() => logger.detail(any(that: contains('from scratch'))));
+      verifyNever(() => logger.detail(any(that: contains('this release '))));
+    });
+
     test('an unreadable (but present) source is skipped as unreadable', () {
       if (Platform.isWindows) {
         markTestSkipped('chmod semantics are POSIX-only');

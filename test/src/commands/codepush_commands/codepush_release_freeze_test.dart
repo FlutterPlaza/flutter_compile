@@ -560,11 +560,10 @@ void main() {
           releaseId: any(named: 'releaseId'),
           baselineId: any(named: 'baselineId'),
           fcpVersion: any(named: 'fcpVersion'),
-          interfaceSpecPath: any(named: 'interfaceSpecPath'),
+          interfaceSpec: any(named: 'interfaceSpec'),
           interfaceReportPath: any(named: 'interfaceReportPath'),
           interfaceReportWasProduced: any(named: 'interfaceReportWasProduced'),
           interfaceSpecExtendable: any(named: 'interfaceSpecExtendable'),
-          interfaceSpecChange: any(named: 'interfaceSpecChange'),
         ),
       ).thenReturn(true);
       final cmd = CodePushReleaseSubCommand(
@@ -586,11 +585,13 @@ void main() {
           releaseId: 'rel-1',
           baselineId: 'base-1',
           fcpVersion: any(named: 'fcpVersion'),
-          interfaceSpecPath: '/x/dynamic_interface.yaml',
+          interfaceSpec: (
+            path: '/x/dynamic_interface.yaml',
+            change: InterfaceSpecChange.unchanged,
+          ),
           interfaceReportPath: '/x/dynamic_interface_report.json',
           interfaceReportWasProduced: true,
           interfaceSpecExtendable: true,
-          interfaceSpecChange: InterfaceSpecChange.unchanged,
         ),
       ).called(1);
 
@@ -602,11 +603,10 @@ void main() {
           releaseId: 'rel-2',
           baselineId: 'base-2',
           fcpVersion: any(named: 'fcpVersion'),
-          interfaceSpecPath: null,
+          interfaceSpec: null,
           interfaceReportPath: null,
           interfaceReportWasProduced: false,
           interfaceSpecExtendable: false,
-          interfaceSpecChange: null,
         ),
       ).called(1);
     });

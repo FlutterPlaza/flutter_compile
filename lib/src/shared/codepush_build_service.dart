@@ -1928,13 +1928,21 @@ class CodePushBuildService {
       );
     }
     // Breadcrumbs AFTER the write, so a failing verbose transcript
-    // never claims a spec state — or a from-scratch compile — for a
-    // file that was never created.
+    // never claims a spec state for a file that was never created.
+    //
+    // They report only what was OBSERVED — which specs were swept, and
+    // how this one's name compares — and never what the run will do
+    // next. The write is not the commitment: a later refusal (the
+    // framework-lib gate miss, the comma guard) deletes this spec and
+    // returns, so a line saying "this release compiles from scratch"
+    // could outlive both the file and the build it described. Naming
+    // the cache state instead is true either way.
     switch (specChange) {
       case freeze_files.InterfaceSpecChange.unknown when sweptSpecs.isEmpty:
         _logger.detail(
-          'No previous interface spec in the build directory; after a '
-          'full clean this release compiles from scratch.',
+          'No previous interface spec in the build directory (a full '
+          'clean, a wiped build/, or an earlier run that swept its '
+          "own); there is nothing to compare this spec's name against.",
         );
       case freeze_files.InterfaceSpecChange.unknown:
         _logger.detail(
@@ -1942,14 +1950,15 @@ class CodePushBuildService {
           'compile can be reused is unknown.',
         );
       case freeze_files.InterfaceSpecChange.changed:
-        // A changed option string is a new build environment: the next
-        // build compiles from scratch in a fresh directory. Deliberate
+        // A changed option string selects a NEW build-environment
+        // directory, so no cached kernel step matches it. Deliberate
         // (the recompile is the point), but it should not surprise
         // silently — flutter clean reclaims the old directories.
         _logger.detail(
           "Interface spec changed (the app's library set or guarding "
-          'options differ from the previous build); this release will '
-          'compile from scratch in a fresh build directory.',
+          'options differ from the previous build); no cached compile '
+          'matches this option string, and the previous build '
+          'directory is left behind (flutter clean reclaims it).',
         );
       case freeze_files.InterfaceSpecChange.unchanged:
         break;
