@@ -160,6 +160,15 @@ Future<int> runPinExistingApp({
     return ExitCode.software.code;
   }
   logger.success('Pinned app $appId in $appIdPath (no app was created).');
+  // storeAppId also mirrors into the machine-wide fallback. When a
+  // previous value was repointed, machineAppIdAdvisory (below) says so
+  // loudly; when there was NOTHING there before, the advisory is
+  // rightly silent — but the second write still happened, and the full
+  // init path names it, so pin mode does too (round 5).
+  if ((machineAppId ?? '').trim().isEmpty && appIdPath != machineRcPath) {
+    logger.info('Also mirrored to: $machineRcPath (the fallback for '
+        'tools that resolve without a project directory).');
+  }
   final advisory = machineAppIdAdvisory(
     machineAppId: machineAppId,
     newAppId: appId,

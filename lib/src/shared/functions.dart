@@ -653,8 +653,14 @@ class F {
       final lines = await file.readAsLines();
       for (var line in lines) {
         final colonIndex = line.indexOf(':');
-        if (colonIndex != -1 && line.substring(0, colonIndex) == key) {
-          return line.substring(colonIndex + 1);
+        // Keys match with surrounding whitespace ignored, and values
+        // come back trimmed — the CHANGELOG promises the hand-editable
+        // `key: value` spelling for EVERY key in these files, not just
+        // the app id (PR #87 round 5). A value that is all whitespace
+        // reads as the key being absent.
+        if (colonIndex != -1 && line.substring(0, colonIndex).trim() == key) {
+          final value = line.substring(colonIndex + 1).trim();
+          return value.isEmpty ? null : value;
         }
       }
     }
