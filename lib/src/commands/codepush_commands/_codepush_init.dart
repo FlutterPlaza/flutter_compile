@@ -499,7 +499,16 @@ class CodePushInitSubCommand extends Command<int> {
       }
     }
     String? publicKeyPemForCreate;
-    if (File(publicKeyPath).existsSync()) {
+    // The key uploaded with the create POST must be the one that pairs
+    // with what actually SIGNS patches (the rc entry when it names a
+    // live key) - not blindly the directory this run generated into
+    // (round 4).
+    final activePublicKeyPath =
+        await CodePushClient.resolveActivePublicKeyPath();
+    if (File(activePublicKeyPath).existsSync()) {
+      publicKeyPemForCreate =
+          File(activePublicKeyPath).readAsStringSync().trim();
+    } else if (File(publicKeyPath).existsSync()) {
       publicKeyPemForCreate = File(publicKeyPath).readAsStringSync().trim();
     }
 
@@ -567,7 +576,7 @@ class CodePushInitSubCommand extends Command<int> {
         version,
         storedSigningKeyPath: await CodePushClient.getStoredSigningKey(),
       );
-      _setupIos(version);
+      await _setupIos(version);
       _setupPubspec();
       _logger.info('');
       _logger.success('Code push initialized! Next steps:');
@@ -852,7 +861,7 @@ class CodePushInitSubCommand extends Command<int> {
 
   // ── iOS setup ─────────────────────────────────────────────────
 
-  void _setupIos(String version) {
+  Future<void> _setupIos(String version) async {
     final plistFile = File('ios/Runner/Info.plist');
     if (!plistFile.existsSync()) {
       _logger.detail('No ios/Runner/Info.plist — skipping iOS setup.');
@@ -868,11 +877,12 @@ class CodePushInitSubCommand extends Command<int> {
       var publicKeyBlock = '';
       // Through the shared resolver so this agrees with what `init`
       // just generated or migrated, and with what `keys register`
-      // uploads — one directory, resolved in one place.
-      final publicKeyFile = File(
-        '${CodePushClient.resolveSigningKeyDir()}/'
-        '${CodePushClient.signingPublicKeyName}',
-      );
+      // uploads AND what signs patches — the rc entry wins when it
+      // names a live key (round 4: uploading the directory's key while
+      // the rc signs with another would register a key that never
+      // signs anything).
+      final publicKeyFile =
+          File(await CodePushClient.resolveActivePublicKeyPath());
       if (publicKeyFile.existsSync()) {
         final pem = publicKeyFile.readAsStringSync().trim();
         publicKeyBlock = '\t<key>FLTCodePushPublicKey</key>\n'

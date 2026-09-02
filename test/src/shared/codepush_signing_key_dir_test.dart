@@ -250,4 +250,46 @@ void main() {
       expect(matches, Platform.isWindows);
     });
   });
+
+  group('resolveActivePublicKeyPath (PR #88 round 4)', () {
+    test(
+        'the rc entry wins when it names a live private key — register/'
+        'upload/embed pair with what SIGNS', () async {
+      final custom = Directory('${tempHome.path}/custom_keys')..createSync();
+      File('${custom.path}/${CodePushClient.signingPrivateKeyName}')
+          .writeAsStringSync('priv');
+      File('${custom.path}/${CodePushClient.signingPublicKeyName}')
+          .writeAsStringSync('pub');
+      // Canonical dir ALSO holds a keypair — the trap: a dir-only
+      // resolution would pick this one.
+      final canonical = Directory(CodePushClient.signingKeyDir())
+        ..createSync(recursive: true);
+      File('${canonical.path}/${CodePushClient.signingPrivateKeyName}')
+          .writeAsStringSync('other-priv');
+      File('${canonical.path}/${CodePushClient.signingPublicKeyName}')
+          .writeAsStringSync('other-pub');
+      await CodePushClient.storeSigningKey(
+          '${custom.path}/${CodePushClient.signingPrivateKeyName}');
+
+      final resolved = await CodePushClient.resolveActivePublicKeyPath();
+      expect(resolved, '${custom.path}/${CodePushClient.signingPublicKeyName}');
+    });
+
+    test(
+        'falls back to the directory resolution when the rc names '
+        'nothing (or a dead path)', () async {
+      final canonical = Directory(CodePushClient.signingKeyDir())
+        ..createSync(recursive: true);
+      File('${canonical.path}/${CodePushClient.signingPrivateKeyName}')
+          .writeAsStringSync('priv');
+      File('${canonical.path}/${CodePushClient.signingPublicKeyName}')
+          .writeAsStringSync('pub');
+      await CodePushClient.storeSigningKey(
+          '${tempHome.path}/gone/${CodePushClient.signingPrivateKeyName}');
+
+      final resolved = await CodePushClient.resolveActivePublicKeyPath();
+      expect(
+          resolved, '${canonical.path}/${CodePushClient.signingPublicKeyName}');
+    });
+  });
 }

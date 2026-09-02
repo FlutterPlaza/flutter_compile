@@ -206,8 +206,10 @@ class _KeysRegisterCommand extends Command<int> {
     }
 
     var publicKeyPath = argResults?['public-key'] as String?;
-    publicKeyPath ??=
-        '${_defaultKeyDir()}/${CodePushClient.signingPublicKeyName}';
+    // Default to the key that pairs with what SIGNS (the rc entry when
+    // it names a live key), so register cannot upload a key patches
+    // are not signed with (round 4).
+    publicKeyPath ??= await CodePushClient.resolveActivePublicKeyPath();
 
     final publicKeyFile = File(publicKeyPath);
     if (!publicKeyFile.existsSync()) {

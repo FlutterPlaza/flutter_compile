@@ -184,6 +184,30 @@ class CodePushClient {
     return current;
   }
 
+  /// The public key that pairs with the key PATCHES ARE SIGNED WITH.
+  ///
+  /// Signing reads the `codepush_signing_key` rc entry; the directory
+  /// probe above knows nothing about it. Every site that UPLOADS,
+  /// REGISTERS or EMBEDS a public key must resolve through here, or a
+  /// user-chosen `keys generate --output-dir` key signs patches while a
+  /// different key gets registered — devices then verify against a key
+  /// that never signs anything. Order: the rc entry's sibling public
+  /// pem when the rc names an existing private key; otherwise the
+  /// directory resolution.
+  static Future<String> resolveActivePublicKeyPath() async {
+    final stored = await getStoredSigningKey();
+    if (stored != null && stored.trim().isNotEmpty) {
+      final privateFile = File(stored.trim());
+      if (privateFile.existsSync()) {
+        final sibling = File(
+          '${privateFile.parent.path}/$signingPublicKeyName',
+        );
+        if (sibling.existsSync()) return sibling.path;
+      }
+    }
+    return '${resolveSigningKeyDir()}/$signingPublicKeyName';
+  }
+
   /// Move a keypair left at [legacySigningKeyDir] into
   /// [signingKeyDir], so the two commands agree from here on.
   ///
