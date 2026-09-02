@@ -16,9 +16,16 @@ Future<Map<String, String>> gatherConfig() async {
   }
 
   final lines = await rcConfigFile.readAsLines();
-  final entries = lines.where((line) => line.contains(':')).toList();
   final map = <String, String>{};
-  for (final entry in entries) {
+  for (final entry in lines) {
+    // Comments are preserved by `writeKeyValueToRcConfig` now that the
+    // per-project `.flutter_compilerc` is version-controlled and
+    // documented as hand-editable, so they are no longer erased on the
+    // next write. Without this skip, `# staging: internal build` is
+    // listed by `config list`, `--json` and the daemon's `config.list`
+    // as a config key named `# staging` — permanently, not until the
+    // next write as before.
+    if (entry.trimLeft().startsWith('#')) continue;
     final parts = entry.split(':');
     if (parts.length == 2) {
       map[parts[0]] = parts[1];
