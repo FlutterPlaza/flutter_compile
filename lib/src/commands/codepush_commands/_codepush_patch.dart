@@ -927,6 +927,20 @@ class CodePushPatchSubCommand extends Command<int> {
       // (old server, offline) and every consumer below degrades.
       final serverUrl = await CodePushClient.getServerUrl();
       client = CodePushClient(serverUrl: serverUrl);
+      // Cheapest thing that can end this run: ask whether the saved
+      // login still works, while nothing has been built. A dead token
+      // used to surface at the UPLOAD — after the whole build — and the
+      // operator paid the build again after logging in. Only under
+      // --build: without a build there is nothing to save, and the
+      // upload's own 401 is already immediate.
+      if (shouldBuild) {
+        final sessionExit = await refuseOnExpiredSession(
+          client: client,
+          token: token,
+          logger: _logger,
+        );
+        if (sessionExit != null) return sessionExit;
+      }
       final releaseInfo = await readTargetRelease(
         client: client,
         token: token,

@@ -6,6 +6,21 @@ import 'dart:typed_data';
 import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 
+/// Verdict of the cheap pre-flight session probe
+/// ([CodePushClient.checkSession]).
+enum SessionCheck {
+  /// The server accepted the stored login.
+  valid,
+
+  /// The server explicitly rejected it — the operator must log in again.
+  expired,
+
+  /// Nothing was learned (offline, timeout, a 5xx, an old server). This
+  /// NEVER blocks a run: a probe that exists to save a wasted build must
+  /// not become a second way for the build to be refused.
+  unknown,
+}
+
 /// HTTP client for the FlutterPlaza Code Push server.
 ///
 /// When [pinnedCertificatePath] is provided, TLS certificate pinning is
@@ -76,10 +91,79 @@ class CodePushClient {
     return url ?? Constants.codePushDefaultServer;
   }
 
-  /// Read the stored app ID from ~/.flutter_compilerc.
-  static Future<String?> getAppId() async {
+  /// The config file name, shared by the machine-wide copy in `$HOME`
+  /// and the per-project copy beside `pubspec.yaml`.
+  static const String rcFileName = '.flutter_compilerc';
+
+  /// The per-project config file for [from] (default: the process's
+  /// current directory), or null when no project root is found.
+  ///
+  /// A project root is the nearest ancestor directory holding a
+  /// `pubspec.yaml` — the same anchor `pubspec.lock` and `.dart_tool`
+  /// use, so a command run from `lib/` or `test/` resolves the same
+  /// file as one run from the project root. The file need not exist:
+  /// callers read it defensively and [storeAppId] creates it.
+  ///
+  /// Never throws: a deleted current directory, an unreadable ancestor,
+  /// or a pathological depth all degrade to null, which puts the caller
+  /// back on the machine-wide file it used before per-project state
+  /// existed.
+  static File? projectRcFile({Directory? from}) {
+    try {
+      var dir = from ?? Directory.current;
+      // Bounded so a symlink cycle or a degenerate path cannot spin a
+      // CLI startup path; 64 is far past any real checkout depth.
+      for (var depth = 0; depth < 64; depth++) {
+        if (File('${dir.path}/pubspec.yaml').existsSync()) {
+          return File('${dir.path}/$rcFileName');
+        }
+        final parent = dir.parent;
+        if (parent.path == dir.path) return null;
+        dir = parent;
+      }
+      return null;
+    } on FileSystemException {
+      return null;
+    }
+  }
+
+  /// Read the app ID for the current project.
+  ///
+  /// Project-local `.flutter_compilerc` FIRST, then the machine-wide
+  /// `~/.flutter_compilerc`. The home file is the LEGACY location: it
+  /// holds exactly ONE id for the whole machine, so `fcp codepush init`
+  /// in a second app used to repoint the first — silently, because
+  /// every upload succeeds against the wrong app and only the devices
+  /// running the right one notice (they never get the patch).
+  ///
+  /// The fallback is what keeps existing single-project setups working:
+  /// nothing writes a project file until an id is stored for that
+  /// project, so a machine set up before this split keeps resolving the
+  /// id it always did.
+  static Future<String?> getAppId({Directory? projectDir}) async {
+    final projectRc = projectRcFile(from: projectDir);
+    if (projectRc != null) {
+      final local = await F.readValueForKeyFromRcConfig(
+        projectRc,
+        Constants.codePushAppIdKey,
+      );
+      // Present-but-blank reads as "not set here" and falls through: an
+      // empty value is what a hand-edited or half-written file leaves,
+      // and inheriting the machine-wide id is strictly better than
+      // resolving to nothing.
+      if (local != null && local.trim().isNotEmpty) return local;
+    }
+    return getMachineAppId();
+  }
+
+  /// Read the machine-wide (legacy) app ID from `~/.flutter_compilerc`,
+  /// ignoring any project-local file. Separate from [getAppId] so the
+  /// commands can SAY that a machine-wide id exists — the fact behind
+  /// the two-projects-one-machine trap — without re-deriving where the
+  /// value came from.
+  static Future<String?> getMachineAppId() async {
     final home = F.homeDir();
-    final rcFile = File('$home/.flutter_compilerc');
+    final rcFile = File('$home/$rcFileName');
     return F.readValueForKeyFromRcConfig(rcFile, Constants.codePushAppIdKey);
   }
 
@@ -97,11 +181,20 @@ class CodePushClient {
     await F.writeKeyValueToRcConfig(rcFile, Constants.codePushServerKey, url);
   }
 
-  /// Store app ID in ~/.flutter_compilerc.
-  static Future<void> storeAppId(String appId) async {
-    final home = F.homeDir();
-    final rcFile = File('$home/.flutter_compilerc');
-    await F.writeKeyValueToRcConfig(rcFile, Constants.codePushAppIdKey, appId);
+  /// Store the app ID for the current project, returning the path
+  /// written so the caller can name it instead of guessing.
+  ///
+  /// Writes the PROJECT-LOCAL `.flutter_compilerc` whenever a project
+  /// root exists — that is the whole fix for the machine-wide id: a
+  /// second app's `init` now writes its own file instead of overwriting
+  /// the first app's. Outside a project there is no anchor to hang the
+  /// value on, so the machine-wide file stays the target.
+  static Future<String> storeAppId(String appId,
+      {Directory? projectDir}) async {
+    final target =
+        projectRcFile(from: projectDir) ?? File('${F.homeDir()}/$rcFileName');
+    await F.writeKeyValueToRcConfig(target, Constants.codePushAppIdKey, appId);
+    return target.path;
   }
 
   static Future<void> storeSigningKey(String path) async {
@@ -165,6 +258,44 @@ class CodePushClient {
   /// GET /api/v1/account — get user profile and subscription status.
   Future<Map<String, dynamic>> getAccount(String token) async {
     return _get('/api/v1/account', token: token);
+  }
+
+  /// Classifies an account-probe status code into a [SessionCheck].
+  /// Static and public so the tri-state rule is testable without an
+  /// HTTP seam (the [releaseFromListing] precedent): only an EXPLICIT
+  /// rejection may read as [SessionCheck.expired] — a 5xx, a redirect,
+  /// or a null (offline/timeout/parse surprise) is
+  /// [SessionCheck.unknown], because refusing a build on a flaky
+  /// network would be a worse failure than the one this prevents.
+  static SessionCheck sessionCheckForStatus(int? statusCode) {
+    if (statusCode == null) return SessionCheck.unknown;
+    if (statusCode == 401 || statusCode == 403) return SessionCheck.expired;
+    if (statusCode >= 200 && statusCode < 300) return SessionCheck.valid;
+    return SessionCheck.unknown;
+  }
+
+  /// Cheap pre-flight: does the stored login still work?
+  ///
+  /// Callers run this BEFORE a build so a dead session costs a round
+  /// trip instead of the whole build — the failure used to surface only
+  /// at the upload, after several minutes of compiling. Best-effort by
+  /// construction: any outcome that is not an explicit rejection is
+  /// [SessionCheck.unknown] and the caller continues.
+  Future<SessionCheck> checkSession({
+    required String token,
+    // Short on purpose: this is an optional saving, not a gate. The
+    // client-wide connect deadline (30 s) is the backstop for a stalled
+    // CONNECT; this one additionally bounds a server that accepts and
+    // then stalls, and expires into "unknown" either way.
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    try {
+      final result = await getAccount(token).timeout(timeout);
+      final status = result['status_code'];
+      return sessionCheckForStatus(status is int ? status : null);
+    } catch (_) {
+      return SessionCheck.unknown;
+    }
   }
 
   /// GET /api/v1/releases?app_id=...

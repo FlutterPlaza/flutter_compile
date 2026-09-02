@@ -1,6 +1,9 @@
 // Shared boundary-argument rules for the code push commands (one
 // body per rule, so the two commands cannot drift).
 
+import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:mason_logger/mason_logger.dart';
+
 /// Every `--platform` value the code push commands understand: the
 /// six documented ones plus 'android', the alias the patch command's
 /// local-hash fallback has always accepted. 'android' is neither
@@ -67,6 +70,46 @@ const knownCodePushPlatforms = {
     );
   }
   return (normalized, null);
+}
+
+/// What both build-capable commands print when the pre-flight session
+/// probe comes back rejected. One body so the two name the same remedy;
+/// worded to say WHEN the check happened, because the whole point of
+/// the check is that the operator has not paid for a build yet.
+const String kExpiredSessionMessage =
+    'The server rejected your saved login. Run "fcp codepush login" and '
+    'retry — checked before the build starts, so an expired session no '
+    'longer costs you a full build.';
+
+/// Pre-flight the stored login BEFORE a command spends a build on it.
+/// Returns the exit code the command must return, or null to continue.
+///
+/// One shared body: both build-capable commands paid the same cost (a
+/// full `flutter build`, then a 401 at the upload), and both must fail
+/// on exactly the one verdict that is evidence — an explicit rejection.
+/// [SessionCheck.unknown] is deliberately NOT a refusal: an offline or
+/// slow server would otherwise turn a saving into a new outage, and the
+/// upload still checks the token for real.
+Future<int?> refuseOnExpiredSession({
+  required CodePushClient client,
+  required String token,
+  required Logger logger,
+}) async {
+  final session = await client.checkSession(token: token);
+  switch (session) {
+    case SessionCheck.expired:
+      logger.err(kExpiredSessionMessage);
+      return ExitCode.software.code;
+    case SessionCheck.unknown:
+      logger.detail(
+        'Could not verify the saved login before building; continuing '
+        '(the upload verifies it for real).',
+      );
+      return null;
+    case SessionCheck.valid:
+      logger.detail('Saved login accepted by the server.');
+      return null;
+  }
 }
 
 /// Filters a repeatable option's entries: whitespace-only entries

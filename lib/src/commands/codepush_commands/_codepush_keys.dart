@@ -23,6 +23,30 @@ import 'package:mason_logger/mason_logger.dart';
 /// Exists as a standalone command so users who ran `fcp codepush init`
 /// on a pre-0.15.0 CLI (when init didn't generate keys) have a clear
 /// recovery path without having to re-create their server-side app.
+/// What `keys generate` says when a keypair already exists at
+/// [privateKeyPath] and `--force` was not passed.
+///
+/// Names the consequence that actually costs something. Devices verify
+/// a patch against the public key baked into the app they are RUNNING,
+/// so rotating the local keypair:
+///
+///   * leaves already-shipped patches working — every install holds the
+///     old public key, and the patches it has were signed with the
+///     matching private key;
+///   * stops every FUTURE patch from reaching that install base, until
+///     each device takes a store release carrying the new public key.
+///
+/// The previous wording said the opposite ("invalidates all previously
+/// signed patches"), which made rotation read as cheap: it described the
+/// harmless half and omitted the fleet-wide update outage. Public so the
+/// direction of the claim is pinned by a test rather than by review.
+String existingSigningKeyWarning(String privateKeyPath) =>
+    'A signing key already exists at $privateKeyPath. Passing --force '
+    'rotates it, which stops updates for every app already installed '
+    'until each one takes a store release carrying the new public key. '
+    'Patches you have already shipped keep working. Rotate for a '
+    'compromised key, not as routine hygiene.';
+
 class CodePushKeysSubCommand extends Command<int> {
   CodePushKeysSubCommand(this._logger) {
     addSubcommand(_KeysGenerateCommand(_logger));
@@ -94,11 +118,7 @@ class _KeysGenerateCommand extends Command<int> {
     final privateKeyPath = '$outputDir/codepush_private.pem';
 
     if (File(privateKeyPath).existsSync() && !force) {
-      _logger.warn(
-        'A signing key already exists at $privateKeyPath. '
-        'Pass --force to regenerate (this invalidates all previously '
-        'signed patches for this key).',
-      );
+      _logger.warn(existingSigningKeyWarning(privateKeyPath));
       // Still ensure the rc file points at it so subsequent `patch`
       // runs pick it up.
       await CodePushClient.storeSigningKey(privateKeyPath);

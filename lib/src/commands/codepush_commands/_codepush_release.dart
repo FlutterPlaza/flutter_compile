@@ -1167,6 +1167,27 @@ class CodePushReleaseSubCommand extends Command<int> {
         }
       }
 
+      // Cheapest thing that can end this run: ask whether the saved
+      // login still works, while nothing has been built. A dead token
+      // used to surface only at the baseline UPLOAD — after the whole
+      // build — so logging in cost a second build. Own client, closed
+      // immediately: the upload path builds its own later, and a probe
+      // must not extend anything's lifetime.
+      final sessionClient = CodePushClient(
+        serverUrl: await CodePushClient.getServerUrl(),
+      );
+      final int? sessionExit;
+      try {
+        sessionExit = await refuseOnExpiredSession(
+          client: sessionClient,
+          token: token,
+          logger: _logger,
+        );
+      } finally {
+        sessionClient.close();
+      }
+      if (sessionExit != null) return sessionExit;
+
       final artifactManager = CodePushArtifactManager(logger: _logger);
 
       final flutterVersion = await buildService.resolveFlutterVersion(

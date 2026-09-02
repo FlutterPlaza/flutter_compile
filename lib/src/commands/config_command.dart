@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:args/command_runner.dart';
+import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -35,6 +37,32 @@ String normalizeConfigKey(String key) {
     'global_sdk': 'global_sdk_version',
   };
   return keyMap[key] ?? key;
+}
+
+/// The advisory for a key that this command reads and writes
+/// machine-wide but the code push commands resolve PER PROJECT, when
+/// the current project already sets it locally — or null when there is
+/// nothing to say.
+///
+/// `config` is documented as a view onto `~/.flutter_compilerc`, and it
+/// stays that: redirecting one key to a different file would be a
+/// worse surprise. But without this line, `config get codepush_app_id`
+/// reports a value the next `fcp codepush patch` will not use, and
+/// `config set` looks like it took effect when the project file still
+/// wins. Async only because reading the project file is.
+Future<String?> projectScopedKeyAdvisory(
+  String key, {
+  Directory? projectDir,
+}) async {
+  if (key != Constants.codePushAppIdKey) return null;
+  final projectRc = CodePushClient.projectRcFile(from: projectDir);
+  if (projectRc == null) return null;
+  final local = await F.readValueForKeyFromRcConfig(projectRc, key);
+  if (local == null || local.trim().isEmpty) return null;
+  return 'This project overrides $key in ${projectRc.path} '
+      '(currently $local), and that value is the one the code push '
+      'commands use here. Edit that file — or pass --app-id — to change '
+      'what this project resolves.';
 }
 
 class ConfigCommand extends Command<int> {
@@ -140,6 +168,8 @@ class _ConfigGetSubCommand extends Command<int> {
     } else {
       _logger.info('$key:$value');
     }
+    final advisory = await projectScopedKeyAdvisory(key);
+    if (advisory != null) _logger.warn(advisory);
 
     return ExitCode.success.code;
   }
@@ -172,6 +202,8 @@ class _ConfigSetSubCommand extends Command<int> {
 
     await F.writeKeyValueToRcConfig(rcConfigFile, key, value);
     _logger.info('Set $key:$value');
+    final advisory = await projectScopedKeyAdvisory(key);
+    if (advisory != null) _logger.warn(advisory);
 
     return ExitCode.success.code;
   }

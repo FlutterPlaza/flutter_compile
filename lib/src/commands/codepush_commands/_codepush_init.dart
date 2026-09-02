@@ -64,6 +64,38 @@ String? findApplicationClassName(String manifestContent) {
   return RegExp(r'android:name="([^"]+)"').firstMatch(applicationTag)?.group(1);
 }
 
+/// The advisory `init` prints when this machine ALREADY had an app id
+/// stored machine-wide and it names a different app, or null when there
+/// is nothing to say.
+///
+/// The id used to live only in `~/.flutter_compilerc`, one per machine:
+/// `init` in a second app overwrote the first app's id, and every later
+/// `patch`/`release`/`status` in the FIRST project then resolved the
+/// second app — uploads succeeded, `status` agreed, and only the devices
+/// running the first app noticed (they never saw the patch). This run no
+/// longer overwrites anything, but the stale machine-wide value still
+/// answers for every project that has no file of its own, so say so.
+///
+/// Pure and public: the condition is the whole value of the advisory,
+/// and it is the kind of thing that silently stops firing.
+String? machineAppIdAdvisory({
+  required String? machineAppId,
+  required String newAppId,
+  required String appIdPath,
+}) {
+  final previous = machineAppId?.trim() ?? '';
+  if (previous.isEmpty) return null;
+  if (previous == newAppId.trim()) return null;
+  // Only worth saying when this run did NOT write the machine-wide file
+  // — if it did, there is no second value left to surprise anyone.
+  if (appIdPath == '${F.homeDir()}/${CodePushClient.rcFileName}') return null;
+  return 'This machine already had app id $previous stored in '
+      '~/${CodePushClient.rcFileName}. This project keeps its own id in '
+      '$appIdPath, so nothing was repointed — but any OTHER project here '
+      'without its own file still resolves $previous. Pass --app-id there '
+      'if that is not the app you mean.';
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -183,7 +215,11 @@ class CodePushInitSubCommand extends Command<int> {
       final app = result['app'] as Map<String, dynamic>?;
       final appId = app?['id'] as String? ?? '';
 
-      await CodePushClient.storeAppId(appId);
+      // Read the machine-wide id BEFORE storing, so the advisory below
+      // compares against what this machine resolved a moment ago rather
+      // than against whatever this run just wrote.
+      final machineAppId = await CodePushClient.getMachineAppId();
+      final appIdPath = await CodePushClient.storeAppId(appId);
 
       progress.complete('App created');
       _logger.info('  App ID: $appId');
@@ -204,7 +240,15 @@ class CodePushInitSubCommand extends Command<int> {
         }
       }
 
-      _logger.info('  Stored in ~/.flutter_compilerc');
+      _logger.info('  App id stored in: $appIdPath');
+      final staleMachineIdWarning = machineAppIdAdvisory(
+        machineAppId: machineAppId,
+        newAppId: appId,
+        appIdPath: appIdPath,
+      );
+      if (staleMachineIdWarning != null) {
+        _logger.warn(staleMachineIdWarning);
+      }
 
       // ── Native setup ──────────────────────────────────────────
       final version = _readPubspecVersion() ?? '1.0.0+1';
