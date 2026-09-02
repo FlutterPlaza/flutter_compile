@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -107,6 +108,83 @@ String? machineAppIdAdvisory({
       '--app-id $previous to that project\'s codepush commands.';
 }
 
+/// The message `init` prints when the server has ALREADY created the
+/// app but recording its id locally failed.
+///
+/// Pure and public for the same reason [machineAppIdAdvisory] is: this
+/// is a recovery instruction handed to an operator who is one wrong
+/// move — running `init` again — away from a duplicate app, and an
+/// instruction that names a directory and a command writing DIFFERENT
+/// files is worse than no instruction at all.
+///
+/// **`fcp config set` is deliberately not offered.** It writes
+/// [machineRcPath], which [rcTarget] shadows ([CodePushClient.getAppId]
+/// reads the project file first). In the case that actually happens —
+/// a stale, read-only project `.flutter_compilerc` — it reports success
+/// while every later `release`/`patch` keeps uploading to the OLD app.
+/// The two instructions that always work are writing the key into
+/// [rcTarget] and passing `--app-id`, so those are the two given.
+///
+/// [projectFileRecorded] separates the two failures
+/// [CodePushClient.storeAppId] can have: it writes the project file
+/// first and mirrors into the machine-wide file second, so a throw does
+/// not mean nothing landed. Telling an operator their project file is
+/// unwritten when it is correct sends them to fix what is not broken.
+String appIdRecordFailureMessage({
+  required String appId,
+  required String rcTarget,
+  required String machineRcPath,
+  required bool projectFileRecorded,
+  required Object error,
+}) {
+  const key = Constants.codePushAppIdKey;
+  const doNotReRun = 'Do NOT re-run "fcp codepush init" — that would '
+      'create a SECOND app.';
+
+  if (projectFileRecorded) {
+    return 'App $appId was created and its id WAS recorded in '
+        '$rcTarget, but the machine-wide fallback in $machineRcPath '
+        'could not be updated: $error\n'
+        '$doNotReRun This project already resolves $appId; only tools '
+        'that resolve without a project directory (the IDE extensions) '
+        'keep reading the older fallback. Add "$key: $appId" to '
+        '$machineRcPath to move those too.';
+  }
+
+  // Only worth saying when the two paths really are different files;
+  // outside a project root `storeAppId` targets the machine-wide file
+  // itself and there is nothing to shadow.
+  final shadowNote = rcTarget != machineRcPath
+      ? ' "fcp config set" is not a substitute — it writes '
+          '$machineRcPath, which $rcTarget takes precedence over.'
+      : '';
+
+  return 'App $appId was created, but its id could not be recorded in '
+      '$rcTarget: $error\n'
+      '$doNotReRun Record it by adding this line to $rcTarget:\n'
+      '    $key: $appId\n'
+      'or by passing --app-id $appId to the codepush commands.'
+      '$shadowNote';
+}
+
+/// Whether the rc file at [rcPath] already carries [appId].
+///
+/// Never throws: this runs inside a failure path, where a second
+/// exception would replace an actionable message with a stack trace.
+/// Unreadable reads as "not recorded" — the conservative answer, since
+/// it produces the instructions that fix an unwritten file.
+Future<bool> _rcFileCarriesAppId(String rcPath, String appId) async {
+  try {
+    final value = await F.readValueForKeyFromRcConfig(
+      File(rcPath),
+      Constants.codePushAppIdKey,
+    );
+    return value != null && value.trim() == appId;
+  } catch (_) {
+    return false;
+  }
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -202,6 +280,11 @@ class CodePushInitSubCommand extends Command<int> {
     // app. See the catch at the bottom of this method.
     String? createdAppId;
 
+    // The spinner must end exactly once, and — once the app exists —
+    // never as a failure: `progress.fail` on "Creating app" is the one
+    // message that sends an operator back to `init` for a second app.
+    var progressResolved = false;
+
     final httpClient = HttpClient();
     try {
       final request =
@@ -250,18 +333,21 @@ class CodePushInitSubCommand extends Command<int> {
         // an operator who reads that re-runs `init` and gets a DUPLICATE
         // app. The only thing that went wrong is a local write, so say
         // that, and hand the id back so nothing is stranded.
+        progressResolved = true;
         progress.complete('App created');
         _logger.err(
-          'App $appId was created, but its id could not be recorded in '
-          '$rcTarget: $e\n'
-          'Do NOT re-run "fcp codepush init" — that would create a '
-          'SECOND app. Instead pass --app-id $appId to the codepush '
-          'commands, or make ${File(rcTarget).parent.path} writable and '
-          'run "fcp config set codepush_app_id $appId".',
+          appIdRecordFailureMessage(
+            appId: appId,
+            rcTarget: rcTarget,
+            machineRcPath: machineRcPath,
+            projectFileRecorded: await _rcFileCarriesAppId(rcTarget, appId),
+            error: e,
+          ),
         );
         return ExitCode.software.code;
       }
 
+      progressResolved = true;
       progress.complete('App created');
       _logger.info('  App ID: $appId');
       _logger.info('  Name:   $appName');
@@ -392,6 +478,15 @@ class CodePushInitSubCommand extends Command<int> {
         // Same rule as the storeAppId catch above: once the server has
         // the app, no failure downstream may be reported as a failure
         // to create it.
+        //
+        // The spinner can still be running here — `getMachineAppId()`
+        // and `projectRcFile()` sit between the 201 and the
+        // `progress.complete` below — and leaving it spinning is the
+        // one outcome that reads as "app creation is still going".
+        if (!progressResolved) {
+          progressResolved = true;
+          progress.complete('App created');
+        }
         _logger.err(
           'App $appId was created, but "fcp codepush init" could not '
           'finish: $e\n'

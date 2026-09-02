@@ -314,6 +314,93 @@ void main() {
     });
   });
 
+  // Round-3 Medium 1: the recovery handed to an operator whose app now
+  // EXISTS server-side. It has one job — get the id recorded — and the
+  // version it replaced named a directory and a command that write
+  // different files, while forbidding neither of the instructions that
+  // actually work.
+  group('appIdRecordFailureMessage', () {
+    String machineRc() => '${F.homeDir()}/${CodePushClient.rcFileName}';
+    String projectRc(Directory dir) =>
+        '${dir.path}/${CodePushClient.rcFileName}';
+
+    test('gives the two instructions that always work, in the project file',
+        () {
+      final msg = appIdRecordFailureMessage(
+        appId: 'app-b-id',
+        rcTarget: projectRc(projectB),
+        machineRcPath: machineRc(),
+        projectFileRecorded: false,
+        error: const FileSystemException('read-only file system'),
+      );
+
+      // 1. The exact line, in the file the message names — the file
+      //    `getAppId` reads first for this project.
+      expect(msg, contains(projectRc(projectB)));
+      expect(msg, contains('${Constants.codePushAppIdKey}: app-b-id'));
+      // 2. The flag, which needs no file at all.
+      expect(msg, contains('--app-id app-b-id'));
+      // And the move that costs a duplicate app.
+      expect(msg, contains('Do NOT re-run "fcp codepush init"'));
+    });
+
+    test('never prescribes "fcp config set" — it writes the shadowed file', () {
+      final msg = appIdRecordFailureMessage(
+        appId: 'app-b-id',
+        rcTarget: projectRc(projectB),
+        machineRcPath: machineRc(),
+        projectFileRecorded: false,
+        error: 'permission denied',
+      );
+
+      // The replaced text ended `... make <dir> writable and run "fcp
+      // config set codepush_app_id <id>"`. Against a stale, read-only
+      // project file that command reports success while every later
+      // upload keeps going to the OLD app, so it may be warned about
+      // but must never be the instruction.
+      expect(msg, isNot(contains('run "fcp config set')));
+      expect(msg, contains('not a substitute'));
+      expect(msg, contains(machineRc()));
+    });
+
+    test('outside a project root there is nothing to shadow, so no caveat', () {
+      final msg = appIdRecordFailureMessage(
+        appId: 'loose-id',
+        rcTarget: machineRc(),
+        machineRcPath: machineRc(),
+        projectFileRecorded: false,
+        error: 'disk full',
+      );
+
+      expect(msg, contains('${Constants.codePushAppIdKey}: loose-id'));
+      expect(msg, contains('--app-id loose-id'));
+      // Same file on both sides — a sentence about precedence between
+      // it and itself would be noise.
+      expect(msg, isNot(contains('fcp config set')));
+      expect(msg, isNot(contains('takes precedence over')));
+    });
+
+    test('a mirror-only failure does not claim the project file is unwritten',
+        () {
+      // `storeAppId` writes the project file FIRST and mirrors into the
+      // machine-wide file second, so a throw does not mean nothing
+      // landed — and sending the operator to hand-write a file that is
+      // already correct is the wrong repair.
+      final msg = appIdRecordFailureMessage(
+        appId: 'app-b-id',
+        rcTarget: projectRc(projectB),
+        machineRcPath: machineRc(),
+        projectFileRecorded: true,
+        error: 'permission denied',
+      );
+
+      expect(msg, contains('WAS recorded'));
+      expect(msg, isNot(contains('could not be recorded in')));
+      expect(msg, contains(machineRc()));
+      expect(msg, contains('Do NOT re-run "fcp codepush init"'));
+    });
+  });
+
   group('projectScopedKeyAdvisory', () {
     test('warns that the project file shadows a machine-wide config set',
         () async {
@@ -428,6 +515,23 @@ void main() {
       final payload = await configListPayload(projectDir: projectA);
 
       expect(payload.containsKey(kConfigAdvisoriesKey), isFalse);
+    });
+
+    test('a comment line is not a config entry', () async {
+      // Writes preserve comments now that the per-project file is
+      // version-controlled and documented as hand-editable, so a
+      // comment is no longer erased on the next `init` — which turned
+      // "listed until the next write" into "listed permanently".
+      File('${F.homeDir()}/${CodePushClient.rcFileName}').writeAsStringSync(
+        '# staging: internal build\n'
+        '${Constants.codePushAppIdKey}:machine-wide-app\n'
+        '   # indented note: also not a key\n',
+      );
+
+      final payload = await configListPayload(projectDir: projectA);
+
+      expect(payload[Constants.codePushAppIdKey], 'machine-wide-app');
+      expect(payload.keys.where((k) => k.contains('#')), isEmpty);
     });
   });
 }
