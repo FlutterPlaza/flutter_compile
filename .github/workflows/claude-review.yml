@@ -19,7 +19,12 @@ jobs:
       pull-requests: write
       id-token: write
     steps:
-      - uses: actions/checkout@v7
+      # SHA-pinned. This job holds pull-requests: write and the Claude OAuth
+      # token, and the same workflow is installed in six repos — so a tag
+      # repointed upstream is a six-repo compromise, not a one-repo one. The
+      # tag stays in the comment because that is the thing a human reads when
+      # deciding whether to bump it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 1
 
@@ -46,7 +51,7 @@ jobs:
           echo "model=$MODEL" >> "$GITHUB_OUTPUT"
           echo "changed=$CHANGED sensitive=$SENSITIVE model=$MODEL"
 
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@d40ddef4c030e508327d6e35a9c45f3368482c50 # v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           prompt: |
@@ -81,16 +86,19 @@ jobs:
 
             ## 🔴 Critical
             Bugs, crashes, security issues, breaking changes — anything that
-            must be fixed before merging. Only Critical findings block the
+            must be fixed before merging. Critical findings always block the
             merge. Write "None" if there are none.
 
             ## 🟠 Medium
-            Issues that should be addressed but don't block the merge
-            (missing edge-case handling, missing tests). The team may table
-            these as tracked follow-ups. Write "None" if there are none.
+            Real defects or risks that are not immediately breaking (missing
+            edge-case handling, missing tests). Up to two open Mediums may
+            merge, provided each unfixed one is filed as its own issue
+            labelled `deferred-medium` first; three or more block until fixed
+            or refuted down to two. Write "None" if there are none.
 
             ## 🟡 Low
-            Minor improvements and suggestions. Write "None" if there are none.
+            Minor improvements and suggestions. These may be tabled as tracked
+            follow-ups. Write "None" if there are none.
 
             ## 🟢 Positives
             What the PR does well.
