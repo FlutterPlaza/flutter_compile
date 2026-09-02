@@ -172,6 +172,40 @@ $kCodePushAppCopyBlock
 /// every run, for a file nobody had touched.
 String _lf(String source) => source.replaceAll('\r\n', '\n');
 
+/// Whether two filesystem paths name the same file, for the one decision
+/// that compares a path READ BACK from `~/.flutter_compilerc` against one
+/// this process composed. Windows accepts either separator and matches
+/// case-insensitively, so a rc entry written as `C:\tmp\...` must still
+/// equal a composed `C:/tmp/...`; POSIX is exact, where case and a
+/// literal backslash are both significant in a filename.
+bool _samePath(String a, String b) => Platform.isWindows
+    ? a.replaceAll(r'\', '/').toLowerCase() ==
+        b.replaceAll(r'\', '/').toLowerCase()
+    : a == b;
+
+/// After a keypair has been copied out of the legacy directory, whether
+/// `codepush_signing_key` in `~/.flutter_compilerc` should be repointed
+/// at the new copy.
+///
+/// Yes when the entry is absent or blank (nothing to preserve) or still
+/// names [legacyKeyPath], the original that was just copied — leaving it
+/// there would break the next `fcp codepush patch` the moment the user
+/// takes this command's advice and deletes the old directory.
+///
+/// **No for any other value.** A path the user chose (`keys generate
+/// --output-dir &lt;custom&gt;`) is an explicit statement about which key the
+/// server verifies against; overwriting it would start signing with a key
+/// the server has never seen, which is the failure the migration exists
+/// to prevent — so an unrecognized entry is left exactly as it is.
+bool shouldRepointStoredSigningKey({
+  required String? storedKeyPath,
+  required String legacyKeyPath,
+}) {
+  final stored = storedKeyPath?.trim();
+  if (stored == null || stored.isEmpty) return true;
+  return _samePath(stored, legacyKeyPath);
+}
+
 /// The exists-guarded copy body still needs a human: it is neither what
 /// this CLI generates nor a shape the migration recognizes, so `init`
 /// left it as it is.
@@ -361,12 +395,46 @@ class CodePushInitSubCommand extends Command<int> {
     final migration = CodePushClient.migrateLegacySigningKey();
     switch (migration.outcome) {
       case SigningKeyMigrationOutcome.migrated:
+        // Copying the key is only half the migration. `fcp codepush
+        // patch` signs with whatever `codepush_signing_key` in
+        // ~/.flutter_compilerc names, and that entry was written by the
+        // release that put the key in the OLD directory — so it still
+        // points there. Left alone, this command would hand out advice
+        // ("delete the old copy") that breaks the very next patch with
+        // "Stored signing key not found". Repoint the entry at the copy
+        // that is authoritative from here on.
+        //
+        // Only when the entry is unset or still names the original we
+        // just copied, though. A user who ran `keys generate
+        // --output-dir <custom>` pointed the rc somewhere deliberately,
+        // and silently re-keying them to the canonical copy would sign
+        // future patches with a key the server has never verified —
+        // precisely the failure this migration exists to prevent.
+        final migratedKeyPath =
+            '${migration.toDir}/${CodePushClient.signingPrivateKeyName}';
+        final legacyKeyPath =
+            '${migration.fromDir}/${CodePushClient.signingPrivateKeyName}';
+        final storedKeyPath =
+            (await CodePushClient.getStoredSigningKey())?.trim();
+        final repointed = shouldRepointStoredSigningKey(
+          storedKeyPath: storedKeyPath,
+          legacyKeyPath: legacyKeyPath,
+        );
+        final String storedKeyNote;
+        if (repointed) {
+          await CodePushClient.storeSigningKey(migratedKeyPath);
+          storedKeyNote = '~/.flutter_compilerc now names the new copy, so '
+              'the old one is safe to delete once you have confirmed a '
+              'patch still uploads.';
+        } else {
+          storedKeyNote = '~/.flutter_compilerc names "$storedKeyPath" and '
+              'was left alone — that key is what signs your patches, so '
+              'keep it where it is.';
+        }
         _logger.info(
           'Moved your signing keypair from ${migration.fromDir} to '
           '${migration.toDir}. Earlier releases wrote it to the first '
-          'path; every command reads the second now. The old copy was '
-          'left in place — delete it once you have confirmed a patch '
-          'still uploads.',
+          'path; every command reads the second now. $storedKeyNote',
         );
       case SigningKeyMigrationOutcome.failed:
         // Do NOT generate over this. Keep using the key the server

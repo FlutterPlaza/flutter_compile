@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter_compile/src/commands/codepush_commands/_codepush_init.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:test/test.dart';
@@ -173,6 +174,80 @@ void main() {
       // the key the server already verifies against, instead of
       // generating a new one and superseding it for shipped builds.
       expect(CodePushClient.resolveSigningKeyDir(), legacy);
+    });
+  });
+
+  // The other half of the migration: the copy is worthless while
+  // ~/.flutter_compilerc still names the original, because that entry —
+  // not the directory scan — is what `fcp codepush patch` signs with.
+  group('shouldRepointStoredSigningKey', () {
+    const legacyKey = '/legacy/.flutter_codepush/codepush_private.pem';
+
+    test('an absent or blank entry is repointed — nothing to preserve', () {
+      for (final stored in <String?>[null, '', '   ']) {
+        expect(
+          shouldRepointStoredSigningKey(
+            storedKeyPath: stored,
+            legacyKeyPath: legacyKey,
+          ),
+          isTrue,
+          reason: 'stored=${stored == null ? 'null' : '"$stored"'}',
+        );
+      }
+    });
+
+    test('an entry naming the migrated original is repointed', () {
+      expect(
+        shouldRepointStoredSigningKey(
+          storedKeyPath: legacyKey,
+          legacyKeyPath: legacyKey,
+        ),
+        isTrue,
+      );
+      // Surrounding whitespace round-trips through the rc file.
+      expect(
+        shouldRepointStoredSigningKey(
+          storedKeyPath: '  $legacyKey  ',
+          legacyKeyPath: legacyKey,
+        ),
+        isTrue,
+      );
+    });
+
+    test('a key the user chose is NEVER clobbered', () {
+      // `keys generate --output-dir <custom>` is a statement about which
+      // key the server verifies against. Repointing it at the canonical
+      // copy would sign every later patch with a key the server has
+      // never seen — the exact outcome the migration prevents.
+      expect(
+        shouldRepointStoredSigningKey(
+          storedKeyPath: '/custom/keys/codepush_private.pem',
+          legacyKeyPath: legacyKey,
+        ),
+        isFalse,
+      );
+    });
+
+    test('a sibling of the migrated key is not the migrated key', () {
+      expect(
+        shouldRepointStoredSigningKey(
+          storedKeyPath: '/legacy/.flutter_codepush/other_private.pem',
+          legacyKeyPath: legacyKey,
+        ),
+        isFalse,
+      );
+    });
+
+    test('separator and case spelling of the rc entry do not decide it', () {
+      // The rc is read back as text; on Windows the same file can be
+      // spelled either way, and it must still be recognized as the
+      // migrated original rather than mistaken for a deliberate choice.
+      const windowsLegacy = r'C:\tmp\.flutter_codepush\codepush_private.pem';
+      final matches = shouldRepointStoredSigningKey(
+        storedKeyPath: 'C:/TMP/.flutter_codepush/codepush_private.pem',
+        legacyKeyPath: windowsLegacy,
+      );
+      expect(matches, Platform.isWindows);
     });
   });
 }
