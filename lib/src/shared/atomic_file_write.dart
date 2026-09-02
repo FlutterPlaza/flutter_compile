@@ -26,8 +26,16 @@ import 'dart:io';
 ///    preserve — the recreated file lands at the umask default
 ///    (deliberate: inventing a mode would be a worse guess).
 /// 4. Stale dot-prefixed temps from a killed earlier run are swept
-///    best-effort first (single-writer assumption — two concurrent
-///    builds in one project are unsupported anyway).
+///    best-effort first, under a single-writer assumption — scoped to
+///    the RESOLVED target's DIRECTORY, not to a project. Property 1
+///    means two projects whose Info.plist links into one shared config
+///    directory share this temp namespace, so a sweep started by one
+///    can unlink the other's in-flight temp. Exotic (it needs the
+///    linked-shared-config shape AND concurrent builds), and the
+///    losing writer fails its own stamp rather than corrupting
+///    anything: the target is only ever replaced by a completed
+///    rename. Two concurrent builds in ONE project remain unsupported
+///    for the ordinary (unlinked) shape as well.
 ///
 /// COST of the temp+rename shape (the trade behind properties 1-3):
 /// replacement needs write+execute on the target's DIRECTORY and
@@ -96,9 +104,13 @@ void atomicReplaceFileContents(String path, String content) {
   // contract. Degrade landing spots: the named causes are systemic
   // and fail BOTH calls → temp default mode; the faithful-mode
   // chmod alone failing (asymmetric transient, e.g. fork EAGAIN)
-  // leaves the file at the already-applied 0600 clamp (owner-only —
-  // tighter than the target was, unreported by design); the clamp
-  // alone failing ends at the faithful mode, correct anyway.
+  // leaves the file at the already-applied 0600 clamp — owner-only,
+  // so never more EXPOSED than the target was, which is the property
+  // that matters here. Not uniformly tighter, though: against a
+  // read-only target (0400/0444) the clamp adds owner write, so a
+  // file the operator had deliberately locked comes back writable.
+  // Unreported by design either way; the clamp alone failing ends at
+  // the faithful mode, correct anyway.
   void chmodTemp(String octal) {
     if (Platform.isWindows) return;
     try {
