@@ -1001,6 +1001,17 @@ class CodePushBuildService {
     return null;
   }
 
+  /// The subprocess output worth showing the operator: stderr when the
+  /// process said anything there, else stdout (tools that report their
+  /// failures on stdout). Trimmed; empty when the process was silent.
+  /// Static and public so the "never discard the reason" rule is one
+  /// body rather than a per-call-site habit.
+  static String failureOutputOf(ProcessResult result) {
+    final err = result.stderr is String ? (result.stderr as String).trim() : '';
+    if (err.isNotEmpty) return err;
+    return result.stdout is String ? (result.stdout as String).trim() : '';
+  }
+
   /// Run the prepare step of the build tool.
   Future<bool> prepareCodePushBuild({
     required String buildPlatform,
@@ -1034,11 +1045,39 @@ class CodePushBuildService {
     if (skipToolPrepare) {
       return true;
     }
-    final result = Process.runSync(tool, ['prepare', buildPlatform]);
-    if (result.exitCode != 0) {
-      _logger.err('Build preparation failed.');
+    final ProcessResult result;
+    try {
+      result = Process.runSync(tool, ['prepare', buildPlatform]);
+    } on Exception catch (e) {
+      // A tool binary that is present but not executable / wrong arch /
+      // on a noexec mount throws ProcessException. Same rule as the
+      // Android twin: every failure here is "tool unusable" with an
+      // actionable fix, never a crash.
+      _logger.err(
+        'Build preparation could not run: $e\n'
+        'Run "fcp codepush setup --force" and retry.',
+      );
+      return false;
     }
-    return result.exitCode == 0;
+    if (result.exitCode != 0) {
+      // Echo the tool's OWN reason, the way prepareAndroidEngineBuild
+      // does. The caller's "run fcp codepush setup" line is a GUESS at
+      // the cause and stays as the secondary suggestion; discarding the
+      // stderr made that guess the only thing on screen, and it is
+      // wrong for every failure setup cannot fix (an SDK/kernel version
+      // mismatch, a missing Flutter SDK) — which is exactly when the
+      // operator most needs the real message.
+      final detail = failureOutputOf(result);
+      _logger.err(
+        detail.isEmpty
+            ? 'Build preparation failed (exit code ${result.exitCode}); '
+                'the build tool produced no output.'
+            : 'Build preparation failed (exit code ${result.exitCode}):\n'
+                '$detail',
+      );
+      return false;
+    }
+    return true;
   }
 
   /// Produce the iOS patch payload for [inputDill] by invoking the

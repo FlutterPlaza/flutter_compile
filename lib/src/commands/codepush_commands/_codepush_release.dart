@@ -1095,7 +1095,12 @@ class CodePushReleaseSubCommand extends Command<int> {
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
-        'No app ID specified. Use --app-id or run "fcp config set codepush_app_id <id>".',
+        'No app ID specified. Use --app-id, or run '
+        '"fcp codepush init --app-id <id>" in this project to record an '
+        'EXISTING app id (a bare "fcp codepush init" creates a NEW app) '
+        '— the app id is resolved per project now, so a machine-wide '
+        '"fcp config set codepush_app_id" is only a fallback for '
+        'projects that set none.',
       );
       return ExitCode.usage.code;
     }
@@ -1182,6 +1187,30 @@ class CodePushReleaseSubCommand extends Command<int> {
           _logger.warn(advisory);
         }
       }
+
+      // Cheapest thing that can end this run: ask whether the saved
+      // login still works, while nothing has been built. A dead token
+      // used to surface only at the baseline UPLOAD — after the whole
+      // build — so logging in cost a second build. Own client, closed
+      // immediately: the upload path builds its own later, and a probe
+      // must not extend anything's lifetime.
+      final sessionClient = CodePushClient(
+        serverUrl: await CodePushClient.getServerUrl(),
+      );
+      final int? sessionExit;
+      try {
+        sessionExit = await refuseOnExpiredSession(
+          client: sessionClient,
+          token: token,
+          logger: _logger,
+        );
+      } finally {
+        // force: `checkSession`'s 10s timeout abandons the future but
+        // not the socket. Same rule the patch command writes down at
+        // its own close site — a probe must leave nothing behind.
+        sessionClient.close(force: true);
+      }
+      if (sessionExit != null) return sessionExit;
 
       final artifactManager = CodePushArtifactManager(logger: _logger);
 

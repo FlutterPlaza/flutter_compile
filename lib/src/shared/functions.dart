@@ -606,30 +606,60 @@ class F {
     }
   }
 
+  /// Set [key] to [value] in an rc config file, rewriting it in place.
+  ///
+  /// Lines that are NOT `key:value` — comments, blank separators — are
+  /// preserved verbatim in their original positions. That used to not
+  /// matter: the only rc file was `$HOME/.flutter_compilerc`, written
+  /// and read by this CLI alone. It matters now that the per-project
+  /// `.flutter_compilerc` is version-controlled and teams are told to
+  /// hand-edit it: a comment explaining which app an id belongs to must
+  /// not silently vanish on the next `fcp codepush init`.
+  ///
+  /// Duplicate keys still collapse to the FIRST occurrence, which is
+  /// the one [readValueForKeyFromRcConfig] answers with, so what the
+  /// file says after a write is what it said before it.
   static Future<void> writeKeyValueToRcConfig(
     File file,
     String key,
     String value,
   ) async {
-    final keyValuePairs = <String, String>{};
+    final out = <String>[];
+    final seenKeys = <String>{};
+    var replaced = false;
 
     if (await file.exists()) {
-      final lines = await file.readAsLines();
-      for (var line in lines) {
+      for (final line in await file.readAsLines()) {
         final colonIndex = line.indexOf(':');
-        if (colonIndex != -1) {
-          keyValuePairs[line.substring(0, colonIndex)] =
-              line.substring(colonIndex + 1);
+        if (colonIndex == -1) {
+          out.add(line);
+          continue;
+        }
+        final lineKey = line.substring(0, colonIndex);
+        // Comments are prose, not keys: '# Note: x' and '# Note: y'
+        // legitimately share a first word and must both survive
+        // (round 4 — the dedup was deleting annotations in a file
+        // teams are told to commit and annotate).
+        if (line.trimLeft().startsWith('#')) {
+          out.add(line);
+          continue;
+        }
+        if (!seenKeys.add(lineKey)) continue; // later duplicate
+        if (lineKey == key) {
+          out.add('$key:$value');
+          replaced = true;
+        } else {
+          out.add(line);
         }
       }
     }
 
-    keyValuePairs[key] = value;
+    if (!replaced) out.add('$key:$value');
 
     final buffer = StringBuffer();
-    keyValuePairs.forEach((k, v) {
-      buffer.writeln('$k:$v');
-    });
+    for (final line in out) {
+      buffer.writeln(line);
+    }
 
     await file.writeAsString(buffer.toString());
   }
@@ -642,8 +672,14 @@ class F {
       final lines = await file.readAsLines();
       for (var line in lines) {
         final colonIndex = line.indexOf(':');
-        if (colonIndex != -1 && line.substring(0, colonIndex) == key) {
-          return line.substring(colonIndex + 1);
+        // Keys match with surrounding whitespace ignored, and values
+        // come back trimmed — the CHANGELOG promises the hand-editable
+        // `key: value` spelling for EVERY key in these files, not just
+        // the app id (PR #87 round 5). A value that is all whitespace
+        // reads as the key being absent.
+        if (colonIndex != -1 && line.substring(0, colonIndex).trim() == key) {
+          final value = line.substring(colonIndex + 1).trim();
+          return value.isEmpty ? null : value;
         }
       }
     }

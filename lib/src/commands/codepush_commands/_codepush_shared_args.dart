@@ -1,6 +1,9 @@
 // Shared boundary-argument rules for the code push commands (one
 // body per rule, so the two commands cannot drift).
 
+import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:mason_logger/mason_logger.dart';
+
 /// Every `--platform` value the code push commands understand: the
 /// six documented ones plus 'android', the alias the patch command's
 /// local-hash fallback has always accepted. 'android' is neither
@@ -67,6 +70,66 @@ const knownCodePushPlatforms = {
     );
   }
   return (normalized, null);
+}
+
+/// What both build-capable commands print when the pre-flight session
+/// probe comes back rejected. One body so the two name the same remedy;
+/// worded to say WHEN the check happened, because the whole point of
+/// the check is that the operator has not paid for a build yet.
+const String kExpiredSessionMessage =
+    'The server rejected your saved login. Run "fcp codepush login" and '
+    'retry — checked before the build starts, so an expired session no '
+    'longer costs you a full build.';
+
+/// What both build-capable commands print when the probe comes back
+/// FORBIDDEN rather than unauthenticated.
+///
+/// Must not name the login command: the login is fine, and re-running
+/// it is the one action guaranteed not to help. It also must not stop
+/// the run — a 403 on the account probe is not evidence that the upload
+/// will be refused (a proxy, a WAF, or an endpoint the account simply
+/// cannot read all produce one), and the upload path already reports
+/// the server's own reason and upgrade URL when it really is a plan or
+/// quota limit.
+const String kDeniedSessionMessage =
+    'The server accepted your login but refused the account check '
+    '(HTTP 403) — a plan, quota, or permission limit rather than an '
+    'expired session. Continuing; if an upload is refused, it will '
+    'report the exact reason and where to resolve it.';
+
+/// Pre-flight the stored login BEFORE a command spends a build on it.
+/// Returns the exit code the command must return, or null to continue.
+///
+/// One shared body: both build-capable commands paid the same cost (a
+/// full `flutter build`, then a 401 at the upload), and both must fail
+/// on exactly the one verdict that is evidence AND actionable — a
+/// rejected login. [SessionCheck.denied] (403) is reported but not
+/// refused, and [SessionCheck.unknown] is deliberately silent: an
+/// offline or slow server would otherwise turn a saving into a new
+/// outage, and the upload still checks the token for real.
+Future<int?> refuseOnExpiredSession({
+  required CodePushClient client,
+  required String token,
+  required Logger logger,
+}) async {
+  final session = await client.checkSession(token: token);
+  switch (session) {
+    case SessionCheck.expired:
+      logger.err(kExpiredSessionMessage);
+      return ExitCode.software.code;
+    case SessionCheck.denied:
+      logger.warn(kDeniedSessionMessage);
+      return null;
+    case SessionCheck.unknown:
+      logger.detail(
+        'Could not verify the saved login before building; continuing '
+        '(the upload verifies it for real).',
+      );
+      return null;
+    case SessionCheck.valid:
+      logger.detail('Saved login accepted by the server.');
+      return null;
+  }
 }
 
 /// Filters a repeatable option's entries: whitespace-only entries

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_build_service.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
+import 'package:flutter_compile/src/shared/constants.dart';
 import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
@@ -331,6 +332,163 @@ bool codePushAppUsesLegacyEmbedding(String source) {
   );
 }
 
+String? machineAppIdAdvisory({
+  required String? machineAppId,
+  required String newAppId,
+  required String appIdPath,
+}) {
+  final previous = machineAppId?.trim() ?? '';
+  final current = newAppId.trim();
+  if (previous.isEmpty) return null;
+  if (previous == current) return null;
+  final machineRc = '${F.homeDir()}/${CodePushClient.rcFileName}';
+  final pinned = appIdPath != machineRc
+      ? 'This project is pinned to $current by $appIdPath, so a later '
+          '"fcp codepush init" elsewhere cannot move it. '
+      : '';
+  return '${pinned}The machine-wide fallback in '
+      '~/${CodePushClient.rcFileName} was repointed from $previous to '
+      '$current. Any OTHER project on this machine without its own '
+      '${CodePushClient.rcFileName} now resolves $current instead of '
+      '$previous — run "fcp codepush init --app-id $previous" there to '
+      'pin it (records the id; creates nothing), or pass --app-id '
+      "$previous to that project's codepush commands. Do NOT run a "
+      'bare "fcp codepush init" there: that creates a NEW app.';
+}
+
+/// The message `init` prints when the server has ALREADY created the
+/// app but recording its id locally failed.
+///
+/// Pure and public for the same reason [machineAppIdAdvisory] is: this
+/// is a recovery instruction handed to an operator who is one wrong
+/// move — running `init` again — away from a duplicate app, and an
+/// instruction that names a directory and a command writing DIFFERENT
+/// files is worse than no instruction at all.
+///
+/// **`fcp config set` is deliberately not offered.** It writes
+/// [machineRcPath], which [rcTarget] shadows ([CodePushClient.getAppId]
+/// reads the project file first). In the case that actually happens —
+/// a stale, read-only project `.flutter_compilerc` — it reports success
+/// while every later `release`/`patch` keeps uploading to the OLD app.
+/// The two instructions that always work are writing the key into
+/// [rcTarget] and passing `--app-id`, so those are the two given.
+///
+/// [projectFileRecorded] separates the two failures
+/// [CodePushClient.storeAppId] can have: it writes the project file
+/// first and mirrors into the machine-wide file second, so a throw does
+/// not mean nothing landed. Telling an operator their project file is
+/// unwritten when it is correct sends them to fix what is not broken.
+/// `init --app-id`: records an existing app id without creating
+/// anything. Public for direct testing.
+Future<int> runPinExistingApp({
+  required String appId,
+  required Logger logger,
+}) async {
+  final machineAppId = await CodePushClient.getMachineAppId();
+  final machineRcPath = '${F.homeDir()}/${CodePushClient.rcFileName}';
+  final rcTarget = CodePushClient.projectRcFile()?.path ?? machineRcPath;
+  final String appIdPath;
+  try {
+    appIdPath = await CodePushClient.storeAppId(appId);
+  } catch (e) {
+    logger.err(appIdRecordFailureMessage(
+      appId: appId,
+      rcTarget: rcTarget,
+      machineRcPath: machineRcPath,
+      error: e,
+      created: false,
+      // Contents, not existence: the likeliest pin failure is a
+      // read-only project file carrying the OLD id — existsSync would
+      // claim the pin took while every upload keeps going to the old
+      // app (round 4, the round-2 false-reassurance at a new site).
+      projectFileRecorded: await _rcFileCarriesAppId(rcTarget, appId),
+    ));
+    return ExitCode.software.code;
+  }
+  logger.success('Pinned app $appId in $appIdPath (no app was created).');
+  // storeAppId also mirrors into the machine-wide fallback. When a
+  // previous value was repointed, machineAppIdAdvisory (below) says so
+  // loudly; when there was NOTHING there before, the advisory is
+  // rightly silent — but the second write still happened, and the full
+  // init path names it, so pin mode does too (round 5).
+  if ((machineAppId ?? '').trim().isEmpty && appIdPath != machineRcPath) {
+    logger.info('Also mirrored to: $machineRcPath (the fallback for '
+        'tools that resolve without a project directory).');
+  }
+  final advisory = machineAppIdAdvisory(
+    machineAppId: machineAppId,
+    newAppId: appId,
+    appIdPath: appIdPath,
+  );
+  if (advisory != null) logger.warn(advisory);
+  return ExitCode.success.code;
+}
+
+String appIdRecordFailureMessage({
+  required String appId,
+  required String rcTarget,
+  required String machineRcPath,
+  required bool projectFileRecorded,
+  required Object error,
+  bool created = true,
+}) {
+  const key = Constants.codePushAppIdKey;
+  // Pin mode (`init --app-id`) is local-only and idempotent: nothing
+  // was created, and re-running it after fixing the obstacle IS the
+  // recovery — the post-201 warning would forbid the safe command
+  // (round 4).
+  final doNotReRun = created
+      ? 'Do NOT re-run "fcp codepush init" — that would '
+          'create a SECOND app.'
+      : 'Once the obstacle is fixed, re-running '
+          '"fcp codepush init --app-id $appId" is safe — it is '
+          'local-only and idempotent.';
+  final lede = created ? 'App $appId was created' : 'Nothing was created';
+
+  if (projectFileRecorded) {
+    return '$lede — the id WAS recorded in '
+        '$rcTarget, but the machine-wide fallback in $machineRcPath '
+        'could not be updated: $error\n'
+        '$doNotReRun This project already resolves $appId; only tools '
+        'that resolve without a project directory (the IDE extensions) '
+        'keep reading the older fallback. Add "$key: $appId" to '
+        '$machineRcPath to move those too.';
+  }
+
+  // Only worth saying when the two paths really are different files;
+  // outside a project root `storeAppId` targets the machine-wide file
+  // itself and there is nothing to shadow.
+  final shadowNote = rcTarget != machineRcPath
+      ? ' "fcp config set" is not a substitute — it writes '
+          '$machineRcPath, which $rcTarget takes precedence over.'
+      : '';
+
+  return '$lede — the app id $appId could not be recorded in '
+      '$rcTarget: $error\n'
+      '$doNotReRun Record it by adding this line to $rcTarget:\n'
+      '    $key: $appId\n'
+      'or by passing --app-id $appId to the codepush commands.'
+      '$shadowNote';
+}
+
+/// Whether the rc file at [rcPath] already carries [appId].
+///
+/// Never throws: this runs inside a failure path, where a second
+/// exception would replace an actionable message with a stack trace.
+/// Unreadable reads as "not recorded" — the conservative answer, since
+/// it produces the instructions that fix an unwritten file.
+Future<bool> _rcFileCarriesAppId(String rcPath, String appId) async {
+  try {
+    final value = await F.readValueForKeyFromRcConfig(
+      File(rcPath),
+      Constants.codePushAppIdKey,
+    );
+    return value != null && value.trim() == appId;
+  } catch (_) {
+    return false;
+  }
+}
+
 class CodePushInitSubCommand extends Command<int> {
   CodePushInitSubCommand(this._logger) {
     argParser
@@ -341,6 +499,13 @@ class CodePushInitSubCommand extends Command<int> {
       ..addOption(
         'platform',
         help: 'Target platform (android, ios).',
+      )
+      ..addOption(
+        'app-id',
+        help: 'Pin this project to an EXISTING app id instead of creating '
+            'a new app. Records the id locally (the project file when run '
+            'inside a project); makes no server call, uploads no key, and '
+            'scaffolds nothing.',
       );
   }
 
@@ -354,6 +519,16 @@ class CodePushInitSubCommand extends Command<int> {
 
   @override
   Future<int> run() async {
+    final pinAppId = (argResults?['app-id'] as String?)?.trim();
+    if (pinAppId != null && pinAppId.isNotEmpty) {
+      // Pin-only mode: record an EXISTING app id. Local-only by
+      // design — no login, no server call, no key upload, no
+      // scaffold — because the population running this is a project
+      // that already has a live app (a fresh clone, or a project the
+      // machine-wide repoint stranded), and every server-touching
+      // step of a full init is a way to damage it.
+      return runPinExistingApp(appId: pinAppId, logger: _logger);
+    }
     final token = await CodePushClient.getStoredToken();
     if (token == null || token.isEmpty) {
       _logger.err('Not logged in. Run "fcp codepush login" first.');
@@ -514,6 +689,15 @@ class CodePushInitSubCommand extends Command<int> {
 
     final progress = _logger.progress('Creating app "$appName"');
 
+    // Set the moment the server answers 201. Everything after that
+    // point — recording the id, scaffolding — can still fail, and when
+    // it does the operator must NOT be told app creation failed: they
+    // would re-run `init` and create a second app.
+    String? createdAppId;
+    // The spinner must end exactly once, and — once the app exists —
+    // never as a failure.
+    var progressResolved = false;
+
     final httpClient = HttpClient();
     try {
       final request =
@@ -544,9 +728,37 @@ class CodePushInitSubCommand extends Command<int> {
 
       final app = result['app'] as Map<String, dynamic>?;
       final appId = app?['id'] as String? ?? '';
+      createdAppId = appId;
 
-      await CodePushClient.storeAppId(appId);
+      // Read the machine-wide id BEFORE storing, so the advisory below
+      // compares against what this machine resolved a moment ago.
+      final machineAppId = await CodePushClient.getMachineAppId();
+      final machineRcPath = '${F.homeDir()}/${CodePushClient.rcFileName}';
+      final rcTarget = CodePushClient.projectRcFile()?.path ?? machineRcPath;
 
+      final String appIdPath;
+      try {
+        appIdPath = await CodePushClient.storeAppId(appId);
+      } catch (e) {
+        // The app EXISTS server-side from here on. Failing the spinner
+        // would send an operator back to `init` for a DUPLICATE app;
+        // only a local write went wrong, so say that and hand the id
+        // back.
+        progressResolved = true;
+        progress.complete('App created');
+        _logger.err(
+          appIdRecordFailureMessage(
+            appId: appId,
+            rcTarget: rcTarget,
+            machineRcPath: machineRcPath,
+            projectFileRecorded: await _rcFileCarriesAppId(rcTarget, appId),
+            error: e,
+          ),
+        );
+        return ExitCode.software.code;
+      }
+
+      progressResolved = true;
       progress.complete('App created');
       _logger.info('  App ID: $appId');
       _logger.info('  Name:   $appName');
@@ -566,7 +778,29 @@ class CodePushInitSubCommand extends Command<int> {
         }
       }
 
-      _logger.info('  Stored in ~/.flutter_compilerc');
+      _logger.info('  App id recorded in: $appIdPath');
+      if (rcTarget != machineRcPath) {
+        _logger.info(
+          '    That file holds only this project\'s app id — no '
+          'credentials — so it is safe to commit and share with your '
+          'team.',
+        );
+        // storeAppId writes a SECOND file. Naming it here is the
+        // difference between an operator who knows where the fallback
+        // lives and one surprised by the advisory below.
+        _logger.info(
+          '  Also mirrored to: $machineRcPath (the fallback for tools '
+          'that resolve without a project directory)',
+        );
+      }
+      final staleMachineIdWarning = machineAppIdAdvisory(
+        machineAppId: machineAppId,
+        newAppId: appId,
+        appIdPath: appIdPath,
+      );
+      if (staleMachineIdWarning != null) {
+        _logger.warn(staleMachineIdWarning);
+      }
 
       // ── Native setup ──────────────────────────────────────────
       final version = _readPubspecVersion() ?? '1.0.0+1';
@@ -650,6 +884,26 @@ class CodePushInitSubCommand extends Command<int> {
 
       return ExitCode.success.code;
     } catch (e) {
+      final appId = createdAppId;
+      if (appId != null) {
+        // Once the server has the app, no downstream failure may be
+        // reported as a failure to create it — that sends the operator
+        // back to `init` for a SECOND app. The spinner may still be
+        // running (id recording / scaffolding sit after the 201);
+        // leaving it spinning reads as "still creating".
+        if (!progressResolved) {
+          progressResolved = true;
+          progress.complete('App created');
+        }
+        _logger.err(
+          'App $appId was created, but "fcp codepush init" could not '
+          'finish: $e\n'
+          'Do NOT re-run "fcp codepush init" — that would create a '
+          'SECOND app. Pass --app-id $appId to the codepush commands, '
+          'and complete any native setup steps by hand.',
+        );
+        return ExitCode.software.code;
+      }
       progress.fail('Failed: $e');
       return ExitCode.software.code;
     } finally {

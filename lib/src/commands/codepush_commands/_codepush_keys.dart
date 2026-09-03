@@ -6,6 +6,30 @@ import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:flutter_compile/src/shared/codepush_client.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+/// What `keys generate` says when a keypair already exists at
+/// [privateKeyPath] and `--force` was not passed.
+///
+/// Names the consequence that actually costs something. Devices verify
+/// a patch against the public key baked into the app they are RUNNING,
+/// so rotating the local keypair:
+///
+///   * leaves already-shipped patches working — every install holds the
+///     old public key, and the patches it has were signed with the
+///     matching private key;
+///   * stops every FUTURE patch from reaching that install base, until
+///     each device takes a store release carrying the new public key.
+///
+/// The previous wording said the opposite ("invalidates all previously
+/// signed patches"), which made rotation read as cheap: it described the
+/// harmless half and omitted the fleet-wide update outage. Public so the
+/// direction of the claim is pinned by a test rather than by review.
+String existingSigningKeyWarning(String privateKeyPath) =>
+    'A signing key already exists at $privateKeyPath. Passing --force '
+    'rotates it, which stops updates for every app already installed '
+    'until each one takes a store release carrying the new public key. '
+    'Patches you have already shipped keep working. Rotate for a '
+    'compromised key, not as routine hygiene.';
+
 /// `fcp codepush keys`
 ///
 /// Top-level group for RSA signing-key management. Split into two
@@ -122,11 +146,7 @@ class _KeysGenerateCommand extends Command<int> {
     final privateKeyPath = '$outputDir/${CodePushClient.signingPrivateKeyName}';
 
     if (File(privateKeyPath).existsSync() && !force) {
-      _logger.warn(
-        'A signing key already exists at $privateKeyPath. '
-        'Pass --force to regenerate (this invalidates all previously '
-        'signed patches for this key).',
-      );
+      _logger.warn(existingSigningKeyWarning(privateKeyPath));
       // Still ensure the rc file points at it so subsequent `patch`
       // runs pick it up.
       await CodePushClient.storeSigningKey(privateKeyPath);
@@ -167,7 +187,9 @@ class _KeysRegisterCommand extends Command<int> {
       ..addOption(
         'app-id',
         help: 'App ID to register the public key against. Defaults to the '
-            'stored codepush_app_id from ~/.flutter_compilerc.',
+            'codepush_app_id this project resolves — the project-local '
+            '.flutter_compilerc when there is one, otherwise the '
+            'machine-wide ~/.flutter_compilerc.',
       )
       ..addOption(
         'public-key',
@@ -199,8 +221,9 @@ class _KeysRegisterCommand extends Command<int> {
     appId ??= await CodePushClient.getAppId();
     if (appId == null || appId.isEmpty) {
       _logger.err(
-        'No app ID. Pass --app-id <id> or run `fcp codepush init` / '
-        '`fcp config set codepush_app_id <id>` first.',
+        'No app ID. Pass --app-id <id>, or run '
+        '`fcp codepush init --app-id <id>` to record an existing app '
+        '(a bare `fcp codepush init` creates a NEW app).',
       );
       return ExitCode.usage.code;
     }
