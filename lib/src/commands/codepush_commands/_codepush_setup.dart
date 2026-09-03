@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:flutter_compile/src/shared/codepush_artifact_manager.dart';
+import 'package:flutter_compile/src/shared/functions.dart';
 import 'package:mason_logger/mason_logger.dart';
 
 class CodePushSetupSubCommand extends Command<int> {
@@ -235,7 +236,10 @@ class CodePushSetupSubCommand extends Command<int> {
     // Ensure Dart SDK is available in the contribution Flutter repo.
     // This prevents the broken download when the repo has a custom
     // engine hash not in Google's infrastructure bucket.
-    final home = Platform.environment['HOME'] ?? '/tmp';
+    // Via F.homeDir() like every other home-relative path: on Windows
+    // `HOME` is normally unset, so the old expression looked for the
+    // contribution repo under C:\tmp and never found it.
+    final home = F.homeDir();
     final contributionRepo = Directory('$home/flutter_compile/flutter');
     if (contributionRepo.existsSync()) {
       final sdkProgress = _logger.progress('Ensuring Dart SDK is available');

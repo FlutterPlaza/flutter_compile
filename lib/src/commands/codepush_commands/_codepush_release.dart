@@ -14,6 +14,22 @@ import 'package:flutter_compile/src/shared/ios_baseline_plist.dart';
 import 'package:flutter_compile/src/version.dart';
 import 'package:mason_logger/mason_logger.dart';
 
+/// The warning for `--no-interface-freeze`.
+///
+/// Names the ONE flag combination whose effect is otherwise invisible:
+/// `--extendable-widgets` rides on the freeze — the extendable section
+/// is part of the spec the freeze writes — so with the freeze off the
+/// guarding flag is silently inert, defaults-on and all. Nothing fails
+/// at build time; the cost lands on a device, the first time a patch
+/// declares a new widget class against a baseline that cannot dispatch
+/// it. A second warning for the combination would be one nobody reads,
+/// so the clause lives inside the warning that already fires.
+const String kInterfaceFreezeDisabledWarning =
+    'Interface freeze disabled (--no-interface-freeze): this release may '
+    'not be reliably patchable — including the widget guarding that lets '
+    'patches add new screens, which is written as part of the freeze and '
+    'is inert without it (--extendable-widgets has no effect here).';
+
 class CodePushReleaseSubCommand extends Command<int> {
   CodePushReleaseSubCommand(
     this._logger, {
@@ -1411,10 +1427,7 @@ class CodePushReleaseSubCommand extends Command<int> {
             if (freezeArgs == null) return ExitCode.software.code;
             releaseBuildArgs = freezeArgs(releaseBuildArgs);
           } else {
-            _logger.warn(
-              'Interface freeze disabled (--no-interface-freeze): this '
-              'release may not be reliably patchable.',
-            );
+            _logger.warn(kInterfaceFreezeDisabledWarning);
           }
         }
 
@@ -2317,16 +2330,19 @@ class CodePushReleaseSubCommand extends Command<int> {
     required String releaseId,
     required String baselineId,
   }) {
+    // One read of the field, so every attested fact below describes the
+    // same record — and the path/verdict pair travels as one value.
+    final spec = writtenInterfaceSpec;
     (_injectedArchiveService ?? CodePushArchiveService(logger: _logger))
         .archiveIosRelease(
       releaseId: releaseId,
       baselineId: baselineId,
       fcpVersion: packageVersion,
-      interfaceSpecPath: writtenInterfaceSpec?.path,
-      interfaceReportPath: writtenInterfaceSpec?.reportPath,
+      interfaceSpec:
+          spec == null ? null : (path: spec.path, change: spec.specChange),
+      interfaceReportPath: spec?.reportPath,
       interfaceReportWasProduced: interfaceReportObservedAfterBuild,
-      interfaceSpecExtendable: writtenInterfaceSpec?.extendable ?? false,
-      interfaceSpecChange: writtenInterfaceSpec?.specChange,
+      interfaceSpecExtendable: spec?.extendable ?? false,
     );
   }
 

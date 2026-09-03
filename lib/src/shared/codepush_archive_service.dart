@@ -70,22 +70,26 @@ class CodePushArchiveService {
   /// run. Returns `true` if the archive was written, `false` if a
   /// non-fatal precondition was missing (e.g., no built Runner.app).
   ///
-  /// [interfaceSpecPath] is the interface-freeze spec written by THIS
-  /// run, or null when the run produced none (freeze skipped or
-  /// failed). The archive copies only what the caller attests to —
-  /// keying on a file merely existing on disk would claim a previous
-  /// run's spec as this release's. [interfaceReportPath] is the
-  /// compiler's own report of what it guarded, written by the build
-  /// under the same attestation; [interfaceReportWasProduced] says
-  /// whether the caller observed it after the build, so a
-  /// produced-then-lost report records false (known problem) while a
-  /// never-produced one (reused compile) records null (unknown).
-  /// [interfaceSpecExtendable] records whether the spec marked the
-  /// widget bases extendable; it is attestation, not copy outcome, so
-  /// the manifest can still answer "was guarding on?" when the
-  /// optional copies themselves failed. [interfaceSpecChange] is the
-  /// writer's spec-change verdict, stored so a null report stays
-  /// interpretable months later (see the class doc).
+  /// [interfaceSpec] is the interface-freeze spec written by THIS run —
+  /// its path AND the writer's change verdict — or null when the run
+  /// produced none (freeze skipped or failed). ONE nullable parameter,
+  /// not two: the verdict is what makes a null report interpretable, so
+  /// a spec attested without one would record `has_interface_spec: true`
+  /// beside `interface_spec_change: null`, which the class doc defines
+  /// as "no spec attested". Pairing them makes that state unspellable
+  /// rather than merely unreached. The archive copies only what the
+  /// caller attests to — keying on a file merely existing on disk would
+  /// claim a previous run's spec as this release's.
+  ///
+  /// [interfaceReportPath] is the compiler's own report of what it
+  /// guarded, written by the build under the same attestation;
+  /// [interfaceReportWasProduced] says whether the caller observed it
+  /// after the build, so a produced-then-lost report records false
+  /// (known problem) while a never-produced one (reused compile) records
+  /// null (unknown). [interfaceSpecExtendable] records whether the spec
+  /// marked the widget bases extendable; it is attestation, not copy
+  /// outcome, so the manifest can still answer "was guarding on?" when
+  /// the optional copies themselves failed.
   ///
   /// Errors are logged but never thrown — archiving is best-effort and
   /// must not fail an otherwise successful release.
@@ -93,11 +97,10 @@ class CodePushArchiveService {
     required String releaseId,
     required String baselineId,
     required String fcpVersion,
-    String? interfaceSpecPath,
+    ({String path, InterfaceSpecChange change})? interfaceSpec,
     String? interfaceReportPath,
     bool interfaceReportWasProduced = false,
     bool interfaceSpecExtendable = false,
-    InterfaceSpecChange? interfaceSpecChange,
   }) {
     try {
       final runnerApp = Directory(
@@ -158,7 +161,7 @@ class CodePushArchiveService {
       // failure must not discard the app-bundle archive.
       final archivedSpec = _copyOptionalArtifact(
         label: 'interface spec',
-        sourcePath: interfaceSpecPath,
+        sourcePath: interfaceSpec?.path,
         destPath: '${releaseDir.path}/$kInterfaceSpecFilename',
       );
       // The report is the compiler's evidence that the spec was
@@ -212,15 +215,15 @@ class CodePushArchiveService {
         // The content-addressed name that entered the build's option
         // string — the join key against .dart_tool/flutter_build
         // env-hash directories months later.
-        'interface_spec_source_name': interfaceSpecPath == null
+        'interface_spec_source_name': interfaceSpec == null
             ? null
-            : File(interfaceSpecPath).uri.pathSegments.last,
+            : File(interfaceSpec.path).uri.pathSegments.last,
         'has_interface_report': archivedReport,
         // Interprets a null report: unchanged = warm rebuild (benign),
         // changed = the compiler should have run, unknown = nothing to
-        // compare. Null when no spec was attested.
-        'interface_spec_change':
-            interfaceSpecPath == null ? null : interfaceSpecChange?.name,
+        // compare. Null exactly when no spec was attested — the pair
+        // rides on one parameter, so the two keys cannot disagree.
+        'interface_spec_change': interfaceSpec?.change.name,
         'has_extendable_widgets': interfaceSpecExtendable,
         'build_date': DateTime.now().toUtc().toIso8601String(),
         'fcp_version': fcpVersion,
